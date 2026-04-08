@@ -1,0 +1,52 @@
+{
+  "name": "joplin-plugin-hello-world",
+  "version": "1.0.0",
+  "scripts": {
+    "dist": "webpack --env joplin-plugin-config=buildMain && webpack --env joplin-plugin-config=buildExtraScripts && webpack --env joplin-plugin-config=createArchive",
+    "prepare": "husky && npm run dist",
+    "postinstall": "npm audit --audit-level=moderate || true",
+    "updateVersion": "webpack --env joplin-plugin-config=updateVersion",
+    "update": "npm install -g generator-joplin && yo joplin --node-package-manager npm --update --force",
+    "rulesync:install": "curl -sL -H \"Authorization: token $(gh auth token)\" https://raw.githubusercontent.com/artschekoff/juna-rules/feat_JH-1490_cursor-commands-setup/scripts/install.sh | sh",
+    "dev": "webpack --watch --progress --stats normal --env joplin-plugin-config=buildMain",
+    "test": "jest",
+    "lint": "eslint 'src/**/*.ts'",
+    "lint:fix": "eslint 'src/**/*.ts' --fix",
+    "format:check": "prettier --check 'src/**/*.ts'",
+    "format": "prettier --write 'src/**/*.ts'",
+    "security": "snyk test --severity-threshold=medium",
+    "security:audit": "npm audit --audit-level=moderate",
+    "security:audit:prod": "npm audit --audit-level=moderate --omit=dev",
+    "validate": "npm run format:check && npm run lint && npm test && npm run security:audit:prod"
+  },
+  "license": "MIT",
+  "keywords": [
+    "joplin-plugin"
+  ],
+  "files": [
+    "publish"
+  ],
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^18.7.13",
+    "@typescript-eslint/eslint-plugin": "^8.58.1",
+    "@typescript-eslint/parser": "^8.58.1",
+    "chalk": "^4.1.0",
+    "copy-webpack-plugin": "^11.0.0",
+    "eslint": "^10.2.0",
+    "eslint-config-prettier": "^10.1.8",
+    "fs-extra": "^10.1.0",
+    "glob": "^8.0.3",
+    "husky": "^9.1.7",
+    "jest": "^30.3.0",
+    "jest-environment-jsdom": "^30.3.0",
+    "prettier": "^3.8.1",
+    "snyk": "^1.1303.2",
+    "tar": "^6.1.11",
+    "ts-jest": "^29.4.9",
+    "ts-loader": "^9.3.1",
+    "typescript": "^4.8.2",
+    "webpack": "^5.74.0",
+    "webpack-cli": "^4.10.0"
+  }
+}
