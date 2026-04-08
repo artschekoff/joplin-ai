@@ -1,19 +1,9 @@
 import * as https from 'https';
+import { AIProviderResponse, AIToolCall } from './types';
+import { ClaudeTool } from './tools';
 
-export async function callClaude(
-	apiKey: string,
-	model: string,
-	systemPrompt: string,
-	userPrompt: string,
-): Promise<string> {
-	const body = JSON.stringify({
-		model,
-		max_tokens: 4096,
-		system: systemPrompt,
-		messages: [{ role: 'user', content: userPrompt }],
-	});
-
-	return new Promise((resolve, reject) => {
+const makeRequest = (apiKey: string, body: string): Promise<Record<string, unknown>> =>
+	new Promise((resolve, reject) => {
 		const req = https.request(
 			{
 				hostname: 'api.anthropic.com',
@@ -37,12 +27,7 @@ export async function callClaude(
 							reject(new Error(parsed.error.message || 'Claude API error'));
 							return;
 						}
-						const text = parsed.content?.[0]?.text;
-						if (!text) {
-							reject(new Error('Empty response from Claude'));
-							return;
-						}
-						resolve(text);
+						resolve(parsed);
 					} catch (e) {
 						reject(new Error(`Failed to parse Claude response: ${e.message}`));
 					}
@@ -54,4 +39,63 @@ export async function callClaude(
 		req.write(body);
 		req.end();
 	});
-}
+
+export const sendClaudeMessages = async (
+	apiKey: string,
+	model: string,
+	system: string,
+	messages: Array<{ role: string; content: unknown }>,
+	tools?: ClaudeTool[],
+): Promise<AIProviderResponse> => {
+	const requestBody: Record<string, unknown> = {
+		model,
+		max_tokens: 4096,
+		system,
+		messages,
+	};
+	if (tools?.length) {
+		requestBody.tools = tools;
+	}
+
+	const parsed = await makeRequest(apiKey, JSON.stringify(requestBody));
+	const contentBlocks = (parsed.content || []) as Array<{
+		type: string;
+		text?: string;
+		id?: string;
+		name?: string;
+		input?: Record<string, unknown>;
+	}>;
+
+	const textParts = contentBlocks.filter((b) => b.type === 'text').map((b) => b.text ?? '');
+	const textContent = textParts.length > 0 ? textParts.join('\n') : null;
+
+	const toolCalls: AIToolCall[] = contentBlocks
+		.filter((b) => b.type === 'tool_use')
+		.map((b) => ({
+			id: b.id!,
+			name: b.name!,
+			args: b.input ?? {},
+		}));
+
+	return {
+		textContent,
+		toolCalls,
+		finishReason: (parsed.stop_reason as string) || 'end_turn',
+		rawAssistantMessage: { role: 'assistant', content: contentBlocks },
+	};
+};
+
+export const callClaude = async (
+	apiKey: string,
+	model: string,
+	systemPrompt: string,
+	userPrompt: string,
+): Promise<string> => {
+	const response = await sendClaudeMessages(apiKey, model, systemPrompt, [
+		{ role: 'user', content: userPrompt },
+	]);
+	if (!response.textContent) {
+		throw new Error('Empty response from Claude');
+	}
+	return response.textContent;
+};

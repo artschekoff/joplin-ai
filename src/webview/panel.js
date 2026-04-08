@@ -1,5 +1,4 @@
 function initPanel() {
-	console.log('[AI Panel] initPanel called, readyState:', document.readyState);
 	var messagesEl = document.getElementById('messages');
 	var promptInput = document.getElementById('promptInput');
 	var executeBtn = document.getElementById('executeBtn');
@@ -7,14 +6,6 @@ function initPanel() {
 	var noteInfoEl = document.getElementById('noteInfo');
 	var emptyState = document.getElementById('emptyState');
 	var isLoading = false;
-	console.log('[AI Panel] Elements found:', {
-		messages: !!messagesEl,
-		promptInput: !!promptInput,
-		executeBtn: !!executeBtn,
-		clearBtn: !!clearBtn,
-		noteInfo: !!noteInfoEl,
-		emptyState: !!emptyState
-	});
 
 	function escapeHtml(text) {
 		var div = document.createElement('div');
@@ -60,36 +51,44 @@ function initPanel() {
 		}
 	}
 
-	function sendExecute() {
-		console.log('[AI Panel] sendExecute called, prompt:', JSON.stringify(promptInput.value), 'isLoading:', isLoading);
-		var prompt = promptInput.value.trim();
-		if (!prompt || isLoading) {
-			console.log('[AI Panel] sendExecute aborted — empty prompt or loading');
-			return;
+	function renderActions(actions) {
+		if (!actions || actions.length === 0) return;
+		for (var i = 0; i < actions.length; i++) {
+			var a = actions[i];
+			var type = a.success ? 'action-success' : 'action-error';
+			var icon = a.success ? '\u2705' : '\u274C';
+			addMessage(type, icon + ' ' + formatActionName(a.action), a.message);
 		}
+	}
+
+	function formatActionName(name) {
+		return name.replace(/_/g, ' ').replace(/\b\w/g, function (c) {
+			return c.toUpperCase();
+		});
+	}
+
+	function sendExecute() {
+		var prompt = promptInput.value.trim();
+		if (!prompt || isLoading) return;
 		addMessage('user', 'You', prompt);
 		promptInput.value = '';
 		promptInput.style.height = 'auto';
 		showLoading(true);
-		console.log('[AI Panel] posting execute message');
 		webviewApi.postMessage({ type: 'execute', prompt: prompt });
 	}
 
-	executeBtn.addEventListener('click', function() {
-		console.log('[AI Panel] Execute button clicked');
+	executeBtn.addEventListener('click', function () {
 		sendExecute();
 	});
 
-	promptInput.addEventListener('keydown', function(e) {
-		console.log('[AI Panel] keydown:', e.key, 'shift:', e.shiftKey);
+	promptInput.addEventListener('keydown', function (e) {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			sendExecute();
 		}
 	});
 
-	clearBtn.addEventListener('click', function() {
-		console.log('[AI Panel] Clear button clicked');
+	clearBtn.addEventListener('click', function () {
 		messagesEl.innerHTML = '';
 		if (emptyState) {
 			messagesEl.appendChild(emptyState);
@@ -97,31 +96,32 @@ function initPanel() {
 		}
 		promptInput.value = '';
 		promptInput.style.height = 'auto';
-		console.log('[AI Panel] Clear done — input value:', JSON.stringify(promptInput.value));
 	});
 
-	// Auto-resize textarea
-	promptInput.addEventListener('input', function() {
+	promptInput.addEventListener('input', function () {
 		this.style.height = 'auto';
 		this.style.height = Math.min(this.scrollHeight, 150) + 'px';
 	});
 
-	webviewApi.onMessage(function(event) {
-		console.log('[AI Panel] onMessage received:', JSON.stringify(event));
+	webviewApi.onMessage(function (event) {
 		var message = event && event.message && event.message.type ? event.message : event;
 		if (!message) return;
 
 		if (message.type === 'noteInfo') {
 			noteInfoEl.textContent = message.title
-				? ('\u{1F4C4} ' + message.title)
+				? '\u{1F4C4} ' + message.title
 				: 'No note selected';
 		}
 
 		if (message.type === 'result') {
 			showLoading(false);
-			if (message.isEdit) {
+			renderActions(message.actions);
+
+			var hasActions = message.actions && message.actions.length > 0;
+			if (message.isEdit && !hasActions) {
 				addMessage('edit', '\u2705 Note Updated', 'The note has been updated with the AI response.');
-			} else {
+			}
+			if (message.content) {
 				addMessage('ai', 'AI', message.content);
 			}
 		}

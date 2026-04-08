@@ -145,6 +145,22 @@ body {
 	font-size: 12px;
 }
 
+.message-action-success {
+	background: var(--bg-edit-msg);
+	align-self: flex-start;
+	border-bottom-left-radius: 2px;
+	border-left: 3px solid #22c55e;
+	font-size: 12px;
+}
+
+.message-action-error {
+	background: var(--bg-error-msg);
+	align-self: flex-start;
+	border-bottom-left-radius: 2px;
+	border-left: 3px solid #ef4444;
+	font-size: 12px;
+}
+
 .message-label {
 	font-size: 10px;
 	font-weight: 600;

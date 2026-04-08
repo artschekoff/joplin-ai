@@ -102,21 +102,26 @@ async function handleExecute(handle: ViewHandle, prompt: string) {
 			return;
 		}
 
-		const response = await sendToAI(provider, apiKey, model, prompt, note.title, note.body);
+		const context = { currentNoteId: note.id, currentNoteTitle: note.title };
+		const response = await sendToAI(
+			provider,
+			apiKey,
+			model,
+			prompt,
+			note.title,
+			note.body,
+			context,
+		);
 
-		if (response.isEdit && response.editedBody !== undefined) {
-			await joplin.data.put(['notes', note.id], null, { body: response.editedBody });
-			joplin.views.panels.postMessage(handle, {
-				type: 'result',
-				isEdit: true,
-				content: '',
-			});
-		} else {
-			joplin.views.panels.postMessage(handle, {
-				type: 'result',
-				isEdit: false,
-				content: response.content,
-			});
+		joplin.views.panels.postMessage(handle, {
+			type: 'result',
+			isEdit: response.isEdit,
+			content: response.content,
+			actions: response.actions,
+		});
+
+		if (response.isEdit) {
+			await sendNoteInfo(handle);
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -135,6 +140,7 @@ export async function initPanel() {
 	await joplin.views.panels.hide(panelHandle);
 	panelVisible = false;
 
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	await joplin.views.panels.onMessage(panelHandle, async (message: any) => {
 		if (!panelHandle) return;
 

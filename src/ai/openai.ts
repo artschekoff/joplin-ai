@@ -1,21 +1,20 @@
 import * as https from 'https';
+import { AIProviderResponse, AIToolCall } from './types';
+import { OpenAITool } from './tools';
 
-export async function callOpenAI(
-	apiKey: string,
-	model: string,
-	systemPrompt: string,
-	userPrompt: string,
-): Promise<string> {
-	const body = JSON.stringify({
-		model,
-		messages: [
-			{ role: 'system', content: systemPrompt },
-			{ role: 'user', content: userPrompt },
-		],
-		temperature: 0.3,
-	});
+interface OpenAIMessage {
+	role: string;
+	content?: string | null;
+	tool_calls?: Array<{
+		id: string;
+		type: 'function';
+		function: { name: string; arguments: string };
+	}>;
+	tool_call_id?: string;
+}
 
-	return new Promise((resolve, reject) => {
+const makeRequest = (apiKey: string, body: string): Promise<Record<string, unknown>> =>
+	new Promise((resolve, reject) => {
 		const req = https.request(
 			{
 				hostname: 'api.openai.com',
@@ -38,12 +37,7 @@ export async function callOpenAI(
 							reject(new Error(parsed.error.message || 'OpenAI API error'));
 							return;
 						}
-						const text = parsed.choices?.[0]?.message?.content;
-						if (!text) {
-							reject(new Error('Empty response from OpenAI'));
-							return;
-						}
-						resolve(text);
+						resolve(parsed);
 					} catch (e) {
 						reject(new Error(`Failed to parse OpenAI response: ${e.message}`));
 					}
@@ -55,4 +49,65 @@ export async function callOpenAI(
 		req.write(body);
 		req.end();
 	});
-}
+
+export const sendOpenAIMessages = async (
+	apiKey: string,
+	model: string,
+	messages: OpenAIMessage[],
+	tools?: OpenAITool[],
+): Promise<AIProviderResponse> => {
+	const requestBody: Record<string, unknown> = {
+		model,
+		messages,
+		temperature: 0.3,
+	};
+	if (tools?.length) {
+		requestBody.tools = tools;
+	}
+
+	const parsed = await makeRequest(apiKey, JSON.stringify(requestBody));
+	const choices = parsed.choices as Array<{
+		message: {
+			content?: string | null;
+			tool_calls?: Array<{
+				id: string;
+				function: { name: string; arguments: string };
+			}>;
+		};
+		finish_reason: string;
+	}>;
+	const choice = choices?.[0];
+	if (!choice) {
+		throw new Error('Empty response from OpenAI');
+	}
+
+	const message = choice.message;
+	const toolCalls: AIToolCall[] = (message.tool_calls || []).map((tc) => ({
+		id: tc.id,
+		name: tc.function.name,
+		args: JSON.parse(tc.function.arguments),
+	}));
+
+	return {
+		textContent: message.content ?? null,
+		toolCalls,
+		finishReason: choice.finish_reason,
+		rawAssistantMessage: message,
+	};
+};
+
+export const callOpenAI = async (
+	apiKey: string,
+	model: string,
+	systemPrompt: string,
+	userPrompt: string,
+): Promise<string> => {
+	const response = await sendOpenAIMessages(apiKey, model, [
+		{ role: 'system', content: systemPrompt },
+		{ role: 'user', content: userPrompt },
+	]);
+	if (!response.textContent) {
+		throw new Error('Empty response from OpenAI');
+	}
+	return response.textContent;
+};
