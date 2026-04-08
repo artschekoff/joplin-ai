@@ -5,10 +5,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const panelJsSource = fs.readFileSync(
-	path.resolve(__dirname, '..', 'panel.js'),
-	'utf-8',
-);
+const panelJsSource = fs.readFileSync(path.resolve(__dirname, '..', 'panel.js'), 'utf-8');
 
 const buildDOM = (): void => {
 	document.body.innerHTML = `
@@ -118,10 +115,7 @@ describe('panel.js alert message handling', () => {
 
 describe('PANEL_HTML clear button icon', () => {
 	it('should include an icon in the clear button', () => {
-		const panelTsSource = fs.readFileSync(
-			path.resolve(__dirname, '..', '..', 'panel.ts'),
-			'utf-8',
-		);
+		const panelTsSource = fs.readFileSync(path.resolve(__dirname, '..', '..', 'panel.ts'), 'utf-8');
 
 		const htmlMatch = panelTsSource.match(/const PANEL_HTML = `([\s\S]*?)`;/);
 		expect(htmlMatch).not.toBeNull();

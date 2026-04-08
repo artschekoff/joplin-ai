@@ -132,11 +132,7 @@ describe('update_note', () => {
 
 	it('updates both title and body', async () => {
 		mockDataPut.mockResolvedValue(undefined);
-		const result = await executeAction(
-			'update_note',
-			{ title: 'T', body: 'B' },
-			ctx,
-		);
+		const result = await executeAction('update_note', { title: 'T', body: 'B' }, ctx);
 		expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, {
 			title: 'T',
 			body: 'B',
@@ -275,11 +271,7 @@ describe('create_notebook', () => {
 
 	it('creates a nested notebook', async () => {
 		mockDataPost.mockResolvedValue({ id: 'nf2', title: 'Sub' });
-		await executeAction(
-			'create_notebook',
-			{ title: 'Sub', parentId: 'parent-1' },
-			ctx,
-		);
+		await executeAction('create_notebook', { title: 'Sub', parentId: 'parent-1' }, ctx);
 		expect(mockDataPost).toHaveBeenCalledWith(['folders'], null, {
 			title: 'Sub',
 			parent_id: 'parent-1',
@@ -353,11 +345,7 @@ describe('remove_tag', () => {
 			items: [{ id: 'tag-x', title: 'temp' }],
 		});
 		mockDataDelete.mockResolvedValue(undefined);
-		const result = await executeAction(
-			'remove_tag',
-			{ tag: 'temp', noteId: 'n99' },
-			ctx,
-		);
+		const result = await executeAction('remove_tag', { tag: 'temp', noteId: 'n99' }, ctx);
 		expect(mockDataDelete).toHaveBeenCalledWith(['tags', 'tag-x', 'notes', 'n99']);
 		expect(result.success).toBe(true);
 	});

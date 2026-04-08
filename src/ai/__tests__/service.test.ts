@@ -64,15 +64,11 @@ describe('buildSystemPrompt', () => {
 
 describe('validateApiKey', () => {
 	it('throws when API key is empty string', () => {
-		expect(() => validateApiKey('openai', '')).toThrow(
-			'API key for openai is not configured',
-		);
+		expect(() => validateApiKey('openai', '')).toThrow('API key for openai is not configured');
 	});
 
 	it('throws when API key is whitespace only', () => {
-		expect(() => validateApiKey('claude', '   ')).toThrow(
-			'API key for claude is not configured',
-		);
+		expect(() => validateApiKey('claude', '   ')).toThrow('API key for claude is not configured');
 	});
 
 	it('does not throw when API key is valid', () => {
@@ -87,9 +83,9 @@ describe('sendToAI', () => {
 
 	describe('API key validation', () => {
 		it('throws when API key is empty string', async () => {
-			await expect(
-				sendToAI('openai', '', 'gpt-4o', 'hello', 'Title', 'Body'),
-			).rejects.toThrow('API key for openai is not configured');
+			await expect(sendToAI('openai', '', 'gpt-4o', 'hello', 'Title', 'Body')).rejects.toThrow(
+				'API key for openai is not configured',
+			);
 			expect(mockedSendOpenAI).not.toHaveBeenCalled();
 		});
 
@@ -109,14 +105,7 @@ describe('sendToAI', () => {
 			rawAssistantMessage: { content: 'Plain answer from OpenAI' },
 		});
 
-		const result = await sendToAI(
-			'openai',
-			'sk-test',
-			'gpt-4o',
-			'What is this?',
-			'Title',
-			'Body',
-		);
+		const result = await sendToAI('openai', 'sk-test', 'gpt-4o', 'What is this?', 'Title', 'Body');
 
 		expect(mockedSendOpenAI).toHaveBeenCalledTimes(1);
 		expect(mockedSendClaude).not.toHaveBeenCalled();
@@ -160,9 +149,9 @@ describe('sendToAI', () => {
 		await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'My Title', 'My Body');
 
 		const messages = mockedSendOpenAI.mock.calls[0][2];
-		const systemMessage = messages.find(
-			(m: { role: string }) => m.role === 'system',
-		) as { content: string };
+		const systemMessage = messages.find((m: { role: string }) => m.role === 'system') as {
+			content: string;
+		};
 		expect(systemMessage.content).toContain('Current note title: My Title');
 		expect(systemMessage.content).toContain('My Body');
 	});
@@ -333,17 +322,13 @@ describe('sendToAI', () => {
 		mockedSendOpenAI
 			.mockResolvedValueOnce({
 				textContent: null,
-				toolCalls: [
-					{ id: 'tc_1', name: 'search_notes', args: { query: 'draft' } },
-				],
+				toolCalls: [{ id: 'tc_1', name: 'search_notes', args: { query: 'draft' } }],
 				finishReason: 'tool_calls',
 				rawAssistantMessage: { content: null, tool_calls: [] },
 			})
 			.mockResolvedValueOnce({
 				textContent: null,
-				toolCalls: [
-					{ id: 'tc_2', name: 'get_note', args: { noteId: 'found-1' } },
-				],
+				toolCalls: [{ id: 'tc_2', name: 'get_note', args: { noteId: 'found-1' } }],
 				finishReason: 'tool_calls',
 				rawAssistantMessage: { content: null, tool_calls: [] },
 			})
@@ -388,9 +373,7 @@ describe('sendToAI', () => {
 		mockedSendOpenAI
 			.mockResolvedValueOnce({
 				textContent: null,
-				toolCalls: [
-					{ id: 'tc_1', name: 'add_tag', args: { tag: 'important' } },
-				],
+				toolCalls: [{ id: 'tc_1', name: 'add_tag', args: { tag: 'important' } }],
 				finishReason: 'tool_calls',
 				rawAssistantMessage: { content: null, tool_calls: [] },
 			})
@@ -423,8 +406,8 @@ describe('sendToAI', () => {
 	it('propagates errors from the provider', async () => {
 		mockedSendOpenAI.mockRejectedValue(new Error('Rate limit exceeded'));
 
-		await expect(
-			sendToAI('openai', 'sk-test', 'gpt-4o', 'test', 'T', 'B'),
-		).rejects.toThrow('Rate limit exceeded');
+		await expect(sendToAI('openai', 'sk-test', 'gpt-4o', 'test', 'T', 'B')).rejects.toThrow(
+			'Rate limit exceeded',
+		);
 	});
 });

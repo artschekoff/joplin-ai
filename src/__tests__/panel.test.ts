@@ -92,9 +92,7 @@ describe('panel handleExecute', () => {
 			expect.objectContaining({
 				type: 'result',
 				isEdit: true,
-				actions: [
-					expect.objectContaining({ action: 'update_note', success: true }),
-				],
+				actions: [expect.objectContaining({ action: 'update_note', success: true })],
 			}),
 		);
 	});
@@ -152,9 +150,7 @@ describe('panel handleExecute', () => {
 		await capturedOnMessageCallback({ type: 'execute', prompt: 'rewrite' });
 
 		const postMessageCalls = mockPostMessage.mock.calls;
-		const types = postMessageCalls.map(
-			(call: unknown[]) => (call[1] as { type: string }).type,
-		);
+		const types = postMessageCalls.map((call: unknown[]) => (call[1] as { type: string }).type);
 		expect(types).toContain('noteInfo');
 	});
 

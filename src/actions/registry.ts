@@ -11,8 +11,7 @@ const createNoteHandler: ActionHandler = {
 			body: { type: 'string', description: 'Markdown body of the new note' },
 			parentId: {
 				type: 'string',
-				description:
-					'ID of the notebook to create the note in. Use list_notebooks to find IDs.',
+				description: 'ID of the notebook to create the note in. Use list_notebooks to find IDs.',
 			},
 		},
 		required: ['title', 'body'],
@@ -96,8 +95,7 @@ const deleteNoteHandler: ActionHandler = {
 		properties: {
 			noteId: {
 				type: 'string',
-				description:
-					'ID of the note to delete. If omitted, deletes the currently selected note.',
+				description: 'ID of the note to delete. If omitted, deletes the currently selected note.',
 			},
 		},
 	},
@@ -282,8 +280,7 @@ const removeTagHandler: ActionHandler = {
 			tag: { type: 'string', description: 'Tag name to remove' },
 			noteId: {
 				type: 'string',
-				description:
-					'ID of the note to untag. If omitted, untags the currently selected note.',
+				description: 'ID of the note to untag. If omitted, untags the currently selected note.',
 			},
 		},
 		required: ['tag'],
@@ -314,8 +311,7 @@ const listTagsHandler: ActionHandler = {
 		properties: {
 			noteId: {
 				type: 'string',
-				description:
-					'ID of the note to list tags for (optional). If omitted, lists all tags.',
+				description: 'ID of the note to list tags for (optional). If omitted, lists all tags.',
 			},
 		},
 	},
