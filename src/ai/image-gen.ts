@@ -321,12 +321,22 @@ export const pollTaskResult = async (
 	const onProgress = options?.onProgress;
 
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {
-		const parsed = await makeRequest({
-			hostname: 'api.kie.ai',
-			path: `/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`,
-			method: 'GET',
-			headers: { Authorization: `Bearer ${apiKey}` },
-		});
+		let parsed: Record<string, unknown>;
+		try {
+			parsed = await makeRequest({
+				hostname: 'api.kie.ai',
+				path: `/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`,
+				method: 'GET',
+				headers: { Authorization: `Bearer ${apiKey}` },
+			});
+		} catch (error) {
+			if (error instanceof TransientApiError && attempt < maxAttempts - 1) {
+				logger.warn(`Poll attempt ${attempt + 1} failed: ${error.message} — retrying`);
+				if (intervalMs > 0) await msleep(intervalMs);
+				continue;
+			}
+			throw error;
+		}
 
 		const data = parsed.data as {
 			state?: string;
@@ -380,6 +390,7 @@ const MIME_TO_EXT: Record<string, string> = {
 };
 
 const MAX_REDIRECTS = 5;
+const MAX_IMAGE_DOWNLOAD_SIZE = 50 * 1024 * 1024;
 
 const extractFilename = (url: string, mimeType: string): string => {
 	const urlPath = new URL(url).pathname;
@@ -430,7 +441,16 @@ const downloadUrl = (
 					return;
 				}
 				const chunks: Buffer[] = [];
-				res.on('data', (chunk: Buffer) => chunks.push(chunk));
+				let totalBytes = 0;
+				res.on('data', (chunk: Buffer) => {
+					totalBytes += chunk.length;
+					if (totalBytes > MAX_IMAGE_DOWNLOAD_SIZE) {
+						req.destroy();
+						reject(new Error('Image download too large (exceeds 50MB limit)'));
+						return;
+					}
+					chunks.push(chunk);
+				});
 				res.on('end', () => {
 					const contentType = res.headers['content-type'] ?? 'image/png';
 					const mimeType = contentType.split(';')[0].trim();

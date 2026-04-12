@@ -2044,6 +2044,8 @@ describe('panel.js message queue', () => {
 		const forceBtn = document.querySelector('.queue-item-force') as HTMLButtonElement;
 		forceBtn.click();
 
+		messageHandler({ type: 'result', content: 'Stale first reply', isEdit: false, actions: [] });
+
 		messageHandler({ type: 'result', content: 'Urgent reply', isEdit: false, actions: [] });
 
 		const executeCalls = mockApi.postMessage.mock.calls.filter(

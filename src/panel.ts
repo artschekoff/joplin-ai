@@ -4,7 +4,7 @@ import { SETTING_KEYS } from './settings';
 import { sendToAI, buildSystemPrompt } from './ai/service';
 import { AIProvider, AgentRole, AIActionOutcome, ChatMessage, WorkMode } from './ai/types';
 import { computeContextUsage } from './ai/context-size';
-import { AttachedFile, Notebook, ReferencedNote } from './actions/types';
+import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
 
 let panelHandle: ViewHandle | null = null;
@@ -88,7 +88,7 @@ const resolveNoteReferences = async (titles: string[]): Promise<ReferencedNote[]
 	const searchResults = await Promise.all(
 		titles.map((title) =>
 			joplin.data.get(['search'], {
-				query: `title:${title}`,
+				query: `title:"${title.replace(/"/g, '')}"`,
 				fields: ['id', 'title', 'parent_id'],
 				limit: 1,
 			}),
@@ -307,6 +307,20 @@ const sendUpdatedContextSize = (
 	});
 };
 
+interface PromptContext {
+	notebooks: Notebook[];
+	referencedNotes: ReferencedNote[];
+	cleanPrompt: string;
+}
+
+const resolvePromptContext = async (prompt: string): Promise<PromptContext> => {
+	const notebooks = await fetchNotebooks();
+	const refTitles = parseNoteReferences(prompt);
+	const referencedNotes = refTitles.length > 0 ? await resolveNoteReferences(refTitles) : [];
+	const cleanPrompt = stripNoteReferences(prompt);
+	return { notebooks, referencedNotes, cleanPrompt };
+};
+
 const handleExecute = async (
 	handle: ViewHandle,
 	prompt: string,
@@ -332,10 +346,7 @@ const handleExecute = async (
 			});
 			return;
 		}
-		const notebooks = await fetchNotebooks();
-		const refTitles = parseNoteReferences(prompt);
-		const referencedNotes = refTitles.length > 0 ? await resolveNoteReferences(refTitles) : [];
-		const cleanPrompt = stripNoteReferences(prompt);
+		const { notebooks, referencedNotes, cleanPrompt } = await resolvePromptContext(prompt);
 		const onImageProgress = (info: { progress: number; state: string }) => {
 			joplin.views.panels.postMessage(handle, {
 				type: 'imageProgress',
@@ -343,7 +354,7 @@ const handleExecute = async (
 				state: info.state,
 			});
 		};
-		const context = {
+		const context: ActionContext = {
 			currentNoteId: note.id,
 			currentNoteTitle: note.title,
 			notebooks,

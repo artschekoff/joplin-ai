@@ -48,7 +48,24 @@ You are in EDIT mode. Every user request should be interpreted as an instruction
 `;
 };
 
+const MAX_NOTE_BODY_LENGTH = 30000;
 const MAX_REF_NOTE_LENGTH = 10000;
+
+const detectTruncatedSonarToolCall = (
+	responseText: string,
+	workMode: WorkMode | undefined,
+	readOnlyActions: ReadonlySet<string>,
+): { blocked: boolean; action: string; modeLabel: string } | null => {
+	const toolCallMarkerIdx = responseText.indexOf('[TOOL_CALL]');
+	if (toolCallMarkerIdx === -1) return null;
+	const markerRegion = responseText.substring(toolCallMarkerIdx);
+	const nameMatch = /"name"\s*:\s*"([^"]+)"/.exec(markerRegion);
+	if (!nameMatch) return null;
+	if (!workMode || workMode === 'agent') return null;
+	if (readOnlyActions.has(nameMatch[1])) return null;
+	const modeLabel = workMode === 'ask' ? 'Ask' : 'Edit';
+	return { blocked: true, action: nameMatch[1], modeLabel };
+};
 
 const buildReferencedNotesSection = (notes: ReferencedNote[]): string => {
 	if (notes.length === 0) return '';
@@ -97,8 +114,8 @@ export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => 
 		attachedFiles,
 	} = options;
 	const truncated =
-		noteBody.length > 30000
-			? noteBody.substring(0, 30000) + '\n\n[... note truncated due to length ...]'
+		noteBody.length > MAX_NOTE_BODY_LENGTH
+			? noteBody.substring(0, MAX_NOTE_BODY_LENGTH) + '\n\n[... note truncated due to length ...]'
 			: noteBody;
 	const notebookSection = notebooks?.length ? buildNotebookSection(notebooks) : '';
 	const referencedSection = referencedNotes?.length
@@ -318,27 +335,21 @@ const runSonarLoop = async (
 		const responseText = response.textContent || '';
 		const { toolCalls, cleanText } = parseSonarToolCalls(responseText);
 		if (toolCalls.length === 0) {
-			const toolCallMarkerIdx = responseText.indexOf('[TOOL_CALL]');
-			if (toolCallMarkerIdx !== -1) {
-				const markerRegion = responseText.substring(toolCallMarkerIdx);
-				const nameMatch = /"name"\s*:\s*"([^"]+)"/.exec(markerRegion);
-				if (
-					nameMatch &&
-					context.workMode &&
-					context.workMode !== 'agent' &&
-					!READ_ONLY_ACTIONS.has(nameMatch[1])
-				) {
-					const modeLabel = context.workMode === 'ask' ? 'Ask' : 'Edit';
-					allOutcomes.push({
-						action: nameMatch[1],
-						success: false,
-						message: `Action "${nameMatch[1]}" is not allowed in ${modeLabel} mode.`,
-					});
-					return {
-						text: `Cannot perform "${nameMatch[1]}" in ${modeLabel} mode. Switch to Agent mode to enable all actions.`,
-						outcomes: allOutcomes,
-					};
-				}
+			const truncated = detectTruncatedSonarToolCall(
+				responseText,
+				context.workMode,
+				READ_ONLY_ACTIONS,
+			);
+			if (truncated) {
+				allOutcomes.push({
+					action: truncated.action,
+					success: false,
+					message: `Action "${truncated.action}" is not allowed in ${truncated.modeLabel} mode.`,
+				});
+				return {
+					text: `Cannot perform "${truncated.action}" in ${truncated.modeLabel} mode. Switch to Agent mode to enable all actions.`,
+					outcomes: allOutcomes,
+				};
 			}
 			return { text: cleanText || responseText, outcomes: allOutcomes };
 		}

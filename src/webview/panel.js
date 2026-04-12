@@ -1,34 +1,37 @@
 function initPanel() {
-	var messagesEl = document.getElementById('messages');
-	var promptInput = document.getElementById('promptInput');
-	var executeBtn = document.getElementById('executeBtn');
-	var clearBtn = document.getElementById('clearBtn');
-	var clearHistoryBtn = document.getElementById('clearHistoryBtn');
-	var noteInfoEl = document.getElementById('noteInfo');
-	var emptyState = document.getElementById('emptyState');
-	var roleSelect = document.getElementById('roleSelect');
-	var applyRoleBtn = document.getElementById('applyRoleBtn');
-	var manageRolesBtn = document.getElementById('manageRolesBtn');
-	var roleManageView = document.getElementById('roleManageView');
-	var isLoading = false;
-	var chatHistory = [];
-	var lastSentPrompt = null;
-	var MAX_HISTORY_MESSAGES = 50;
-	var agentRoles = [];
-	var appliedRole = null;
-	var editingRoleId = null;
-	var modeSelect = document.getElementById('modeSelect');
-	var currentMode = modeSelect ? modeSelect.value : 'agent';
-	var contextSizeContainer = document.getElementById('contextSizeContainer');
-	var attachFileBtn = document.getElementById('attachFileBtn');
-	var fileInput = document.getElementById('fileInput');
-	var fileChipsEl = document.getElementById('fileChips');
-	var attachedFiles = [];
-	var messageQueue = [];
-	var queueContainer = document.getElementById('queueContainer');
-	var queueIdCounter = 0;
+	const messagesEl = document.getElementById('messages');
+	const promptInput = document.getElementById('promptInput');
+	const executeBtn = document.getElementById('executeBtn');
+	const clearBtn = document.getElementById('clearBtn');
+	const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+	const noteInfoEl = document.getElementById('noteInfo');
+	const emptyState = document.getElementById('emptyState');
+	const roleSelect = document.getElementById('roleSelect');
+	const applyRoleBtn = document.getElementById('applyRoleBtn');
+	const manageRolesBtn = document.getElementById('manageRolesBtn');
+	const roleManageView = document.getElementById('roleManageView');
+	let isLoading = false;
+	let chatHistory = [];
+	let lastSentPrompt = null;
+	const MAX_HISTORY_MESSAGES = 50;
+	let agentRoles = [];
+	let appliedRole = null;
+	let editingRoleId = null;
+	const modeSelect = document.getElementById('modeSelect');
+	let currentMode = modeSelect ? modeSelect.value : 'agent';
+	const contextSizeContainer = document.getElementById('contextSizeContainer');
+	const attachFileBtn = document.getElementById('attachFileBtn');
+	const fileInput = document.getElementById('fileInput');
+	const fileChipsEl = document.getElementById('fileChips');
+	let attachedFiles = [];
+	let messageQueue = [];
+	const queueContainer = document.getElementById('queueContainer');
+	let queueIdCounter = 0;
+	let responsesToSkip = 0;
+	let consecutiveErrors = 0;
+
 	function escapeHtml(text) {
-		var div = document.createElement('div');
+		const div = document.createElement('div');
 		div.textContent = text;
 		return div.innerHTML;
 	}
@@ -38,23 +41,23 @@ function initPanel() {
 			emptyState.style.display = 'none';
 		}
 
-		var msgDiv = document.createElement('div');
+		const msgDiv = document.createElement('div');
 		msgDiv.className = 'message message-' + type;
 
-		var labelDiv = document.createElement('div');
+		const labelDiv = document.createElement('div');
 		labelDiv.className = 'message-label';
 		labelDiv.textContent = label;
 		msgDiv.appendChild(labelDiv);
 
 		if (modelName) {
-			var modelLabel = document.createElement('div');
+			const modelLabel = document.createElement('div');
 			modelLabel.className = 'message-model-label';
 			modelLabel.textContent = modelName;
 			msgDiv.appendChild(modelLabel);
 		}
 
-		var contentDiv = document.createElement('div');
-		var isAiMessage = type === 'ai';
+		const contentDiv = document.createElement('div');
+		const isAiMessage = type === 'ai';
 		if (isAiMessage && typeof window.renderMarkdown === 'function') {
 			contentDiv.className = 'markdown-content';
 			contentDiv.innerHTML = window.renderMarkdown(content);
@@ -64,10 +67,10 @@ function initPanel() {
 		msgDiv.appendChild(contentDiv);
 
 		if (files && files.length > 0) {
-			var attachmentsDiv = document.createElement('div');
+			const attachmentsDiv = document.createElement('div');
 			attachmentsDiv.className = 'message-attachments';
-			for (var i = 0; i < files.length; i++) {
-				var chip = document.createElement('span');
+			for (let i = 0; i < files.length; i++) {
+				const chip = document.createElement('span');
 				chip.className = 'message-attachment-chip';
 				chip.textContent = '\uD83D\uDCCE ' + files[i].name;
 				attachmentsDiv.appendChild(chip);
@@ -83,9 +86,9 @@ function initPanel() {
 		isLoading = show;
 		executeBtn.disabled = show;
 
-		var existing = document.getElementById('loadingIndicator');
+		const existing = document.getElementById('loadingIndicator');
 		if (show && !existing) {
-			var loadingDiv = document.createElement('div');
+			const loadingDiv = document.createElement('div');
 			loadingDiv.id = 'loadingIndicator';
 			loadingDiv.className = 'loading';
 			loadingDiv.innerHTML = '<div class="spinner"></div>AI is thinking...';
@@ -96,7 +99,7 @@ function initPanel() {
 		}
 	}
 
-	var STATE_LABELS = {
+	const STATE_LABELS = {
 		waiting: 'Waiting in queue',
 		queuing: 'Queuing',
 		generating: 'Generating image',
@@ -108,15 +111,15 @@ function initPanel() {
 			hideImageProgress();
 			return;
 		}
-		var existing = document.getElementById('imageProgressBar');
+		let existing = document.getElementById('imageProgressBar');
 		if (!existing) {
 			existing = document.createElement('div');
 			existing.id = 'imageProgressBar';
 			existing.className = 'image-progress-bar';
 			messagesEl.appendChild(existing);
 		}
-		var label = STATE_LABELS[state] || state;
-		var pct = Math.max(0, Math.min(100, progress || 0));
+		const label = STATE_LABELS[state] || state;
+		const pct = Math.max(0, Math.min(100, progress || 0));
 		existing.innerHTML =
 			'<div class="image-progress-track">' +
 			'<div class="image-progress-fill" style="width:' + pct + '%"></div>' +
@@ -126,16 +129,16 @@ function initPanel() {
 	}
 
 	function hideImageProgress() {
-		var existing = document.getElementById('imageProgressBar');
+		const existing = document.getElementById('imageProgressBar');
 		if (existing) existing.remove();
 	}
 
 	function renderActions(actions) {
 		if (!actions || actions.length === 0) return;
-		for (var i = 0; i < actions.length; i++) {
-			var a = actions[i];
-			var type = a.success ? 'action-success' : 'action-error';
-			var icon = a.success ? '\u2705' : '\u274C';
+		for (let i = 0; i < actions.length; i++) {
+			const a = actions[i];
+			const type = a.success ? 'action-success' : 'action-error';
+			const icon = a.success ? '\u2705' : '\u274C';
 			addMessage(type, icon + ' ' + formatActionName(a.action), a.message);
 		}
 	}
@@ -154,8 +157,8 @@ function initPanel() {
 		while (roleSelect.options.length > 1) {
 			roleSelect.remove(1);
 		}
-		for (var i = 0; i < agentRoles.length; i++) {
-			var opt = document.createElement('option');
+		for (let i = 0; i < agentRoles.length; i++) {
+			const opt = document.createElement('option');
 			opt.value = agentRoles[i].id;
 			opt.textContent = agentRoles[i].name;
 			roleSelect.appendChild(opt);
@@ -166,14 +169,14 @@ function initPanel() {
 	}
 
 	function updateRoleIndicator() {
-		var existing = document.querySelector('.role-active-indicator');
+		const existing = document.querySelector('.role-active-indicator');
 		if (existing) existing.remove();
 
 		if (appliedRole) {
-			var indicator = document.createElement('div');
+			const indicator = document.createElement('div');
 			indicator.className = 'role-active-indicator';
 			indicator.textContent = '\uD83C\uDFAD ' + appliedRole.name;
-			var roleBar = document.getElementById('roleBar');
+			const roleBar = document.getElementById('roleBar');
 			if (roleBar) {
 				roleBar.appendChild(indicator);
 			}
@@ -181,7 +184,7 @@ function initPanel() {
 	}
 
 	function renderManageView() {
-		var html =
+		let html =
 			'<div class="manage-header">' +
 			'<h3>Manage Agent Roles</h3>' +
 			'<button id="closeManageView" class="btn btn-secondary btn-sm">\u2715 Close</button>' +
@@ -198,8 +201,8 @@ function initPanel() {
 
 		if (agentRoles.length > 0) {
 			html += '<div class="role-list">';
-			for (var i = 0; i < agentRoles.length; i++) {
-				var role = agentRoles[i];
+			for (let i = 0; i < agentRoles.length; i++) {
+				const role = agentRoles[i];
 				html +=
 					'<div class="role-list-item" data-role-id="' +
 					escapeHtml(role.id) +
@@ -234,14 +237,14 @@ function initPanel() {
 		});
 
 		document.getElementById('saveRoleBtn').addEventListener('click', function () {
-			var nameInput = document.getElementById('roleNameInput');
-			var promptTextarea = document.getElementById('rolePromptInput');
-			var name = nameInput.value.trim();
-			var prompt = promptTextarea.value.trim();
+			const nameInput = document.getElementById('roleNameInput');
+			const promptTextarea = document.getElementById('rolePromptInput');
+			const name = nameInput.value.trim();
+			const prompt = promptTextarea.value.trim();
 			if (!name || !prompt) return;
 
 			if (editingRoleId) {
-				for (var i = 0; i < agentRoles.length; i++) {
+				for (let i = 0; i < agentRoles.length; i++) {
 					if (agentRoles[i].id === editingRoleId) {
 						agentRoles[i].name = name;
 						agentRoles[i].systemPrompt = prompt;
@@ -260,11 +263,11 @@ function initPanel() {
 			populateRoleSelect();
 		});
 
-		var editBtns = document.querySelectorAll('.edit-role-btn');
-		for (var e = 0; e < editBtns.length; e++) {
+		const editBtns = document.querySelectorAll('.edit-role-btn');
+		for (let e = 0; e < editBtns.length; e++) {
 			editBtns[e].addEventListener('click', function () {
-				var id = this.getAttribute('data-role-id');
-				for (var j = 0; j < agentRoles.length; j++) {
+				const id = this.getAttribute('data-role-id');
+				for (let j = 0; j < agentRoles.length; j++) {
 					if (agentRoles[j].id === id) {
 						editingRoleId = id;
 						document.getElementById('roleNameInput').value = agentRoles[j].name;
@@ -276,10 +279,10 @@ function initPanel() {
 			});
 		}
 
-		var deleteBtns = document.querySelectorAll('.delete-role-btn');
-		for (var d = 0; d < deleteBtns.length; d++) {
+		const deleteBtns = document.querySelectorAll('.delete-role-btn');
+		for (let d = 0; d < deleteBtns.length; d++) {
 			deleteBtns[d].addEventListener('click', function () {
-				var id = this.getAttribute('data-role-id');
+				const id = this.getAttribute('data-role-id');
 				agentRoles = agentRoles.filter(function (r) {
 					return r.id !== id;
 				});
@@ -302,11 +305,11 @@ function initPanel() {
 
 	function renderContextCircle(usedTokens, maxTokens, percentage) {
 		if (!contextSizeContainer) return;
-		var radius = 12;
-		var circumference = 2 * Math.PI * radius;
-		var offset = circumference - (percentage / 100) * circumference;
-		var color = getContextColor(percentage);
-		var displayPct = Math.round(percentage);
+		const radius = 12;
+		const circumference = 2 * Math.PI * radius;
+		const offset = circumference - (percentage / 100) * circumference;
+		const color = getContextColor(percentage);
+		const displayPct = Math.round(percentage);
 
 		contextSizeContainer.setAttribute(
 			'title',
@@ -337,20 +340,20 @@ function initPanel() {
 
 	function renderFileChips() {
 		fileChipsEl.innerHTML = '';
-		for (var i = 0; i < attachedFiles.length; i++) {
-			var chip = document.createElement('span');
+		for (let i = 0; i < attachedFiles.length; i++) {
+			const chip = document.createElement('span');
 			chip.className = 'file-chip';
 			chip.setAttribute('data-file-index', String(i));
-			var nameSpan = document.createElement('span');
+			const nameSpan = document.createElement('span');
 			nameSpan.className = 'file-chip-name';
 			nameSpan.textContent = attachedFiles[i].name;
 			chip.appendChild(nameSpan);
-			var removeBtn = document.createElement('button');
+			const removeBtn = document.createElement('button');
 			removeBtn.className = 'file-chip-remove';
 			removeBtn.textContent = '\u00D7';
 			removeBtn.setAttribute('data-file-index', String(i));
 			removeBtn.addEventListener('click', function () {
-				var idx = parseInt(this.getAttribute('data-file-index'), 10);
+				const idx = parseInt(this.getAttribute('data-file-index'), 10);
 				attachedFiles.splice(idx, 1);
 				renderFileChips();
 			});
@@ -364,13 +367,13 @@ function initPanel() {
 		renderFileChips();
 	}
 
-	var MAX_FILE_SIZE = 512 * 1024;
+	const MAX_FILE_SIZE = 512 * 1024;
 
 	function handleFileSelection() {
-		var files = fileInput.files;
+		const files = fileInput.files;
 		if (!files || files.length === 0) return;
-		var pending = files.length;
-		for (var i = 0; i < files.length; i++) {
+		let pending = files.length;
+		for (let i = 0; i < files.length; i++) {
 			(function (file) {
 			if (file.size > MAX_FILE_SIZE) {
 				addMessage('error', 'Error', 'File "' + escapeHtml(file.name) + '" exceeds 512 KB limit.');
@@ -378,7 +381,7 @@ function initPanel() {
 				if (pending === 0) renderFileChips();
 				return;
 			}
-			var reader = new FileReader();
+			const reader = new FileReader();
 			reader.onload = function () {
 				attachedFiles.push({
 					name: file.name,
@@ -416,22 +419,22 @@ function initPanel() {
 	function renderQueue() {
 		if (!queueContainer) return;
 		queueContainer.innerHTML = '';
-		for (var i = 0; i < messageQueue.length; i++) {
-			var item = messageQueue[i];
-			var itemDiv = document.createElement('div');
+		for (let i = 0; i < messageQueue.length; i++) {
+			const item = messageQueue[i];
+			const itemDiv = document.createElement('div');
 			itemDiv.className = 'queue-item';
 			itemDiv.setAttribute('data-queue-id', String(item.id));
-			var posSpan = document.createElement('span');
+			const posSpan = document.createElement('span');
 			posSpan.className = 'queue-item-position';
 			posSpan.textContent = String(i + 1);
 			itemDiv.appendChild(posSpan);
-			var textSpan = document.createElement('span');
+			const textSpan = document.createElement('span');
 			textSpan.className = 'queue-item-text';
 			textSpan.textContent = item.prompt.length > 100 ? item.prompt.substring(0, 97) + '...' : item.prompt;
 			itemDiv.appendChild(textSpan);
-			var actionsDiv = document.createElement('div');
+			const actionsDiv = document.createElement('div');
 			actionsDiv.className = 'queue-item-actions';
-			var editBtn = document.createElement('button');
+			const editBtn = document.createElement('button');
 			editBtn.className = 'queue-item-edit';
 			editBtn.textContent = '\u270F';
 			editBtn.title = 'Edit';
@@ -440,7 +443,7 @@ function initPanel() {
 				return function () { editQueueItem(qId); };
 			})(item.id));
 			actionsDiv.appendChild(editBtn);
-			var deleteBtn = document.createElement('button');
+			const deleteBtn = document.createElement('button');
 			deleteBtn.className = 'queue-item-delete';
 			deleteBtn.textContent = '\u2715';
 			deleteBtn.title = 'Delete';
@@ -449,7 +452,7 @@ function initPanel() {
 				return function () { deleteQueueItem(qId); };
 			})(item.id));
 			actionsDiv.appendChild(deleteBtn);
-			var forceBtn = document.createElement('button');
+			const forceBtn = document.createElement('button');
 			forceBtn.className = 'queue-item-force';
 			forceBtn.textContent = '\u26A1';
 			forceBtn.title = 'Force push';
@@ -476,7 +479,7 @@ function initPanel() {
 	}
 
 	function findQueueItem(queueId) {
-		for (var i = 0; i < messageQueue.length; i++) {
+		for (let i = 0; i < messageQueue.length; i++) {
 			if (messageQueue[i].id === queueId) return messageQueue[i];
 		}
 		return null;
@@ -490,7 +493,7 @@ function initPanel() {
 	}
 
 	function editQueueItem(queueId) {
-		var item = findQueueItem(queueId);
+		const item = findQueueItem(queueId);
 		if (!item) return;
 		promptInput.value = item.prompt;
 		promptInput.focus();
@@ -498,17 +501,24 @@ function initPanel() {
 	}
 
 	function forcePushQueueItem(queueId) {
-		var item = findQueueItem(queueId);
+		const item = findQueueItem(queueId);
 		if (!item) return;
 		deleteQueueItem(queueId);
 		webviewApi.postMessage({ type: 'abortRequest' });
 		showLoading(false);
+		responsesToSkip++;
 		dispatchExecute(item.prompt, item.workMode, item.agentRolePrompt, item.attachedFiles);
 	}
 
 	function processNextInQueue() {
 		if (messageQueue.length === 0) return;
-		var next = messageQueue.shift();
+		if (consecutiveErrors >= 3) {
+			messageQueue = [];
+			renderQueue();
+			addMessage('error', 'Error', 'Queue cleared after repeated failures. Please check your settings and try again.');
+			return;
+		}
+		const next = messageQueue.shift();
 		renderQueue();
 		dispatchExecute(next.prompt, next.workMode, next.agentRolePrompt, next.attachedFiles);
 	}
@@ -517,7 +527,7 @@ function initPanel() {
 		addMessage('user', 'You', prompt, files);
 		showLoading(true);
 		lastSentPrompt = prompt;
-		var msg = {
+		const msg = {
 			type: 'execute',
 			prompt: prompt,
 			history: chatHistory.slice(),
@@ -533,12 +543,12 @@ function initPanel() {
 	}
 
 	function sendExecute() {
-		var prompt = promptInput.value.trim();
+		const prompt = promptInput.value.trim();
 		if (!prompt) return;
 		promptInput.value = '';
 		promptInput.style.height = 'auto';
-		var rolePrompt = appliedRole ? appliedRole.systemPrompt : undefined;
-		var files = attachedFiles.length > 0 ? attachedFiles.slice() : undefined;
+		const rolePrompt = appliedRole ? appliedRole.systemPrompt : undefined;
+		const files = attachedFiles.length > 0 ? attachedFiles.slice() : undefined;
 		if (files) clearAttachedFiles();
 		if (isLoading) {
 			addToQueue(prompt, currentMode, rolePrompt, files);
@@ -547,7 +557,7 @@ function initPanel() {
 		dispatchExecute(prompt, currentMode, rolePrompt, files);
 	}
 
-	var MODE_PLACEHOLDERS = {
+	const MODE_PLACEHOLDERS = {
 		ask: 'Ask a question about your notes...',
 		agent: 'What would you like to do with this note?',
 		edit: 'Describe how to edit the current note...',
@@ -566,19 +576,19 @@ function initPanel() {
 		});
 	}
 
-	var autocompleteDropdown = null;
-	var autocompleteActive = false;
+	let autocompleteDropdown = null;
+	let autocompleteActive = false;
 
 	function getActiveNoteQuery() {
-		var text = promptInput.value;
-		var cursor = promptInput.selectionStart;
-		var before = text.substring(0, cursor);
-		var bracketMatch = before.match(/@\[([^\]]*)$/);
+		const text = promptInput.value;
+		const cursor = promptInput.selectionStart;
+		const before = text.substring(0, cursor);
+		const bracketMatch = before.match(/@\[([^\]]*)$/);
 		if (bracketMatch) {
-			var q = bracketMatch[1];
+			const q = bracketMatch[1];
 			return q.length > 0 ? q : null;
 		}
-		var bareMatch = before.match(/(?:^|[\s])@(\S+)$/);
+		const bareMatch = before.match(/(?:^|[\s])@(\S+)$/);
 		if (bareMatch) {
 			return bareMatch[1];
 		}
@@ -594,21 +604,21 @@ function initPanel() {
 	}
 
 	function insertNoteReference(title) {
-		var text = promptInput.value;
-		var cursor = promptInput.selectionStart;
-		var before = text.substring(0, cursor);
-		var after = text.substring(cursor);
-		var bracketIdx = before.lastIndexOf('@[');
+		const text = promptInput.value;
+		const cursor = promptInput.selectionStart;
+		const before = text.substring(0, cursor);
+		const after = text.substring(cursor);
+		const bracketIdx = before.lastIndexOf('@[');
 		if (bracketIdx !== -1) {
-			var newBefore = before.substring(0, bracketIdx) + '@[' + title + '] ';
+			const newBefore = before.substring(0, bracketIdx) + '@[' + title + '] ';
 			promptInput.value = newBefore + after;
 			promptInput.selectionStart = newBefore.length;
 			promptInput.selectionEnd = newBefore.length;
 		} else {
-			var bareMatch = before.match(/(?:^|[\s])@(\S+)$/);
+			const bareMatch = before.match(/(?:^|[\s])@(\S+)$/);
 			if (bareMatch) {
-				var atPos = before.lastIndexOf('@' + bareMatch[1]);
-				var newBefore = before.substring(0, atPos) + '@[' + title + '] ';
+				const atPos = before.lastIndexOf('@' + bareMatch[1]);
+				const newBefore = before.substring(0, atPos) + '@[' + title + '] ';
 				promptInput.value = newBefore + after;
 				promptInput.selectionStart = newBefore.length;
 				promptInput.selectionEnd = newBefore.length;
@@ -623,8 +633,8 @@ function initPanel() {
 		if (!notes || notes.length === 0) return;
 		autocompleteDropdown = document.createElement('div');
 		autocompleteDropdown.className = 'note-autocomplete-dropdown';
-		for (var i = 0; i < notes.length; i++) {
-			var item = document.createElement('div');
+		for (let i = 0; i < notes.length; i++) {
+			const item = document.createElement('div');
 			item.className = 'note-autocomplete-item';
 			item.textContent = notes[i].title;
 			item.setAttribute('data-note-id', notes[i].id);
@@ -634,7 +644,7 @@ function initPanel() {
 			});
 			autocompleteDropdown.appendChild(item);
 		}
-		var wrap = promptInput.parentElement;
+		const wrap = promptInput.parentElement;
 		if (wrap) {
 			wrap.appendChild(autocompleteDropdown);
 		} else {
@@ -646,7 +656,7 @@ function initPanel() {
 	promptInput.addEventListener('input', function () {
 		this.style.height = 'auto';
 		this.style.height = Math.min(this.scrollHeight, 150) + 'px';
-		var query = getActiveNoteQuery();
+		const query = getActiveNoteQuery();
 		if (query) {
 			webviewApi.postMessage({ type: 'searchNotes', query: query });
 		} else {
@@ -655,11 +665,11 @@ function initPanel() {
 	});
 
 	applyRoleBtn.addEventListener('click', function () {
-		var selectedId = roleSelect.value;
+		const selectedId = roleSelect.value;
 		if (!selectedId) {
 			appliedRole = null;
 		} else {
-			for (var i = 0; i < agentRoles.length; i++) {
+			for (let i = 0; i < agentRoles.length; i++) {
 				if (agentRoles[i].id === selectedId) {
 					appliedRole = agentRoles[i];
 					break;
@@ -709,7 +719,7 @@ function initPanel() {
 	});
 
 	webviewApi.onMessage(function (event) {
-		var message = event && event.message && event.message.type ? event.message : event;
+		const message = event && event.message && event.message.type ? event.message : event;
 		if (!message) return;
 
 		if (message.type === 'noteInfo') {
@@ -729,11 +739,18 @@ function initPanel() {
 		}
 
 		if (message.type === 'result') {
+			if (responsesToSkip > 0) {
+				responsesToSkip--;
+				showLoading(false);
+				hideImageProgress();
+				return;
+			}
+			consecutiveErrors = 0;
 			showLoading(false);
 			hideImageProgress();
 			renderActions(message.actions);
 
-			var hasActions = message.actions && message.actions.length > 0;
+			const hasActions = message.actions && message.actions.length > 0;
 			if (message.isEdit && !hasActions) {
 				addMessage(
 					'edit',
@@ -745,11 +762,11 @@ function initPanel() {
 				addMessage('ai', 'AI', message.content, null, message.modelName);
 			}
 			if (lastSentPrompt && (message.content || hasActions)) {
-				var assistantContent = '';
+				let assistantContent = '';
 				if (hasActions) {
-					var actionSummaries = message.actions.map(function (a) {
-						var status = a.success ? 'success' : 'failed';
-						var summary = '[' + a.action + ': ' + status + '] ' + a.message;
+					const actionSummaries = message.actions.map(function (a) {
+						const status = a.success ? 'success' : 'failed';
+						let summary = '[' + a.action + ': ' + status + '] ' + a.message;
 						if (a.data) {
 							summary += '\nData: ' + JSON.stringify(a.data);
 						}
@@ -765,7 +782,7 @@ function initPanel() {
 				chatHistory.push({ role: 'user', content: lastSentPrompt });
 				chatHistory.push({ role: 'assistant', content: assistantContent });
 				if (chatHistory.length > MAX_HISTORY_MESSAGES) {
-					var start = chatHistory.length - MAX_HISTORY_MESSAGES;
+					let start = chatHistory.length - MAX_HISTORY_MESSAGES;
 					if (start % 2 !== 0) start++;
 					chatHistory = chatHistory.slice(start);
 				}
@@ -775,6 +792,12 @@ function initPanel() {
 		}
 
 		if (message.type === 'alert') {
+			if (responsesToSkip > 0) {
+				responsesToSkip--;
+				showLoading(false);
+				hideImageProgress();
+				return;
+			}
 			showLoading(false);
 			hideImageProgress();
 			addMessage('alert', 'AI', message.message);
@@ -783,6 +806,13 @@ function initPanel() {
 		}
 
 		if (message.type === 'error') {
+			if (responsesToSkip > 0) {
+				responsesToSkip--;
+				showLoading(false);
+				hideImageProgress();
+				return;
+			}
+			consecutiveErrors++;
 			showLoading(false);
 			hideImageProgress();
 			addMessage('error', 'Error', message.message);
