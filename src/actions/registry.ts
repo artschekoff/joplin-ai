@@ -1,5 +1,31 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import joplin from 'api';
 import { ActionResult, ActionContext, ActionHandler } from './types';
+import { performWebSearch } from '../ai/web-search';
+import { generateImage, downloadImageToFile } from '../ai/image-gen';
+
+export const READ_ONLY_ACTIONS = new Set([
+	'get_note',
+	'open_note',
+	'search_notes',
+	'list_notebooks',
+	'list_tags',
+	'web_search',
+]);
+
+export const EDIT_ACTIONS = new Set([...READ_ONLY_ACTIONS, 'update_note']);
+
+const MODE_LABELS: Record<string, string> = {
+	ask: 'Ask mode',
+	edit: 'Edit mode',
+};
+
+const isActionAllowed = (actionName: string, workMode?: string): boolean => {
+	if (!workMode || workMode === 'agent') return true;
+	const allowed = workMode === 'ask' ? READ_ONLY_ACTIONS : EDIT_ACTIONS;
+	return allowed.has(actionName);
+};
 
 const createNoteHandler: ActionHandler = {
 	name: 'create_note',
@@ -56,13 +82,52 @@ const getNoteHandler: ActionHandler = {
 	},
 };
 
-const updateNoteHandler: ActionHandler = {
-	name: 'update_note',
+const openNoteHandler: ActionHandler = {
+	name: 'open_note',
 	description:
-		'Update the currently selected note. Can change the title, body, or both. Provide only the fields you want to change.',
+		'Open a note in Joplin by navigating to it in the editor. Use after search_notes to let the user view/edit the found note directly.',
 	parameters: {
 		type: 'object',
 		properties: {
+			noteId: {
+				type: 'string',
+				description: 'ID of the note to open. If omitted, opens the currently selected note.',
+			},
+		},
+	},
+	execute: async (args, context) => {
+		const noteId = (args.noteId as string) || context.currentNoteId;
+		if (!noteId) {
+			return { success: false, message: 'No note ID provided and no note is selected' };
+		}
+		try {
+			const note = await joplin.data.get(['notes', noteId], { fields: ['id', 'title'] });
+			if (!note) {
+				return { success: false, message: `Note "${noteId}" not found` };
+			}
+			await joplin.commands.execute('openNote', noteId);
+			return {
+				success: true,
+				message: `Opened note "${note.title}"`,
+				data: { id: note.id, title: note.title },
+			};
+		} catch {
+			return { success: false, message: `Note "${noteId}" not found` };
+		}
+	},
+};
+
+const updateNoteHandler: ActionHandler = {
+	name: 'update_note',
+	description:
+		'Update a note by ID, or the currently selected note if no noteId is provided. Can change the title, body, or both. Provide only the fields you want to change.',
+	parameters: {
+		type: 'object',
+		properties: {
+			noteId: {
+				type: 'string',
+				description: 'ID of the note to update. If omitted, updates the currently selected note.',
+			},
 			title: { type: 'string', description: 'New title for the note (optional)' },
 			body: {
 				type: 'string',
@@ -71,8 +136,9 @@ const updateNoteHandler: ActionHandler = {
 		},
 	},
 	execute: async (args, context) => {
-		if (!context.currentNoteId) {
-			return { success: false, message: 'No note is currently selected' };
+		const noteId = (args.noteId as string) || context.currentNoteId;
+		if (!noteId) {
+			return { success: false, message: 'No note ID provided and no note is selected' };
 		}
 		const updates: Record<string, unknown> = {};
 		if (args.title !== undefined) updates.title = args.title;
@@ -80,9 +146,18 @@ const updateNoteHandler: ActionHandler = {
 		if (Object.keys(updates).length === 0) {
 			return { success: false, message: 'No fields provided to update' };
 		}
-		await joplin.data.put(['notes', context.currentNoteId], null, updates);
+		await joplin.data.put(['notes', noteId], null, updates);
+		let noteTitle = context.currentNoteTitle;
+		if (args.noteId) {
+			const note = await joplin.data.get(['notes', noteId], { fields: ['title'] });
+			noteTitle = note?.title ?? noteId;
+		}
 		const parts = Object.keys(updates).join(' and ');
-		return { success: true, message: `Note "${context.currentNoteTitle}" ${parts} updated` };
+		return {
+			success: true,
+			message: `Note "${noteTitle}" ${parts} updated`,
+			data: { id: noteId, title: noteTitle },
+		};
 	},
 };
 
@@ -144,24 +219,38 @@ const moveNoteHandler: ActionHandler = {
 		return {
 			success: true,
 			message: `Note "${note.title}" moved`,
-			data: { noteId, targetNotebookId: args.targetNotebookId },
+			data: { noteId, title: note.title, targetNotebookId: args.targetNotebookId },
 		};
 	},
 };
 
 const searchNotesHandler: ActionHandler = {
 	name: 'search_notes',
-	description: 'Search for notes in Joplin by text query. Returns matching note titles and IDs.',
+	description:
+		'Search for notes in Joplin using its full query syntax. Supports plain keywords (searches title and body), ' +
+		'phrases ("exact phrase"), prefix wildcards (swim*), and filters: ' +
+		'title:word, body:word, tag:name, notebook:name, created:YYYYMMDD, updated:YYYYMMDD, ' +
+		'type:note|todo, iscompleted:0|1, resource:mime/type, sourceurl:url. ' +
+		'Negate with - prefix (-tag:spam). Use any:1 for OR logic (default is AND). ' +
+		'Date filters accept relative values: created:day-7, updated:year-0. ' +
+		'Tag and notebook filters support wildcards: tag:be*ful, notebook:work*. ' +
+		'Returns matching note titles and IDs.',
 	parameters: {
 		type: 'object',
 		properties: {
-			query: { type: 'string', description: 'Search query text' },
+			query: {
+				type: 'string',
+				description:
+					'Joplin search query. Examples: "budget meeting", title:recipe tag:favorite, ' +
+					'notebook:Work created:day-7, type:todo iscompleted:0, ' +
+					'any:1 tag:urgent tag:important, "project plan" -tag:archived',
+			},
 			limit: { type: 'number', description: 'Maximum number of results (default 10)' },
 		},
 		required: ['query'],
 	},
 	execute: async (args) => {
-		const limit = (args.limit as number) || 10;
+		const limit = (args.limit as number) ?? 10;
 		const results = await joplin.data.get(['search'], {
 			query: args.query as string,
 			fields: ['id', 'title', 'parent_id'],
@@ -267,7 +356,11 @@ const addTagHandler: ActionHandler = {
 			tag = await joplin.data.post(['tags'], null, { title: tagName });
 		}
 		await joplin.data.post(['tags', tag.id, 'notes'], null, { id: noteId });
-		return { success: true, message: `Tag "${tagName}" added to note` };
+		return {
+			success: true,
+			message: `Tag "${tagName}" added to note`,
+			data: { noteId, tag: tagName },
+		};
 	},
 };
 
@@ -298,7 +391,11 @@ const removeTagHandler: ActionHandler = {
 			return { success: false, message: `Tag "${tagName}" not found` };
 		}
 		await joplin.data.delete(['tags', tag.id, 'notes', noteId]);
-		return { success: true, message: `Tag "${tagName}" removed from note` };
+		return {
+			success: true,
+			message: `Tag "${tagName}" removed from note`,
+			data: { noteId, tag: tagName },
+		};
 	},
 };
 
@@ -328,9 +425,238 @@ const listTagsHandler: ActionHandler = {
 	},
 };
 
+const webSearchHandler: ActionHandler = {
+	name: 'web_search',
+	description:
+		'Search the web for current information using OpenAI web search. Returns results with source citations. Use when the user asks about recent events, needs up-to-date data, or wants information beyond what is in their notes.',
+	parameters: {
+		type: 'object',
+		properties: {
+			query: {
+				type: 'string',
+				description: 'The search query to look up on the web.',
+			},
+		},
+		required: ['query'],
+	},
+	execute: async (args, context): Promise<ActionResult> => {
+		if (!context.webSearchEnabled) {
+			return {
+				success: false,
+				message: 'Web search is not enabled. Enable it in Settings → AI Assistant.',
+			};
+		}
+		if (!context.openaiApiKey?.trim()) {
+			return {
+				success: false,
+				message:
+					'OpenAI API key is required for web search. Configure it in Settings → AI Assistant.',
+			};
+		}
+		try {
+			const result = await performWebSearch(context.openaiApiKey, args.query as string);
+			return {
+				success: true,
+				message: `Web search completed for "${args.query}"`,
+				data: {
+					content: result.content,
+					citations: result.citations,
+				},
+			};
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Unknown error';
+			return { success: false, message: `Web search failed: ${message}` };
+		}
+	},
+};
+
+const generateImageHandler: ActionHandler = {
+	name: 'generate_image',
+	description:
+		'Generate an image from a text description using AI (Kie.ai). ' +
+		'The image is downloaded at full quality and attached as a Joplin resource to the specified note. ' +
+		'Include visual style hints (e.g. "watercolor", "photorealistic", "anime") in the style parameter.',
+	parameters: {
+		type: 'object',
+		properties: {
+			prompt: {
+				type: 'string',
+				description: 'Detailed description of the image to generate.',
+			},
+			noteId: {
+				type: 'string',
+				description: 'ID of the note to insert the image into. If omitted, uses the current note.',
+			},
+			aspectRatio: {
+				type: 'string',
+				enum: [
+					'1:1',
+					'3:2',
+					'2:3',
+					'3:4',
+					'4:3',
+					'4:5',
+					'5:4',
+					'9:16',
+					'16:9',
+					'21:9',
+					'1:4',
+					'1:8',
+					'4:1',
+					'8:1',
+					'auto',
+				],
+				description:
+					'Aspect ratio of the generated image. Supported ratios vary by model — the API validates and returns an error if the chosen ratio is not supported. Nano Banana 2 defaults to "auto".',
+			},
+			quality: {
+				type: 'string',
+				enum: ['medium', 'high'],
+				description: 'Image quality — medium is faster, high is more detailed (default medium).',
+			},
+			style: {
+				type: 'string',
+				description:
+					'Visual style for the image (e.g. "watercolor", "photorealistic", "pixel art", "oil painting", "anime"). Optional.',
+			},
+		},
+		required: ['prompt'],
+	},
+	execute: async (args, context): Promise<ActionResult> => {
+		if (!context.kieApiKey?.trim()) {
+			return {
+				success: false,
+				message: 'Kie.ai API key is not configured. Go to Settings → AI Assistant to set it up.',
+			};
+		}
+		const noteId = (args.noteId as string) || context.currentNoteId;
+		if (!noteId) {
+			return { success: false, message: 'No note ID provided and no note is selected' };
+		}
+		let tempFilePath: string | null = null;
+		try {
+			const model = context.imageGenModel ?? 'gpt-image/1.5-text-to-image';
+			const onProgress = context.onImageProgress
+				? (p: { attempt: number; maxAttempts: number; state: string }) => {
+						const pct = Math.round(((p.attempt + 1) / p.maxAttempts) * 100);
+						context.onImageProgress!({ progress: pct, state: p.state });
+					}
+				: undefined;
+			const result = await generateImage(
+				context.kieApiKey,
+				{
+					prompt: args.prompt as string,
+					model,
+					aspectRatio: args.aspectRatio as string | undefined,
+					quality: args.quality as string | undefined,
+					style: args.style as string | undefined,
+				},
+				{ intervalMs: 3000, maxAttempts: 60, onProgress },
+			);
+			const imageUrl = result.imageUrls[0];
+			if (imageUrl) {
+				const downloaded = await downloadImageToFile(imageUrl);
+				tempFilePath = downloaded.filePath;
+				const resource = await joplin.data.post(
+					['resources'],
+					null,
+					{ title: downloaded.filename, mime: downloaded.mimeType },
+					[{ path: downloaded.filePath }],
+				);
+				const note = await joplin.data.get(['notes', noteId], { fields: ['body'] });
+				const imageMarkdown = `\n\n![${args.prompt}](:/${resource.id})`;
+				await joplin.data.put(['notes', noteId], null, {
+					body: (note.body ?? '') + imageMarkdown,
+				});
+				return {
+					success: true,
+					message: `Image generated and attached to note`,
+					data: {
+						taskId: result.taskId,
+						resourceId: resource.id,
+						noteId,
+					},
+				};
+			}
+			return {
+				success: true,
+				message: `Image generated but no URL returned`,
+				data: { taskId: result.taskId, noteId },
+			};
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Unknown error';
+			return { success: false, message: `Image generation failed: ${message}` };
+		} finally {
+			if (tempFilePath) {
+				try {
+					fs.unlinkSync(tempFilePath);
+					fs.rmdirSync(path.dirname(tempFilePath));
+				} catch {
+					// best-effort cleanup
+				}
+			}
+		}
+	},
+};
+
+const removeResourceHandler: ActionHandler = {
+	name: 'remove_resource',
+	description:
+		'Remove an image or attachment from a note. Strips the markdown reference from the note body and deletes the resource from Joplin. ' +
+		'Use get_note first to find the resource IDs in the note body (they appear as ![alt](:/resourceId)).',
+	parameters: {
+		type: 'object',
+		properties: {
+			noteId: {
+				type: 'string',
+				description:
+					'ID of the note to remove the resource from. If omitted, uses the currently selected note.',
+			},
+			resourceId: {
+				type: 'string',
+				description:
+					'ID of the resource to remove. Found in the note body as ![alt](:/RESOURCE_ID).',
+			},
+		},
+		required: ['resourceId'],
+	},
+	execute: async (args, context): Promise<ActionResult> => {
+		const noteId = (args.noteId as string) || context.currentNoteId;
+		if (!noteId) {
+			return { success: false, message: 'No note ID provided and no note is selected' };
+		}
+		const resourceId = args.resourceId as string;
+		if (!resourceId?.trim()) {
+			return { success: false, message: 'No resource ID provided' };
+		}
+		const note = await joplin.data.get(['notes', noteId], { fields: ['body'] });
+		const body: string = note.body ?? '';
+		const escapedId = resourceId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const refPattern = new RegExp(`\\n*!\\[[^\\]]*\\]\\(:/${escapedId}\\)\\n*`, 'g');
+		const updatedBody = body
+			.replace(refPattern, '\n\n')
+			.replace(/\n{3,}/g, '\n\n')
+			.trim();
+		if (updatedBody !== body.trim()) {
+			await joplin.data.put(['notes', noteId], null, { body: updatedBody });
+		}
+		try {
+			await joplin.data.delete(['resources', resourceId]);
+		} catch {
+			// Resource may already be deleted or orphaned — proceed gracefully
+		}
+		return {
+			success: true,
+			message: `Resource removed from note`,
+			data: { noteId, resourceId },
+		};
+	},
+};
+
 const handlers: ActionHandler[] = [
 	createNoteHandler,
 	getNoteHandler,
+	openNoteHandler,
 	updateNoteHandler,
 	deleteNoteHandler,
 	moveNoteHandler,
@@ -340,6 +666,9 @@ const handlers: ActionHandler[] = [
 	addTagHandler,
 	removeTagHandler,
 	listTagsHandler,
+	webSearchHandler,
+	generateImageHandler,
+	removeResourceHandler,
 ];
 
 const handlerMap = new Map(handlers.map((h) => [h.name, h]));
@@ -351,6 +680,13 @@ export const executeAction = async (
 	args: Record<string, unknown>,
 	context: ActionContext,
 ): Promise<ActionResult> => {
+	if (!isActionAllowed(name, context.workMode)) {
+		const label = MODE_LABELS[context.workMode ?? ''] ?? context.workMode;
+		return {
+			success: false,
+			message: `Action "${name}" is not allowed in ${label}. Switch to Agent or Edit mode first.`,
+		};
+	}
 	const handler = handlerMap.get(name);
 	if (!handler) {
 		return { success: false, message: `Unknown action: ${name}` };

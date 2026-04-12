@@ -1,4 +1,17 @@
-export type AIProvider = 'openai' | 'claude';
+export type AIProvider = 'openai' | 'claude' | 'perplexity';
+
+export type WorkMode = 'ask' | 'agent' | 'edit';
+
+export interface AgentRole {
+	id: string;
+	name: string;
+	systemPrompt: string;
+}
+
+export interface ChatMessage {
+	role: 'user' | 'assistant';
+	content: string;
+}
 
 export interface AIToolCall {
 	id: string;

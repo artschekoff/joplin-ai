@@ -1,0 +1,53 @@
+import { ChatMessage } from './types';
+
+const MODEL_MAX_TOKENS: Record<string, number> = {
+	'gpt-4o': 128000,
+	'gpt-4o-mini': 128000,
+	'gpt-4o-search-preview': 128000,
+	'gpt-4-turbo': 128000,
+	'gpt-3.5-turbo': 16385,
+	'claude-opus-4-20250514': 200000,
+	'claude-sonnet-4-20250514': 200000,
+	'claude-3-5-sonnet-20241022': 200000,
+	'claude-3-haiku-20240307': 200000,
+	'codex-mini-latest': 200000,
+	sonar: 128000,
+	'sonar-pro': 200000,
+	'sonar-reasoning-pro': 128000,
+	'sonar-deep-research': 128000,
+};
+
+const DEFAULT_MAX_TOKENS = 128000;
+const CHARS_PER_TOKEN = 4;
+
+export interface ContextUsage {
+	usedTokens: number;
+	maxTokens: number;
+	percentage: number;
+}
+
+/** Rough token estimate: ~4 characters per token, rounded up. */
+export const estimateTokens = (text: string): number => {
+	if (!text) return 0;
+	return Math.ceil(text.length / CHARS_PER_TOKEN);
+};
+
+export const getModelMaxTokens = (model: string): number =>
+	MODEL_MAX_TOKENS[model] ?? DEFAULT_MAX_TOKENS;
+
+export const computeContextUsage = (params: {
+	systemPrompt: string;
+	history: ChatMessage[];
+	userPrompt: string;
+	model: string;
+}): ContextUsage => {
+	const { systemPrompt, history, userPrompt, model } = params;
+
+	const historyText = history.map((m) => m.content).join('');
+	const totalText = (systemPrompt || '') + historyText + (userPrompt || '');
+	const usedTokens = estimateTokens(totalText);
+	const maxTokens = getModelMaxTokens(model);
+	const percentage = maxTokens > 0 ? Math.min((usedTokens / maxTokens) * 100, 100) : 0;
+
+	return { usedTokens, maxTokens, percentage };
+};
