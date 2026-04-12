@@ -14,8 +14,8 @@
     "format:check": "prettier --check 'src/**/*.ts'",
     "format": "prettier --write 'src/**/*.ts'",
     "security": "snyk test --severity-threshold=medium",
-    "security:audit": "npm audit --audit-level=moderate",
-    "security:audit:prod": "npm audit --audit-level=moderate --omit=dev",
+    "security:audit": "snyk test --severity-threshold=medium",
+    "security:audit:prod": "snyk test --severity-threshold=medium --production",
     "validate": "npm run format:check && npm run lint && npm test && npm run security:audit:prod"
   },
   "license": "MIT",
