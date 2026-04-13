@@ -2539,7 +2539,11 @@ describe('panel.js chat persistence across settings navigation', () => {
 		const stored = localStorage.getItem('joplin-ai-applied-role');
 		expect(stored).not.toBeNull();
 		const parsed = JSON.parse(stored!);
-		expect(parsed).toMatchObject({ id: 'r1', name: 'Coder', systemPrompt: 'You are a coding expert' });
+		expect(parsed).toMatchObject({
+			id: 'r1',
+			name: 'Coder',
+			systemPrompt: 'You are a coding expert',
+		});
 	});
 
 	it('persists null to localStorage when no role is applied', () => {

@@ -127,29 +127,29 @@ const makeRequest = (
 	body?: string,
 ): Promise<Record<string, unknown>> =>
 	new Promise((resolve, reject) => {
-	const req = https.request(options, (res) => {
-		const decoder = new StringDecoder('utf8');
-		let data = '';
-		res.on('data', (chunk: Buffer) => {
-			data += decoder.write(chunk);
-		});
-		res.on('end', () => {
-			data += decoder.end();
-			const statusCode = res.statusCode ?? 0;
-			if (statusCode >= 500 && statusCode < 600) {
-				reject(new TransientApiError(`Kie.ai server error: HTTP ${statusCode}`));
-				return;
-			}
-			try {
-				resolve(JSON.parse(data));
-			} catch (e) {
-				reject(
-					new Error(
-						`Failed to parse Kie.ai response (HTTP ${statusCode}): ${(e as Error).message}`,
-					),
-				);
-			}
-		});
+		const req = https.request(options, (res) => {
+			const decoder = new StringDecoder('utf8');
+			let data = '';
+			res.on('data', (chunk: Buffer) => {
+				data += decoder.write(chunk);
+			});
+			res.on('end', () => {
+				data += decoder.end();
+				const statusCode = res.statusCode ?? 0;
+				if (statusCode >= 500 && statusCode < 600) {
+					reject(new TransientApiError(`Kie.ai server error: HTTP ${statusCode}`));
+					return;
+				}
+				try {
+					resolve(JSON.parse(data));
+				} catch (e) {
+					reject(
+						new Error(
+							`Failed to parse Kie.ai response (HTTP ${statusCode}): ${(e as Error).message}`,
+						),
+					);
+				}
+			});
 		});
 		req.setTimeout(REQUEST_TIMEOUT_MS, () => {
 			req.destroy();
