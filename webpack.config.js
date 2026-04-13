@@ -183,6 +183,11 @@ const baseConfig = {
 				use: 'ts-loader',
 				exclude: /node_modules/,
 			},
+			{
+				test: /\.mjs$/,
+				include: /node_modules/,
+				type: 'javascript/auto',
+			},
 		],
 	},
 	...userConfig.webpackOverrides,
@@ -201,7 +206,7 @@ const pluginConfig = { ...baseConfig, entry: './src/index.ts',
 		},
 		// JSON files can also be required from scripts so we include this.
 		// https://github.com/joplin/plugin-bibtex/pull/2
-		extensions: ['.js', '.tsx', '.ts', '.json'],
+		extensions: ['.js', '.mjs', '.tsx', '.ts', '.json'],
 	},
 	output: {
 		filename: 'index.js',
