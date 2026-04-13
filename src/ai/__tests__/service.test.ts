@@ -1,4 +1,10 @@
-import { buildSystemPrompt, sendToAI, validateApiKey } from '../service';
+import {
+	buildSystemPrompt,
+	sendToAI,
+	validateApiKey,
+	buildOpenAIPdfParts,
+	buildClaudePdfParts,
+} from '../service';
 import { ChatMessage } from '../types';
 
 jest.mock('../openai', () => ({
@@ -86,6 +92,53 @@ describe('buildSystemPrompt', () => {
 		const prompt = buildSystemPrompt({ noteTitle: 'Test', noteBody: body });
 		expect(prompt).not.toContain('[... note truncated');
 		expect(prompt).toContain(body);
+	});
+
+	describe('content sanitization', () => {
+		it('strips U+FFFD replacement characters from note body', () => {
+			const inputBody = 'об\uFFFD\uFFFDен данными, API, синхронизация';
+			const actualPrompt = buildSystemPrompt({ noteTitle: 'Test', noteBody: inputBody });
+			expect(actualPrompt).not.toContain('\uFFFD');
+			expect(actualPrompt).toContain('обен данными, API, синхронизация');
+		});
+
+		it('normalizes Windows CRLF line endings in note body', () => {
+			const inputBody = 'Первая строка\r\nВторая строка';
+			const actualPrompt = buildSystemPrompt({ noteTitle: 'Test', noteBody: inputBody });
+			expect(actualPrompt).not.toContain('\r\n');
+			expect(actualPrompt).not.toContain('\r');
+		});
+
+		it('strips U+FFFD from referenced note body', () => {
+			const inputReferencedNotes = [
+				{ id: 'note1', title: 'Ref Note', body: 'об\uFFFD\uFFFDен данными' },
+			];
+			const actualPrompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'body',
+				referencedNotes: inputReferencedNotes,
+			});
+			expect(actualPrompt).not.toContain('\uFFFD');
+			expect(actualPrompt).toContain('обен данными');
+		});
+
+		it('strips U+FFFD from attached file content', () => {
+			const inputFiles = [
+				{
+					name: 'test.txt',
+					content: 'контракт об\uFFFD\uFFFDен данными',
+					mimeType: 'text/plain',
+					size: 100,
+				},
+			];
+			const actualPrompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'body',
+				attachedFiles: inputFiles,
+			});
+			expect(actualPrompt).not.toContain('\uFFFD');
+			expect(actualPrompt).toContain('контракт обен данными');
+		});
 	});
 
 	it('instructs AI to use tools proactively without asking confirmation for non-destructive actions', () => {
@@ -177,6 +230,77 @@ describe('buildSystemPrompt', () => {
 			const prompt = buildSystemPrompt({ noteTitle: 'Test', noteBody: 'Body', workMode: 'edit' });
 			expect(prompt).toMatch(/current note/i);
 			expect(prompt).toMatch(/update_note/i);
+		});
+
+		it('edit mode instructs not to modify other notes', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'My Note',
+				noteBody: 'Some content',
+				workMode: 'edit',
+			});
+			expect(prompt).toMatch(/never.*create.*delete.*modify|do not.*modify/i);
+		});
+
+		it('edit mode includes the current note title in the mode section', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Shopping List',
+				noteBody: '- Milk\n- Eggs',
+				workMode: 'edit',
+			});
+			const modeStart = prompt.indexOf('[Work Mode: Edit]');
+			const modeEnd = prompt.indexOf('[End Work Mode]');
+			const modeSection = prompt.substring(modeStart, modeEnd);
+			expect(modeSection).toContain('Shopping List');
+		});
+
+		it('edit mode describes update_note and read-only tools but not destructive tools', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Body',
+				workMode: 'edit',
+			});
+			expect(prompt).toContain('update_note');
+			expect(prompt).toContain('get_note');
+			expect(prompt).toContain('search_notes');
+			expect(prompt).toContain('list_notebooks');
+			expect(prompt).toContain('list_tags');
+			expect(prompt).not.toMatch(/^- create_note:/m);
+			expect(prompt).not.toMatch(/^- delete_note:/m);
+			expect(prompt).not.toMatch(/^- move_note:/m);
+			expect(prompt).not.toMatch(/^- create_notebook:/m);
+			expect(prompt).not.toMatch(/^- add_tag/m);
+			expect(prompt).not.toMatch(/^- remove_tag/m);
+			expect(prompt).not.toMatch(/^- generate_image:/m);
+			expect(prompt).not.toMatch(/^- remove_resource:/m);
+		});
+
+		it('edit mode instructs not to change the note title unless explicitly requested', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'My Contract',
+				noteBody: 'Some content',
+				workMode: 'edit',
+			});
+			expect(prompt).toMatch(
+				/do not.*title|never.*title|title.*only.*explicit|title.*unless.*explicit|not.*rename.*unless|only.*rename.*explicit/i,
+			);
+		});
+
+		it('edit mode instructs to apply changes immediately without asking questions', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test Note',
+				noteBody: 'Content here',
+				workMode: 'edit',
+			});
+			expect(prompt).toMatch(/do not ask|without asking|immediately|no clarif/i);
+		});
+
+		it('edit mode instructs to apply only the exact change requested', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test Note',
+				noteBody: 'Content here',
+				workMode: 'edit',
+			});
+			expect(prompt).toMatch(/only.*request|exact.*change|only.*ask|nothing.*else|no.*additional/i);
 		});
 
 		it('works with all parameters together', () => {
@@ -347,6 +471,252 @@ describe('buildSystemPrompt', () => {
 			expect(prompt).toContain('Design Doc');
 			expect(prompt).toContain('Attached files');
 			expect(prompt).toContain('data.csv');
+		});
+
+		it('includes extracted PDF text in attached files section', () => {
+			const pdfFile = [
+				{
+					name: 'report.pdf',
+					content: 'This is the extracted text from the PDF report.',
+					mimeType: 'application/pdf',
+					size: 4096,
+				},
+			];
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Body',
+				attachedFiles: pdfFile,
+			});
+			expect(prompt).toContain('report.pdf');
+			expect(prompt).toContain('application/pdf');
+			expect(prompt).toContain('This is the extracted text from the PDF report.');
+			expect(prompt).toContain('Attached files');
+		});
+
+		it('includes PDF file name and byte size in attached files section', () => {
+			const pdfFile = [
+				{
+					name: 'annual-review.pdf',
+					content: 'Annual review text content.',
+					mimeType: 'application/pdf',
+					size: 102400,
+				},
+			];
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Body',
+				attachedFiles: pdfFile,
+			});
+			expect(prompt).toContain('annual-review.pdf');
+			expect(prompt).toContain('102400');
+		});
+
+		it('handles mixed PDF and text file attachments together', () => {
+			const mixedFiles = [
+				{
+					name: 'notes.txt',
+					content: 'plain text content',
+					mimeType: 'text/plain',
+					size: 18,
+				},
+				{
+					name: 'doc.pdf',
+					content: 'extracted pdf text content',
+					mimeType: 'application/pdf',
+					size: 8192,
+				},
+			];
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Body',
+				attachedFiles: mixedFiles,
+			});
+			expect(prompt).toContain('notes.txt');
+			expect(prompt).toContain('plain text content');
+			expect(prompt).toContain('doc.pdf');
+			expect(prompt).toContain('extracted pdf text content');
+		});
+
+		it('excludes base64 PDF files from attached files text section in system prompt', () => {
+			const files = [
+				{
+					name: 'text-file.txt',
+					content: 'text content',
+					mimeType: 'text/plain',
+					size: 12,
+				},
+				{
+					name: 'binary.pdf',
+					content: '[PDF document]',
+					mimeType: 'application/pdf',
+					size: 50000,
+					base64Data: 'JVBERi0xLjQ=',
+				},
+			];
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Body',
+				attachedFiles: files,
+			});
+			expect(prompt).toContain('text-file.txt');
+			expect(prompt).toContain('text content');
+			expect(prompt).not.toContain('binary.pdf');
+			expect(prompt).not.toContain('JVBERi0xLjQ=');
+		});
+
+		it('does not include attached files section when all files are base64 PDFs', () => {
+			const files = [
+				{
+					name: 'binary.pdf',
+					content: '[PDF document]',
+					mimeType: 'application/pdf',
+					size: 50000,
+					base64Data: 'JVBERi0xLjQ=',
+				},
+			];
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Body',
+				attachedFiles: files,
+			});
+			expect(prompt).not.toContain('Attached files');
+		});
+	});
+
+	describe('buildOpenAIPdfParts', () => {
+		it('returns empty array when no files have base64Data', () => {
+			const files = [{ name: 'text.txt', content: 'hello', mimeType: 'text/plain', size: 5 }];
+			expect(buildOpenAIPdfParts(files)).toEqual([]);
+		});
+
+		it('returns file content part for base64 PDF', () => {
+			const files = [
+				{
+					name: 'report.pdf',
+					content: '[PDF document]',
+					mimeType: 'application/pdf',
+					size: 1000,
+					base64Data: 'JVBERi0xLjQ=',
+				},
+			];
+			const parts = buildOpenAIPdfParts(files);
+			expect(parts).toHaveLength(1);
+			expect(parts[0]).toEqual({
+				type: 'file',
+				file: {
+					filename: 'report.pdf',
+					file_data: 'data:application/pdf;base64,JVBERi0xLjQ=',
+				},
+			});
+		});
+
+		it('only includes files with base64Data', () => {
+			const files = [
+				{ name: 'text.txt', content: 'hello', mimeType: 'text/plain', size: 5 },
+				{
+					name: 'doc.pdf',
+					content: '[PDF]',
+					mimeType: 'application/pdf',
+					size: 2000,
+					base64Data: 'AAAA',
+				},
+			];
+			const parts = buildOpenAIPdfParts(files);
+			expect(parts).toHaveLength(1);
+			expect(parts[0].file.filename).toBe('doc.pdf');
+		});
+	});
+
+	describe('buildClaudePdfParts', () => {
+		it('returns empty array when no files have base64Data', () => {
+			const files = [{ name: 'text.txt', content: 'hello', mimeType: 'text/plain', size: 5 }];
+			expect(buildClaudePdfParts(files)).toEqual([]);
+		});
+
+		it('returns document content block for base64 PDF', () => {
+			const files = [
+				{
+					name: 'audit.pdf',
+					content: '[PDF document]',
+					mimeType: 'application/pdf',
+					size: 3000,
+					base64Data: 'JVBERi0xLjQ=',
+				},
+			];
+			const parts = buildClaudePdfParts(files);
+			expect(parts).toHaveLength(1);
+			expect(parts[0]).toEqual({
+				type: 'document',
+				source: {
+					type: 'base64',
+					media_type: 'application/pdf',
+					data: 'JVBERi0xLjQ=',
+				},
+				title: 'audit.pdf',
+			});
+		});
+
+		it('only includes files with base64Data', () => {
+			const files = [
+				{ name: 'notes.md', content: '# Notes', mimeType: 'text/markdown', size: 7 },
+				{
+					name: 'scan.pdf',
+					content: '[PDF]',
+					mimeType: 'application/pdf',
+					size: 4000,
+					base64Data: 'BBBB',
+				},
+			];
+			const parts = buildClaudePdfParts(files);
+			expect(parts).toHaveLength(1);
+			expect(parts[0].title).toBe('scan.pdf');
+		});
+	});
+
+	describe('with nativeWebSearch option', () => {
+		it('does not include web_search bullet when nativeWebSearch is true', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Body',
+				nativeWebSearch: true,
+			});
+			expect(prompt).not.toMatch(/^- web_search:/m);
+		});
+
+		it('mentions native web search capability when nativeWebSearch is true', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Body',
+				nativeWebSearch: true,
+			});
+			expect(prompt).toMatch(/native.*web search|built-in.*search|web search.*built.?in/i);
+		});
+
+		it('includes web_search bullet when nativeWebSearch is false', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Body',
+				nativeWebSearch: false,
+			});
+			expect(prompt).toMatch(/^- web_search:/m);
+		});
+
+		it('includes web_search bullet when nativeWebSearch is undefined', () => {
+			const prompt = buildSystemPrompt({ noteTitle: 'Test', noteBody: 'Body' });
+			expect(prompt).toMatch(/^- web_search:/m);
+		});
+
+		it('works with all parameters together when nativeWebSearch is true', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Body',
+				agentRolePrompt: 'You are a researcher',
+				workMode: 'agent',
+				nativeWebSearch: true,
+			});
+			expect(prompt).toContain('You are a researcher');
+			expect(prompt).not.toMatch(/^- web_search:/m);
+			expect(prompt).toMatch(/native.*web search|built-in.*search/i);
 		});
 	});
 
@@ -951,6 +1321,112 @@ describe('sendToAI', () => {
 		});
 	});
 
+	describe('base64 PDF multimodal messages', () => {
+		it('sends multimodal user message to OpenAI when attachedFiles include base64 PDF', async () => {
+			mockedSendOpenAI.mockResolvedValue({
+				textContent: 'I read the PDF.',
+				toolCalls: [],
+				finishReason: 'stop',
+				rawAssistantMessage: { content: 'I read the PDF.' },
+			});
+
+			await sendToAI('openai', 'sk-test', 'gpt-4o', 'summarize this', 'Title', 'Body', {
+				currentNoteId: 'n1',
+				currentNoteTitle: 'Title',
+				attachedFiles: [
+					{
+						name: 'report.pdf',
+						content: '[PDF document]',
+						mimeType: 'application/pdf',
+						size: 5000,
+						base64Data: 'JVBERi0xLjQ=',
+					},
+				],
+			});
+
+			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const userMsg = messages[messages.length - 1];
+			expect(userMsg.role).toBe('user');
+			expect(Array.isArray(userMsg.content)).toBe(true);
+			expect(userMsg.content).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ type: 'file' }),
+					expect.objectContaining({ type: 'text', text: 'summarize this' }),
+				]),
+			);
+		});
+
+		it('sends multimodal user message to Claude when attachedFiles include base64 PDF', async () => {
+			mockedSendClaude.mockResolvedValue({
+				textContent: 'I read the PDF.',
+				toolCalls: [],
+				finishReason: 'end_turn',
+				rawAssistantMessage: { role: 'assistant', content: [] },
+			});
+
+			await sendToAI(
+				'claude',
+				'sk-ant-test',
+				'claude-sonnet-4-20250514',
+				'summarize this',
+				'Title',
+				'Body',
+				{
+					currentNoteId: 'n1',
+					currentNoteTitle: 'Title',
+					attachedFiles: [
+						{
+							name: 'report.pdf',
+							content: '[PDF document]',
+							mimeType: 'application/pdf',
+							size: 5000,
+							base64Data: 'JVBERi0xLjQ=',
+						},
+					],
+				},
+			);
+
+			const messages = mockedSendClaude.mock.calls[0][3];
+			const userMsg = messages[messages.length - 1];
+			expect(userMsg.role).toBe('user');
+			expect(Array.isArray(userMsg.content)).toBe(true);
+			expect(userMsg.content).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ type: 'document' }),
+					expect.objectContaining({ type: 'text', text: 'summarize this' }),
+				]),
+			);
+		});
+
+		it('sends plain text user message when attachedFiles have no base64 PDFs', async () => {
+			mockedSendOpenAI.mockResolvedValue({
+				textContent: 'ok',
+				toolCalls: [],
+				finishReason: 'stop',
+				rawAssistantMessage: { content: 'ok' },
+			});
+
+			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'Title', 'Body', {
+				currentNoteId: 'n1',
+				currentNoteTitle: 'Title',
+				attachedFiles: [
+					{
+						name: 'data.csv',
+						content: 'col1,col2\n1,2',
+						mimeType: 'text/csv',
+						size: 14,
+					},
+				],
+			});
+
+			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const userMsg = messages[messages.length - 1];
+			expect(userMsg.role).toBe('user');
+			expect(typeof userMsg.content).toBe('string');
+			expect(userMsg.content).toBe('hello');
+		});
+	});
+
 	describe('conversation history', () => {
 		const mockHistory: ChatMessage[] = [
 			{ role: 'user', content: 'Hello' },
@@ -1168,6 +1644,38 @@ describe('sendToAI', () => {
 			expect(instructions).toContain('f1');
 		});
 
+		it('passes nativeWebSearch system prompt to Perplexity (no web_search bullet)', async () => {
+			mockedSendPerplexity.mockResolvedValue({
+				textContent: 'ok',
+				toolCalls: [],
+				finishReason: 'stop',
+				rawAssistantMessage: [],
+			});
+
+			await sendToAI('perplexity', 'pplx-test-key', 'sonar', 'hello', 'My Title', 'My Body');
+
+			const instructions = mockedSendPerplexity.mock.calls[0][3] as string;
+			expect(instructions).not.toMatch(/^- web_search:/m);
+			expect(instructions).toMatch(/native.*web search|built-in.*search/i);
+		});
+
+		it('passes web_search bullet in system prompt for OpenAI (not native)', async () => {
+			mockedSendOpenAI.mockResolvedValue({
+				textContent: 'ok',
+				toolCalls: [],
+				finishReason: 'stop',
+				rawAssistantMessage: { content: 'ok' },
+			});
+
+			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'My Title', 'My Body');
+
+			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const systemMessage = messages.find((m: { role: string }) => m.role === 'system') as {
+				content: string;
+			};
+			expect(systemMessage.content).toMatch(/^- web_search:/m);
+		});
+
 		it('passes history as input array for Perplexity Agent API', async () => {
 			mockedSendPerplexity.mockResolvedValue({
 				textContent: 'I recall that.',
@@ -1265,6 +1773,23 @@ describe('sendToAI', () => {
 
 			expect(mockedSendSonarChat).toHaveBeenCalledTimes(1);
 			expect(result.content).toBe('Deep research answer');
+		});
+
+		it('passes nativeWebSearch system prompt to Sonar API (no web_search bullet)', async () => {
+			mockedSendSonarChat.mockResolvedValue({
+				textContent: 'ok',
+				toolCalls: [],
+				finishReason: 'stop',
+				rawAssistantMessage: { role: 'assistant', content: 'ok' },
+			});
+
+			await sendToAI('perplexity', 'pplx-test-key', 'sonar-pro', 'hello', 'My Title', 'My Body');
+
+			const messages = mockedSendSonarChat.mock.calls[0][2];
+			const systemMsg = messages[0] as { role: string; content: string };
+			expect(systemMsg.role).toBe('system');
+			expect(systemMsg.content).not.toMatch(/^- web_search:/m);
+			expect(systemMsg.content).toMatch(/native.*web search|built-in.*search/i);
 		});
 
 		it('passes system prompt and history as messages to Sonar API', async () => {
@@ -1564,6 +2089,176 @@ describe('sendToAI', () => {
 			expect(result.content).not.toContain('[TOOL_CALL]');
 			expect(result.content).toContain('update_note');
 			expect(result.content).toContain('Ask');
+		});
+
+		describe('onThinkingStep callback', () => {
+			it('calls onThinkingStep with tool name when OpenAI makes tool calls', async () => {
+				mockedSendOpenAI
+					.mockResolvedValueOnce({
+						textContent: null,
+						toolCalls: [{ id: 'call_1', name: 'search_notes', args: { query: 'test' } }],
+						finishReason: 'tool_calls',
+						rawAssistantMessage: {
+							content: null,
+							tool_calls: [
+								{
+									id: 'call_1',
+									type: 'function',
+									function: { name: 'search_notes', arguments: '{"query":"test"}' },
+								},
+							],
+						},
+					})
+					.mockResolvedValueOnce({
+						textContent: 'Found some notes',
+						toolCalls: [],
+						finishReason: 'stop',
+						rawAssistantMessage: { content: 'Found some notes' },
+					});
+
+				mockedExecuteAction.mockResolvedValue({ success: true, message: 'ok' });
+
+				const inputOnThinkingStep = jest.fn();
+				await sendToAI('openai', 'sk-test', 'gpt-4o', 'search', 'Title', 'Body', {
+					currentNoteId: 'n1',
+					currentNoteTitle: 'Title',
+					onThinkingStep: inputOnThinkingStep,
+				});
+
+				expect(inputOnThinkingStep).toHaveBeenCalledWith(
+					expect.objectContaining({ step: 'search_notes' }),
+				);
+			});
+
+			it('calls onThinkingStep with a human-readable label', async () => {
+				mockedSendOpenAI
+					.mockResolvedValueOnce({
+						textContent: null,
+						toolCalls: [{ id: 'call_1', name: 'search_notes', args: { query: 'test' } }],
+						finishReason: 'tool_calls',
+						rawAssistantMessage: { content: null, tool_calls: [] },
+					})
+					.mockResolvedValueOnce({
+						textContent: 'ok',
+						toolCalls: [],
+						finishReason: 'stop',
+						rawAssistantMessage: { content: 'ok' },
+					});
+
+				mockedExecuteAction.mockResolvedValue({ success: true, message: 'ok' });
+
+				const inputOnThinkingStep = jest.fn();
+				await sendToAI('openai', 'sk-test', 'gpt-4o', 'search', 'Title', 'Body', {
+					currentNoteId: 'n1',
+					currentNoteTitle: 'Title',
+					onThinkingStep: inputOnThinkingStep,
+				});
+
+				const actualCallArg = inputOnThinkingStep.mock.calls[0][0];
+				expect(actualCallArg.label).toBeTruthy();
+				expect(typeof actualCallArg.label).toBe('string');
+			});
+
+			it('calls onThinkingStep for each tool call when multiple are made', async () => {
+				mockedSendOpenAI
+					.mockResolvedValueOnce({
+						textContent: null,
+						toolCalls: [
+							{ id: 'tc_a', name: 'search_notes', args: { query: 'meeting' } },
+							{ id: 'tc_b', name: 'create_note', args: { title: 'New' } },
+						],
+						finishReason: 'tool_calls',
+						rawAssistantMessage: { content: null, tool_calls: [] },
+					})
+					.mockResolvedValueOnce({
+						textContent: 'Done',
+						toolCalls: [],
+						finishReason: 'stop',
+						rawAssistantMessage: { content: 'Done' },
+					});
+
+				mockedExecuteAction.mockResolvedValue({ success: true, message: 'ok' });
+
+				const inputOnThinkingStep = jest.fn();
+				await sendToAI('openai', 'sk-test', 'gpt-4o', 'search and create', 'Title', 'Body', {
+					currentNoteId: 'n1',
+					currentNoteTitle: 'Title',
+					onThinkingStep: inputOnThinkingStep,
+				});
+
+				expect(inputOnThinkingStep).toHaveBeenCalledTimes(2);
+				expect(inputOnThinkingStep).toHaveBeenNthCalledWith(
+					1,
+					expect.objectContaining({ step: 'search_notes' }),
+				);
+				expect(inputOnThinkingStep).toHaveBeenNthCalledWith(
+					2,
+					expect.objectContaining({ step: 'create_note' }),
+				);
+			});
+
+			it('calls onThinkingStep when Claude makes tool calls', async () => {
+				mockedSendClaude
+					.mockResolvedValueOnce({
+						textContent: null,
+						toolCalls: [{ id: 'tc_1', name: 'update_note', args: { body: 'new body' } }],
+						finishReason: 'tool_use',
+						rawAssistantMessage: {
+							role: 'assistant',
+							content: [
+								{ type: 'tool_use', id: 'tc_1', name: 'update_note', input: { body: 'new body' } },
+							],
+						},
+					})
+					.mockResolvedValueOnce({
+						textContent: 'Updated',
+						toolCalls: [],
+						finishReason: 'end_turn',
+						rawAssistantMessage: { role: 'assistant', content: [] },
+					});
+
+				mockedExecuteAction.mockResolvedValue({ success: true, message: 'ok' });
+
+				const inputOnThinkingStep = jest.fn();
+				await sendToAI(
+					'claude',
+					'sk-ant-test',
+					'claude-sonnet-4-20250514',
+					'update the note',
+					'Title',
+					'Body',
+					{ currentNoteId: 'n1', currentNoteTitle: 'Title', onThinkingStep: inputOnThinkingStep },
+				);
+
+				expect(inputOnThinkingStep).toHaveBeenCalledWith(
+					expect.objectContaining({ step: 'update_note' }),
+				);
+			});
+
+			it('does not throw when onThinkingStep is not provided', async () => {
+				mockedSendOpenAI
+					.mockResolvedValueOnce({
+						textContent: null,
+						toolCalls: [{ id: 'call_1', name: 'search_notes', args: { query: 'test' } }],
+						finishReason: 'tool_calls',
+						rawAssistantMessage: { content: null, tool_calls: [] },
+					})
+					.mockResolvedValueOnce({
+						textContent: 'ok',
+						toolCalls: [],
+						finishReason: 'stop',
+						rawAssistantMessage: { content: 'ok' },
+					});
+
+				mockedExecuteAction.mockResolvedValue({ success: true, message: 'ok' });
+
+				await expect(
+					sendToAI('openai', 'sk-test', 'gpt-4o', 'search', 'Title', 'Body', {
+						currentNoteId: 'n1',
+						currentNoteTitle: 'Title',
+					}),
+				).resolves.not.toThrow();
+			});
 		});
 
 		it('does not block read-only tool calls that fail to parse in Ask mode', async () => {

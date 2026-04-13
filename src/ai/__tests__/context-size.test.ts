@@ -66,6 +66,38 @@ describe('getModelMaxTokens', () => {
 		expect(getModelMaxTokens('codex-mini-latest')).toBe(200000);
 	});
 
+	it('should return 1050000 for gpt-5.4', () => {
+		expect(getModelMaxTokens('gpt-5.4')).toBe(1050000);
+	});
+
+	it('should return 400000 for gpt-5.4-mini', () => {
+		expect(getModelMaxTokens('gpt-5.4-mini')).toBe(400000);
+	});
+
+	it('should return 400000 for gpt-5.4-nano', () => {
+		expect(getModelMaxTokens('gpt-5.4-nano')).toBe(400000);
+	});
+
+	it('should return 1047576 for gpt-4.1', () => {
+		expect(getModelMaxTokens('gpt-4.1')).toBe(1047576);
+	});
+
+	it('should return 1047576 for gpt-4.1-mini', () => {
+		expect(getModelMaxTokens('gpt-4.1-mini')).toBe(1047576);
+	});
+
+	it('should return 1047576 for gpt-4.1-nano', () => {
+		expect(getModelMaxTokens('gpt-4.1-nano')).toBe(1047576);
+	});
+
+	it('should return 200000 for o3', () => {
+		expect(getModelMaxTokens('o3')).toBe(200000);
+	});
+
+	it('should return 200000 for o4-mini', () => {
+		expect(getModelMaxTokens('o4-mini')).toBe(200000);
+	});
+
 	it('should return a sensible default for unknown models', () => {
 		const result = getModelMaxTokens('unknown-model');
 		expect(result).toBeGreaterThan(0);

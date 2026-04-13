@@ -6,6 +6,7 @@ import { AIProvider, AgentRole, AIActionOutcome, ChatMessage, WorkMode } from '.
 import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
+import { extractPdfTextFromBase64 } from './utils/pdf-extract';
 
 let panelHandle: ViewHandle | null = null;
 let panelVisible = false;
@@ -21,13 +22,6 @@ const PANEL_HTML = `<!DOCTYPE html>
 				AI Assistant
 			</div>
 			<div class="note-info" id="noteInfo">Loading...</div>
-			<div class="mode-bar" id="modeBar">
-				<select id="modeSelect" class="mode-select">
-					<option value="ask">&#x1F4AC; Ask</option>
-					<option value="agent" selected>&#x1F916; Agent</option>
-					<option value="edit">&#x270F; Edit</option>
-				</select>
-			</div>
 			<div class="role-bar" id="roleBar">
 				<select id="roleSelect" class="role-select">
 					<option value="">No role</option>
@@ -44,33 +38,36 @@ const PANEL_HTML = `<!DOCTYPE html>
 		</div>
 		<div id="queueContainer" class="queue-container"></div>
 		<div class="input-area">
-			<div class="textarea-wrap">
-				<textarea
-					id="promptInput"
-					class="prompt-input"
-					placeholder="What would you like to do with this note?"
-					rows="2"
-				></textarea>
+			<div class="input-container">
+				<div id="fileChips" class="file-chips"></div>
+				<div class="textarea-wrap">
+					<textarea
+						id="promptInput"
+						class="prompt-input"
+						placeholder="What would you like to do with this note?"
+						rows="2"
+					></textarea>
+				</div>
+				<div class="bottom-bar">
+					<div class="bottom-bar-left">
+						<div class="mode-pill-wrap">
+							<select id="modeSelect" class="mode-pill-select">
+								<option value="ask">&#x1F4AC; Ask</option>
+								<option value="agent" selected>&#x1F916; Agent</option>
+								<option value="edit">&#x270F; Edit</option>
+							</select>
+						</div>
+						<button id="attachFileBtn" class="icon-btn" title="Attach file">&#x1F4CE;</button>
+						<button id="clearBtn" class="icon-btn" title="Clear input">&#x2715;</button>
+					</div>
+					<div class="bottom-bar-right">
+						<div id="contextSizeContainer" class="context-size-container"></div>
+						<button id="clearHistoryBtn" class="icon-btn" title="Clear history">&#x1F9F9;</button>
+						<button id="executeBtn" class="btn send-btn" title="Send (Enter)">&#x27A4;</button>
+					</div>
+				</div>
 			</div>
-			<div id="fileChips" class="file-chips"></div>
-			<div class="actions">
-				<button id="executeBtn" class="btn btn-primary">
-					&#9654; Execute
-				</button>
-				<button id="attachFileBtn" class="btn btn-secondary" title="Attach file">
-					&#x2B; File
-				</button>
-				<button id="clearBtn" class="btn btn-secondary">
-					&#x1F5D1; Clear
-				</button>
-				<button id="clearHistoryBtn" class="btn btn-secondary">
-					&#x1F9F9; Clear History
-				</button>
-				<span class="spacer"></span>
-				<div id="contextSizeContainer" class="context-size-container"></div>
-				<span class="shortcut-hint">Enter to send, Shift+Enter for new line</span>
-			</div>
-			<input type="file" id="fileInput" style="display:none" multiple accept=".txt,.md,.csv,.json,.xml,.js,.ts,.py,.java,.c,.cpp,.h,.html,.css,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.bat,.sql,.r,.rb,.go,.rs,.swift,.kt,.scala,.lua,.pl,.php" />
+			<input type="file" id="fileInput" style="display:none" multiple accept=".pdf,.txt,.md,.csv,.json,.xml,.js,.ts,.py,.java,.c,.cpp,.h,.html,.css,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.bat,.sql,.r,.rb,.go,.rs,.swift,.kt,.scala,.lua,.pl,.php" />
 		</div>
 		<div id="roleManageView" class="role-manage-view" style="display: none;"></div>
 	</div>
@@ -206,7 +203,9 @@ interface ProviderConfig {
 	apiKey: string;
 	model: string;
 	webSearchEnabled: boolean;
+	webSearchModel: string;
 	openaiApiKey: string;
+	perplexityApiKey: string;
 	kieApiKey?: string;
 	imageGenModel?: string;
 }
@@ -221,6 +220,7 @@ const loadProviderConfig = async (): Promise<ProviderConfig> => {
 		SETTING_KEYS.perplexityKey,
 		SETTING_KEYS.perplexityModel,
 		SETTING_KEYS.webSearchEnabled,
+		SETTING_KEYS.webSearchModel,
 		SETTING_KEYS.kieApiKey,
 		SETTING_KEYS.imageGenModel,
 	]);
@@ -240,7 +240,10 @@ const loadProviderConfig = async (): Promise<ProviderConfig> => {
 		apiKey: apiKeyMap[provider] ?? '',
 		model: modelMap[provider] ?? '',
 		webSearchEnabled: !!settings[SETTING_KEYS.webSearchEnabled],
+		webSearchModel:
+			(settings[SETTING_KEYS.webSearchModel] as string) || 'openai:gpt-4o-search-preview',
 		openaiApiKey: settings[SETTING_KEYS.openaiKey] as string,
+		perplexityApiKey: settings[SETTING_KEYS.perplexityKey] as string,
 		kieApiKey: (settings[SETTING_KEYS.kieApiKey] as string) || undefined,
 		imageGenModel: (settings[SETTING_KEYS.imageGenModel] as string) || undefined,
 	};
@@ -354,6 +357,31 @@ const handleExecute = async (
 				state: info.state,
 			});
 		};
+		const onThinkingStep = (info: { step: string; label: string }) => {
+			joplin.views.panels.postMessage(handle, {
+				type: 'thinkingStep',
+				step: info.step,
+				label: info.label,
+			});
+		};
+		if (attachedFiles?.length) {
+			await Promise.all(
+				attachedFiles
+					.filter((f) => f.base64Data && f.mimeType === 'application/pdf')
+					.map(async (f) => {
+						try {
+							const text = await extractPdfTextFromBase64(f.base64Data!);
+							if (text.trim()) {
+								f.content = text;
+								f.base64Data = undefined;
+							}
+						} catch {
+							/* keep base64Data for LLM multimodal fallback */
+						}
+					}),
+			);
+		}
+		const isPerplexityPrimary = config.provider === 'perplexity';
 		const context: ActionContext = {
 			currentNoteId: note.id,
 			currentNoteTitle: note.title,
@@ -362,11 +390,14 @@ const handleExecute = async (
 			attachedFiles: attachedFiles?.length ? attachedFiles : undefined,
 			agentRolePrompt: agentRolePrompt || undefined,
 			workMode: workMode || ('agent' as WorkMode),
-			webSearchEnabled: config.webSearchEnabled,
-			openaiApiKey: config.webSearchEnabled ? config.openaiApiKey : undefined,
+			webSearchEnabled: config.webSearchEnabled && !isPerplexityPrimary,
+			webSearchModel: config.webSearchModel,
+			openaiApiKey: config.openaiApiKey,
+			perplexityApiKey: config.perplexityApiKey,
 			kieApiKey: config.kieApiKey,
 			imageGenModel: config.imageGenModel,
 			onImageProgress,
+			onThinkingStep,
 		};
 		const response = await sendToAI(
 			config.provider,
@@ -407,6 +438,7 @@ export const initPanel = async () => {
 	await joplin.views.panels.setHtml(panelHandle, PANEL_HTML);
 	await joplin.views.panels.addScript(panelHandle, './webview/panel.css');
 	await joplin.views.panels.addScript(panelHandle, './webview/markdown.js');
+	await joplin.views.panels.addScript(panelHandle, './webview/pdf-parser.js');
 	await joplin.views.panels.addScript(panelHandle, './webview/panel.js');
 	await joplin.views.panels.hide(panelHandle);
 	panelVisible = false;
@@ -436,6 +468,14 @@ export const initPanel = async () => {
 
 		if (message.type === 'searchNotes') {
 			await searchNotesByQuery(panelHandle, message.query as string);
+		}
+
+		if (message.type === 'getFileSizeLimit') {
+			const sizeMb = ((await joplin.settings.value(SETTING_KEYS.fileMaxSizeMb)) as number) || 10;
+			joplin.views.panels.postMessage(panelHandle, {
+				type: 'fileSizeLimit',
+				limitBytes: sizeMb * 1024 * 1024,
+			});
 		}
 
 		if (message.type === 'getAgentRoles') {

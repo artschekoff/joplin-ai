@@ -11,8 +11,10 @@ export const SETTING_KEYS = {
 	perplexityModel: 'perplexityModel',
 	agentRoles: 'agentRoles',
 	webSearchEnabled: 'webSearchEnabled',
+	webSearchModel: 'webSearchModel',
 	kieApiKey: 'kieApiKey',
 	imageGenModel: 'imageGenModel',
+	fileMaxSizeMb: 'fileMaxSizeMb',
 };
 
 export const initSettings = async () => {
@@ -49,18 +51,28 @@ export const initSettings = async () => {
 		},
 
 		[SETTING_KEYS.openaiModel]: {
-			value: 'gpt-4o',
+			value: 'gpt-5.4',
 			type: SettingItemType.String,
 			section: 'aiAssistant',
 			public: true,
 			isEnum: true,
 			label: 'OpenAI Model',
+			description:
+				'All OpenAI models support tool calling. Web search requires enabling it separately (uses gpt-4o-search-preview).',
 			options: {
-				'gpt-4o': 'GPT-4o',
-				'gpt-4o-mini': 'GPT-4o Mini',
-				'gpt-4-turbo': 'GPT-4 Turbo',
-				'gpt-3.5-turbo': 'GPT-3.5 Turbo',
-				'codex-mini-latest': 'Codex Mini',
+				'gpt-5.4': 'GPT-5.4 — flagship, 1M context, tool calling',
+				'gpt-5.4-mini': 'GPT-5.4 Mini — fast, 400K context, tool calling',
+				'gpt-5.4-nano': 'GPT-5.4 Nano — fastest, 400K context, tool calling',
+				'gpt-4.1': 'GPT-4.1 — 1M context, tool calling',
+				'gpt-4.1-mini': 'GPT-4.1 Mini — fast, 1M context, tool calling',
+				'gpt-4.1-nano': 'GPT-4.1 Nano — fastest, 1M context, tool calling',
+				o3: 'o3 — reasoning, 200K context, tool calling',
+				'o4-mini': 'o4-mini — fast reasoning, 200K context, tool calling',
+				'gpt-4o': 'GPT-4o — tool calling',
+				'gpt-4o-mini': 'GPT-4o Mini — tool calling',
+				'gpt-4-turbo': 'GPT-4 Turbo — tool calling',
+				'gpt-3.5-turbo': 'GPT-3.5 Turbo — tool calling',
+				'codex-mini-latest': 'Codex Mini — tool calling',
 			},
 		},
 
@@ -81,11 +93,13 @@ export const initSettings = async () => {
 			public: true,
 			isEnum: true,
 			label: 'Claude Model',
+			description:
+				'All Claude models support tool calling. Web search requires enabling it separately (uses OpenAI gpt-4o-search-preview).',
 			options: {
-				'claude-opus-4-20250514': 'Claude Opus 4',
-				'claude-sonnet-4-20250514': 'Claude Sonnet 4',
-				'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet',
-				'claude-3-haiku-20240307': 'Claude 3 Haiku',
+				'claude-opus-4-20250514': 'Claude Opus 4 — tool calling',
+				'claude-sonnet-4-20250514': 'Claude Sonnet 4 — tool calling',
+				'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet — tool calling',
+				'claude-3-haiku-20240307': 'Claude 3 Haiku — tool calling',
 			},
 		},
 
@@ -107,11 +121,13 @@ export const initSettings = async () => {
 			public: true,
 			isEnum: true,
 			label: 'Perplexity Model',
+			description:
+				'All Perplexity models have native built-in web search. Sonar also supports tool calling (create/edit notes). Sonar Pro, Reasoning Pro, and Deep Research are search-focused without tool calling.',
 			options: {
-				sonar: 'Sonar',
-				'sonar-pro': 'Sonar Pro',
-				'sonar-reasoning-pro': 'Sonar Reasoning Pro',
-				'sonar-deep-research': 'Sonar Deep Research',
+				sonar: 'Sonar — native web search + tool calling',
+				'sonar-pro': 'Sonar Pro — native web search',
+				'sonar-reasoning-pro': 'Sonar Reasoning Pro — native web search',
+				'sonar-deep-research': 'Sonar Deep Research — native web search',
 			},
 		},
 
@@ -122,7 +138,25 @@ export const initSettings = async () => {
 			public: true,
 			label: 'Enable Web Search',
 			description:
-				'Allow the AI to search the web for current information. Requires an OpenAI API key (uses gpt-4o-search-preview). Additional API costs apply per search.',
+				'Allow the AI to delegate web searches to a dedicated search model when your primary model does not support web search natively. Not needed for Perplexity — all Perplexity models have built-in web search. Select the search model below.',
+		},
+
+		[SETTING_KEYS.webSearchModel]: {
+			value: 'openai:gpt-4o-search-preview',
+			type: SettingItemType.String,
+			section: 'aiAssistant',
+			public: true,
+			isEnum: true,
+			label: 'Web Search Model',
+			description:
+				'Model used for web searches when your primary model (OpenAI / Claude) needs one. Perplexity models use native built-in search and do not use this setting. OpenAI option requires your OpenAI API key; Perplexity options require your Perplexity API key.',
+			options: {
+				'openai:gpt-4o-search-preview': 'OpenAI — gpt-4o-search-preview (OpenAI key)',
+				'perplexity:sonar': 'Perplexity — Sonar (Perplexity key)',
+				'perplexity:sonar-pro': 'Perplexity — Sonar Pro (Perplexity key)',
+				'perplexity:sonar-reasoning-pro': 'Perplexity — Sonar Reasoning Pro (Perplexity key)',
+				'perplexity:sonar-deep-research': 'Perplexity — Sonar Deep Research (Perplexity key)',
+			},
 		},
 
 		[SETTING_KEYS.kieApiKey]: {
@@ -149,6 +183,16 @@ export const initSettings = async () => {
 				'nano-banana-pro': 'Nano Banana Pro (Gemini)',
 				'nano-banana-2': 'Nano Banana 2 (Gemini 4K)',
 			},
+		},
+
+		[SETTING_KEYS.fileMaxSizeMb]: {
+			value: 10,
+			type: SettingItemType.Int,
+			section: 'aiAssistant',
+			public: true,
+			label: 'Max File Attachment Size (MB)',
+			description:
+				'Maximum file size allowed for attachments (in megabytes). Files exceeding this limit will be rejected.',
 		},
 
 		[SETTING_KEYS.agentRoles]: {

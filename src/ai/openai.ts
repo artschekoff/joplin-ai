@@ -1,6 +1,12 @@
 import * as https from 'https';
+import { StringDecoder } from 'string_decoder';
 import { AIProviderResponse, AIToolCall } from './types';
 import { OpenAITool } from './tools';
+
+/** Models that do not support the `temperature` parameter (OpenAI o-series reasoning models). */
+const REASONING_MODELS = new Set(['o3', 'o4-mini', 'codex-mini-latest']);
+
+export const isReasoningModel = (model: string): boolean => REASONING_MODELS.has(model);
 
 interface OpenAIMessage {
 	role: string;
@@ -26,11 +32,13 @@ const makeRequest = (apiKey: string, body: string): Promise<Record<string, unkno
 				},
 			},
 			(res) => {
+				const decoder = new StringDecoder('utf8');
 				let data = '';
 				res.on('data', (chunk: Buffer) => {
-					data += chunk.toString();
+					data += decoder.write(chunk);
 				});
 				res.on('end', () => {
+					data += decoder.end();
 					try {
 						const parsed = JSON.parse(data);
 						if (parsed.error) {
@@ -59,7 +67,7 @@ export const sendOpenAIMessages = async (
 	const requestBody: Record<string, unknown> = {
 		model,
 		messages,
-		temperature: 0.3,
+		...(isReasoningModel(model) ? {} : { temperature: 0.3 }),
 	};
 	if (tools?.length) {
 		requestBody.tools = tools;

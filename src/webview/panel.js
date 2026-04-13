@@ -1,3 +1,8 @@
+var STORAGE_KEY_HISTORY = 'joplin-ai-chat-history';
+var STORAGE_KEY_MESSAGES = 'joplin-ai-messages';
+var STORAGE_KEY_MODE = 'joplin-ai-mode';
+var STORAGE_KEY_ROLE = 'joplin-ai-applied-role';
+
 function initPanel() {
 	const messagesEl = document.getElementById('messages');
 	const promptInput = document.getElementById('promptInput');
@@ -12,6 +17,7 @@ function initPanel() {
 	const roleManageView = document.getElementById('roleManageView');
 	let isLoading = false;
 	let chatHistory = [];
+	let savedMessages = [];
 	let lastSentPrompt = null;
 	const MAX_HISTORY_MESSAGES = 50;
 	let agentRoles = [];
@@ -19,6 +25,41 @@ function initPanel() {
 	let editingRoleId = null;
 	const modeSelect = document.getElementById('modeSelect');
 	let currentMode = modeSelect ? modeSelect.value : 'agent';
+
+	function persistHistory() {
+		try {
+			localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(chatHistory));
+		} catch (_e) {}
+	}
+
+	function persistMessages() {
+		try {
+			localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(savedMessages));
+		} catch (_e) {}
+	}
+
+	function persistMode() {
+		try {
+			localStorage.setItem(STORAGE_KEY_MODE, currentMode);
+		} catch (_e) {}
+	}
+
+	function persistAppliedRole() {
+		try {
+			if (appliedRole) {
+				localStorage.setItem(STORAGE_KEY_ROLE, JSON.stringify(appliedRole));
+			} else {
+				localStorage.removeItem(STORAGE_KEY_ROLE);
+			}
+		} catch (_e) {}
+	}
+
+	function clearPersistedHistory() {
+		try {
+			localStorage.removeItem(STORAGE_KEY_HISTORY);
+			localStorage.removeItem(STORAGE_KEY_MESSAGES);
+		} catch (_e) {}
+	}
 	const contextSizeContainer = document.getElementById('contextSizeContainer');
 	const attachFileBtn = document.getElementById('attachFileBtn');
 	const fileInput = document.getElementById('fileInput');
@@ -36,9 +77,14 @@ function initPanel() {
 		return div.innerHTML;
 	}
 
-	function addMessage(type, label, content, files, modelName) {
+	function addMessage(type, label, content, files, modelName, skipPersist) {
 		if (emptyState) {
 			emptyState.style.display = 'none';
+		}
+
+		if (!skipPersist) {
+			savedMessages.push({ type: type, label: label, content: content, files: files || null, modelName: modelName || null });
+			persistMessages();
 		}
 
 		const msgDiv = document.createElement('div');
@@ -82,6 +128,45 @@ function initPanel() {
 		messagesEl.scrollTop = messagesEl.scrollHeight;
 	}
 
+	var THINKING_FILLERS = [
+		'AI is thinking...',
+		'Analyzing your request...',
+		'Processing information...',
+		'Reviewing your notes...',
+		'Preparing response...',
+		'Crafting an answer...',
+	];
+	var thinkingFillerIndex = 0;
+	var thinkingFillerTimer = null;
+
+	function startThinkingFillers() {
+		thinkingFillerIndex = 0;
+		if (thinkingFillerTimer) clearInterval(thinkingFillerTimer);
+		thinkingFillerTimer = setInterval(function () {
+			thinkingFillerIndex = (thinkingFillerIndex + 1) % THINKING_FILLERS.length;
+			var el = document.getElementById('loadingIndicator');
+			if (el) {
+				var textNode = el.querySelector('.loading-text');
+				if (textNode) textNode.textContent = THINKING_FILLERS[thinkingFillerIndex];
+			}
+		}, 2000);
+	}
+
+	function stopThinkingFillers() {
+		if (thinkingFillerTimer) {
+			clearInterval(thinkingFillerTimer);
+			thinkingFillerTimer = null;
+		}
+	}
+
+	function updateThinkingStep(label) {
+		var el = document.getElementById('loadingIndicator');
+		if (!el) return;
+		stopThinkingFillers();
+		var textNode = el.querySelector('.loading-text');
+		if (textNode) textNode.textContent = label;
+	}
+
 	function showLoading(show) {
 		isLoading = show;
 		executeBtn.disabled = show;
@@ -91,10 +176,12 @@ function initPanel() {
 			const loadingDiv = document.createElement('div');
 			loadingDiv.id = 'loadingIndicator';
 			loadingDiv.className = 'loading';
-			loadingDiv.innerHTML = '<div class="spinner"></div>AI is thinking...';
+			loadingDiv.innerHTML = '<div class="spinner"></div><span class="loading-text">AI is thinking...</span>';
 			messagesEl.appendChild(loadingDiv);
 			messagesEl.scrollTop = messagesEl.scrollHeight;
+			startThinkingFillers();
 		} else if (!show && existing) {
+			stopThinkingFillers();
 			existing.remove();
 		}
 	}
@@ -133,10 +220,26 @@ function initPanel() {
 		if (existing) existing.remove();
 	}
 
+	function formatWebSearchLabel(a) {
+		const provider = (a.data && a.data.searchProvider) || '';
+		const model = (a.data && a.data.searchModel) || '';
+		if (provider && model) return provider.charAt(0).toUpperCase() + provider.slice(1) + ' ' + model;
+		if (provider) return provider.charAt(0).toUpperCase() + provider.slice(1);
+		return 'Web Search';
+	}
+
 	function renderActions(actions) {
 		if (!actions || actions.length === 0) return;
 		for (let i = 0; i < actions.length; i++) {
 			const a = actions[i];
+			if (a.action === 'web_search' && a.success) {
+				addMessage(
+					'action-search',
+					'\uD83C\uDF10 Web Search \u2014 ' + formatWebSearchLabel(a),
+					a.message,
+				);
+				continue;
+			}
 			const type = a.success ? 'action-success' : 'action-error';
 			const icon = a.success ? '\u2705' : '\u274C';
 			addMessage(type, icon + ' ' + formatActionName(a.action), a.message);
@@ -367,7 +470,72 @@ function initPanel() {
 		renderFileChips();
 	}
 
-	const MAX_FILE_SIZE = 512 * 1024;
+	var maxFileSize = 10 * 1024 * 1024;
+
+	function isPdfFile(file) {
+		return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+	}
+
+	function arrayBufferToBase64(buffer) {
+		var bytes = new Uint8Array(buffer);
+		var binary = '';
+		for (var i = 0; i < bytes.length; i++) {
+			binary += String.fromCharCode(bytes[i]);
+		}
+		return window.btoa(binary);
+	}
+
+	function handlePdfFile(file, onDone, onError) {
+		var reader = new FileReader();
+		reader.onload = function () {
+			try {
+				var text =
+					typeof window.extractPdfText === 'function'
+						? window.extractPdfText(reader.result)
+						: '';
+				if (text) {
+					onDone({
+						name: file.name,
+						content: text,
+						mimeType: 'application/pdf',
+						size: file.size,
+					});
+					return;
+				}
+				var base64 = arrayBufferToBase64(reader.result);
+				onDone({
+					name: file.name,
+					content: '[PDF document — sent as binary to the AI model for reading]',
+					mimeType: 'application/pdf',
+					size: file.size,
+					base64Data: base64,
+				});
+			} catch (_err) {
+				addMessage(
+					'error',
+					'Error',
+					'Failed to process PDF "' + escapeHtml(file.name) + '".',
+				);
+				onError();
+			}
+		};
+		reader.onerror = onError;
+		reader.readAsArrayBuffer(file);
+	}
+
+	function handleTextFile(file, onDone, onError) {
+		const reader = new FileReader();
+		reader.onload = function () {
+			onDone({
+				name: file.name,
+				content: reader.result,
+				mimeType: file.type || 'text/plain',
+				size: file.size,
+			});
+		};
+		reader.onerror = onError;
+		reader.readAsText(file);
+	}
 
 	function handleFileSelection() {
 		const files = fileInput.files;
@@ -375,32 +543,29 @@ function initPanel() {
 		let pending = files.length;
 		for (let i = 0; i < files.length; i++) {
 			(function (file) {
-			if (file.size > MAX_FILE_SIZE) {
-				addMessage('error', 'Error', 'File "' + escapeHtml(file.name) + '" exceeds 512 KB limit.');
+		if (file.size > maxFileSize) {
+			var limitLabel = maxFileSize >= 1024 * 1024
+				? Math.round(maxFileSize / (1024 * 1024)) + ' MB'
+				: Math.round(maxFileSize / 1024) + ' KB';
+			addMessage('error', 'Error', 'File "' + escapeHtml(file.name) + '" exceeds ' + limitLabel + ' limit.');
+			pending--;
+			if (pending === 0) renderFileChips();
+			return;
+		}
+			const onDone = function (fileObj) {
+				attachedFiles.push(fileObj);
 				pending--;
 				if (pending === 0) renderFileChips();
-				return;
+			};
+			const onError = function () {
+				pending--;
+				if (pending === 0) renderFileChips();
+			};
+			if (isPdfFile(file)) {
+				handlePdfFile(file, onDone, onError);
+			} else {
+				handleTextFile(file, onDone, onError);
 			}
-			const reader = new FileReader();
-			reader.onload = function () {
-				attachedFiles.push({
-					name: file.name,
-					content: reader.result,
-					mimeType: file.type || 'text/plain',
-					size: file.size,
-				});
-				pending--;
-				if (pending === 0) {
-					renderFileChips();
-				}
-			};
-			reader.onerror = function () {
-				pending--;
-				if (pending === 0) {
-					renderFileChips();
-				}
-			};
-			reader.readAsText(file);
 			})(files[i]);
 		}
 		fileInput.value = '';
@@ -573,6 +738,7 @@ function initPanel() {
 		modeSelect.addEventListener('change', function () {
 			currentMode = modeSelect.value;
 			updateModePlaceholder();
+			persistMode();
 		});
 	}
 
@@ -677,6 +843,7 @@ function initPanel() {
 			}
 		}
 		updateRoleIndicator();
+		persistAppliedRole();
 	});
 
 	manageRolesBtn.addEventListener('click', function () {
@@ -691,6 +858,15 @@ function initPanel() {
 	promptInput.addEventListener('keydown', function (e) {
 		if (e.key === 'Escape' && autocompleteActive) {
 			removeAutocompleteDropdown();
+			e.preventDefault();
+			return;
+		}
+		if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+			e.stopPropagation();
+			return;
+		}
+		if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'A') {
+			e.stopPropagation();
 			e.preventDefault();
 			return;
 		}
@@ -709,9 +885,11 @@ function initPanel() {
 	clearHistoryBtn.addEventListener('click', function () {
 		messagesEl.innerHTML = '';
 		chatHistory = [];
+		savedMessages = [];
 		lastSentPrompt = null;
 		messageQueue = [];
 		renderQueue();
+		clearPersistedHistory();
 		if (emptyState) {
 			messagesEl.appendChild(emptyState);
 			emptyState.style.display = '';
@@ -786,6 +964,7 @@ function initPanel() {
 					if (start % 2 !== 0) start++;
 					chatHistory = chatHistory.slice(start);
 				}
+				persistHistory();
 			}
 			lastSentPrompt = null;
 			processNextInQueue();
@@ -828,13 +1007,64 @@ function initPanel() {
 			renderContextCircle(message.usedTokens, message.maxTokens, message.percentage);
 		}
 
+		if (message.type === 'fileSizeLimit') {
+			if (message.limitBytes > 0) {
+				maxFileSize = message.limitBytes;
+			}
+		}
+
 		if (message.type === 'loading') {
 			showLoading(message.status);
 		}
+
+		if (message.type === 'thinkingStep') {
+			updateThinkingStep(message.label);
+		}
 	});
+
+	function restoreFromStorage() {
+		try {
+			const storedMode = localStorage.getItem(STORAGE_KEY_MODE);
+			if (storedMode && modeSelect) {
+				modeSelect.value = storedMode;
+				currentMode = storedMode;
+				updateModePlaceholder();
+			}
+		} catch (_e) {}
+
+		try {
+			const storedRole = localStorage.getItem(STORAGE_KEY_ROLE);
+			if (storedRole) {
+				appliedRole = JSON.parse(storedRole);
+				updateRoleIndicator();
+			}
+		} catch (_e) {}
+
+		try {
+			const storedHistory = localStorage.getItem(STORAGE_KEY_HISTORY);
+			if (storedHistory) {
+				chatHistory = JSON.parse(storedHistory);
+			}
+		} catch (_e) {}
+
+		try {
+			const storedMessages = localStorage.getItem(STORAGE_KEY_MESSAGES);
+			if (storedMessages) {
+				const messages = JSON.parse(storedMessages);
+				for (let i = 0; i < messages.length; i++) {
+					const m = messages[i];
+					addMessage(m.type, m.label, m.content, m.files, m.modelName, true);
+				}
+				savedMessages = messages;
+			}
+		} catch (_e) {}
+	}
+
+	restoreFromStorage();
 
 	webviewApi.postMessage({ type: 'getNote' });
 	webviewApi.postMessage({ type: 'getAgentRoles' });
+	webviewApi.postMessage({ type: 'getFileSizeLimit' });
 }
 
 if (document.readyState === 'loading') {

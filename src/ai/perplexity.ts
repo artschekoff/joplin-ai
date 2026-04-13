@@ -1,4 +1,5 @@
 import * as https from 'https';
+import { StringDecoder } from 'string_decoder';
 import { AIProviderResponse, AIToolCall } from './types';
 import { PerplexityTool } from './tools';
 
@@ -23,11 +24,13 @@ const makeRequest = (
 				},
 			},
 			(res) => {
+				const decoder = new StringDecoder('utf8');
 				let data = '';
 				res.on('data', (chunk: Buffer) => {
-					data += chunk.toString();
+					data += decoder.write(chunk);
 				});
 				res.on('end', () => {
+					data += decoder.end();
 					try {
 						const parsed = JSON.parse(data);
 						if (parsed.error) {
@@ -205,6 +208,50 @@ Available tools:
 ${toolDescriptions.join('\n')}
 
 After you output a tool call, STOP. The system will execute it and return the result in a [TOOL_RESULT] message. Then you can respond or call another tool.`;
+};
+
+export interface PerplexitySearchCitation {
+	url: string;
+	title: string;
+}
+
+export interface PerplexitySearchResult {
+	content: string;
+	citations: PerplexitySearchCitation[];
+}
+
+/**
+ * Perform a one-shot web search using a Perplexity Sonar model.
+ * Returns the answer text and structured citations extracted from the API response.
+ */
+export const performPerplexityWebSearch = async (
+	apiKey: string,
+	model: string,
+	query: string,
+): Promise<PerplexitySearchResult> => {
+	if (!apiKey?.trim()) {
+		throw new Error('Perplexity API key is required for web search');
+	}
+	if (!query?.trim()) {
+		throw new Error('Search query cannot be empty');
+	}
+	const requestBody = {
+		model,
+		messages: [{ role: 'user', content: query }],
+	};
+	const parsed = await makeRequest(apiKey, SONAR_API_PATH, JSON.stringify(requestBody));
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const choices = parsed.choices as any[];
+	if (!choices?.length) {
+		throw new Error('Empty response from Perplexity web search');
+	}
+	const content: string = choices[0].message?.content ?? '';
+	const rawCitations = parsed.citations as string[] | undefined;
+	const citations: PerplexitySearchCitation[] = (rawCitations ?? []).map((url) => ({
+		url,
+		title: url,
+	}));
+	return { content, citations };
 };
 
 /** Simple helper for one-shot Perplexity calls without tools. */

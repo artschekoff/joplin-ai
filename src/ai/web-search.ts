@@ -1,4 +1,5 @@
 import * as https from 'https';
+import { StringDecoder } from 'string_decoder';
 
 export interface WebSearchCitation {
 	url: string;
@@ -35,11 +36,13 @@ const makeSearchRequest = (apiKey: string, body: string): Promise<Record<string,
 				},
 			},
 			(res) => {
+				const decoder = new StringDecoder('utf8');
 				let data = '';
 				res.on('data', (chunk: Buffer) => {
-					data += chunk.toString();
+					data += decoder.write(chunk);
 				});
 				res.on('end', () => {
+					data += decoder.end();
 					try {
 						const parsed = JSON.parse(data);
 						if (parsed.error) {

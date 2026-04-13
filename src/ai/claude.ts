@@ -1,4 +1,5 @@
 import * as https from 'https';
+import { StringDecoder } from 'string_decoder';
 import { AIProviderResponse, AIToolCall } from './types';
 import { ClaudeTool } from './tools';
 
@@ -16,11 +17,13 @@ const makeRequest = (apiKey: string, body: string): Promise<Record<string, unkno
 				},
 			},
 			(res) => {
+				const decoder = new StringDecoder('utf8');
 				let data = '';
 				res.on('data', (chunk: Buffer) => {
-					data += chunk.toString();
+					data += decoder.write(chunk);
 				});
 				res.on('end', () => {
+					data += decoder.end();
 					try {
 						const parsed = JSON.parse(data);
 						if (parsed.error) {

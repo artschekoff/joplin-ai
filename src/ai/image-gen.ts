@@ -2,6 +2,7 @@ import * as https from 'https';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { StringDecoder } from 'string_decoder';
 import { msleep, Second } from '@joplin/utils/time';
 import logger from '../utils/logger';
 
@@ -126,27 +127,29 @@ const makeRequest = (
 	body?: string,
 ): Promise<Record<string, unknown>> =>
 	new Promise((resolve, reject) => {
-		const req = https.request(options, (res) => {
-			let data = '';
-			res.on('data', (chunk: Buffer) => {
-				data += chunk.toString();
-			});
-			res.on('end', () => {
-				const statusCode = res.statusCode ?? 0;
-				if (statusCode >= 500 && statusCode < 600) {
-					reject(new TransientApiError(`Kie.ai server error: HTTP ${statusCode}`));
-					return;
-				}
-				try {
-					resolve(JSON.parse(data));
-				} catch (e) {
-					reject(
-						new Error(
-							`Failed to parse Kie.ai response (HTTP ${statusCode}): ${(e as Error).message}`,
-						),
-					);
-				}
-			});
+	const req = https.request(options, (res) => {
+		const decoder = new StringDecoder('utf8');
+		let data = '';
+		res.on('data', (chunk: Buffer) => {
+			data += decoder.write(chunk);
+		});
+		res.on('end', () => {
+			data += decoder.end();
+			const statusCode = res.statusCode ?? 0;
+			if (statusCode >= 500 && statusCode < 600) {
+				reject(new TransientApiError(`Kie.ai server error: HTTP ${statusCode}`));
+				return;
+			}
+			try {
+				resolve(JSON.parse(data));
+			} catch (e) {
+				reject(
+					new Error(
+						`Failed to parse Kie.ai response (HTTP ${statusCode}): ${(e as Error).message}`,
+					),
+				);
+			}
+		});
 		});
 		req.setTimeout(REQUEST_TIMEOUT_MS, () => {
 			req.destroy();

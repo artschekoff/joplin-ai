@@ -193,7 +193,12 @@ const pluginConfig = { ...baseConfig, entry: './src/index.ts',
 		alias: {
 			api: path.resolve(__dirname, 'api'),
 		},
-		fallback: moduleFallback,
+		fallback: {
+			...moduleFallback,
+			// pdfjs-dist optionally requires 'canvas' for server-side rendering;
+			// tell webpack to provide an empty stub instead of failing.
+			canvas: false,
+		},
 		// JSON files can also be required from scripts so we include this.
 		// https://github.com/joplin/plugin-bibtex/pull/2
 		extensions: ['.js', '.tsx', '.ts', '.json'],

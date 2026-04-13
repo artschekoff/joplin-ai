@@ -20,11 +20,18 @@ export interface AttachedFile {
 	content: string;
 	mimeType: string;
 	size: number;
+	/** Raw file bytes encoded as base64. Present when the lightweight text extractor could not parse the PDF, so the raw document is sent to the LLM instead. */
+	base64Data?: string;
 }
 
 export interface ImageProgressInfo {
 	progress: number;
 	state: string;
+}
+
+export interface ThinkingStepInfo {
+	step: string;
+	label: string;
 }
 
 export interface ActionContext {
@@ -36,10 +43,14 @@ export interface ActionContext {
 	agentRolePrompt?: string;
 	workMode?: 'ask' | 'agent' | 'edit';
 	webSearchEnabled?: boolean;
+	/** Combined "provider:model" string for web search, e.g. "openai:gpt-4o-search-preview" or "perplexity:sonar-pro". */
+	webSearchModel?: string;
 	openaiApiKey?: string;
+	perplexityApiKey?: string;
 	kieApiKey?: string;
 	imageGenModel?: string;
 	onImageProgress?: (info: ImageProgressInfo) => void;
+	onThinkingStep?: (info: ThinkingStepInfo) => void;
 }
 
 export interface ActionHandler {

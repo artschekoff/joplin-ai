@@ -48,9 +48,11 @@ export const getClaudeTools = (workMode?: WorkMode): ClaudeTool[] =>
 	}));
 
 export const getPerplexityTools = (workMode?: WorkMode): PerplexityTool[] =>
-	filterHandlers(getActionHandlers(), workMode).map((h) => ({
-		type: 'function' as const,
-		name: h.name,
-		description: h.description,
-		parameters: h.parameters,
-	}));
+	filterHandlers(getActionHandlers(), workMode)
+		.filter((h) => h.name !== 'web_search')
+		.map((h) => ({
+			type: 'function' as const,
+			name: h.name,
+			description: h.description,
+			parameters: h.parameters,
+		}));

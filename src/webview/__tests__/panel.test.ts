@@ -13,37 +13,42 @@ const buildDOM = (): void => {
 		<div id="app">
 			<div class="header">
 				<div id="noteInfo"></div>
-				<div class="mode-bar" id="modeBar">
-					<select id="modeSelect" class="mode-select">
-						<option value="ask">Ask</option>
-						<option value="agent" selected>Agent</option>
-						<option value="edit">Edit</option>
+				<div class="role-bar" id="roleBar">
+					<select id="roleSelect" class="role-select">
+						<option value="">No role</option>
 					</select>
+					<button id="applyRoleBtn" class="btn btn-sm">Apply</button>
+					<button id="manageRolesBtn" class="btn btn-sm">Roles</button>
 				</div>
-			<div class="role-bar" id="roleBar">
-				<select id="roleSelect" class="role-select">
-					<option value="">No role</option>
-				</select>
-				<button id="applyRoleBtn" class="btn btn-sm">Apply</button>
-				<button id="manageRolesBtn" class="btn btn-sm">Roles</button>
 			</div>
-		</div>
 			<div class="messages" id="messages">
 				<div class="empty-state" id="emptyState"></div>
 			</div>
 			<div id="queueContainer" class="queue-container"></div>
 			<div class="input-area">
-				<div class="textarea-wrap">
-					<textarea id="promptInput"></textarea>
-				</div>
-				<div id="fileChips" class="file-chips"></div>
-				<div class="actions">
-					<button id="executeBtn"></button>
-					<button id="attachFileBtn" class="btn btn-secondary" title="Attach file">&#x2B; File</button>
-					<button id="clearBtn">&#x1F5D1; Clear</button>
-					<button id="clearHistoryBtn">&#x1F9F9; Clear History</button>
-					<span class="spacer"></span>
-					<div id="contextSizeContainer" class="context-size-container"></div>
+				<div class="input-container">
+					<div id="fileChips" class="file-chips"></div>
+					<div class="textarea-wrap">
+						<textarea id="promptInput"></textarea>
+					</div>
+					<div class="bottom-bar">
+						<div class="bottom-bar-left">
+							<div class="mode-pill-wrap">
+								<select id="modeSelect" class="mode-pill-select">
+									<option value="ask">Ask</option>
+									<option value="agent" selected>Agent</option>
+									<option value="edit">Edit</option>
+								</select>
+							</div>
+							<button id="attachFileBtn" class="icon-btn" title="Attach file">&#x1F4CE;</button>
+							<button id="clearBtn" class="icon-btn" title="Clear input">&#x2715;</button>
+						</div>
+						<div class="bottom-bar-right">
+							<div id="contextSizeContainer" class="context-size-container"></div>
+							<button id="clearHistoryBtn" class="icon-btn" title="Clear history">&#x1F9F9;</button>
+							<button id="executeBtn" class="btn send-btn"></button>
+						</div>
+					</div>
 				</div>
 				<input type="file" id="fileInput" style="display:none" multiple accept=".txt,.md,.csv,.json,.xml,.js,.ts,.py,.java,.c,.cpp,.h,.html,.css,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.bat,.sql,.r,.rb,.go,.rs,.swift,.kt,.scala,.lua,.pl,.php" />
 			</div>
@@ -78,6 +83,10 @@ const pressKey = (
 	element.dispatchEvent(event);
 	return event;
 };
+
+beforeEach(() => {
+	localStorage.clear();
+});
 
 describe('panel.js alert message handling', () => {
 	let mockApi: ReturnType<typeof createMockWebviewApi>;
@@ -157,22 +166,16 @@ describe('PANEL_HTML button icons', () => {
 		container.innerHTML = htmlMatch![1];
 	});
 
-	it('should include an icon in the clear button', () => {
+	it('should include a clear button with icon-btn class', () => {
 		const clearBtn = container.querySelector('#clearBtn');
 		expect(clearBtn).not.toBeNull();
-
-		const textContent = clearBtn!.textContent!.trim();
-		expect(textContent).not.toBe('Clear');
-		expect(textContent.length).toBeGreaterThan('Clear'.length);
+		expect(clearBtn!.classList.contains('icon-btn')).toBe(true);
 	});
 
-	it('should include a Clear History button with an icon', () => {
+	it('should include a Clear History button with icon-btn class', () => {
 		const clearHistoryBtn = container.querySelector('#clearHistoryBtn');
 		expect(clearHistoryBtn).not.toBeNull();
-
-		const textContent = clearHistoryBtn!.textContent!.trim();
-		expect(textContent).toContain('Clear History');
-		expect(textContent.length).toBeGreaterThan('Clear History'.length);
+		expect(clearHistoryBtn!.classList.contains('icon-btn')).toBe(true);
 	});
 
 	it('should include an attach file button', () => {
@@ -646,6 +649,88 @@ describe('panel.js keyboard handling', () => {
 		pressKey(promptInput, 'Enter');
 
 		expect(promptInput.value).toBe('');
+	});
+
+	it('does NOT send execute on Ctrl+A', () => {
+		promptInput.value = 'Hello AI';
+		pressKey(promptInput, 'a', { ctrlKey: true });
+
+		const executeCalls = mockApi.postMessage.mock.calls.filter(
+			(call: any[]) => call[0]?.type === 'execute',
+		);
+		expect(executeCalls).toHaveLength(0);
+	});
+
+	it('does NOT send execute on Cmd+A', () => {
+		promptInput.value = 'Hello AI';
+		pressKey(promptInput, 'a', { metaKey: true });
+
+		const executeCalls = mockApi.postMessage.mock.calls.filter(
+			(call: any[]) => call[0]?.type === 'execute',
+		);
+		expect(executeCalls).toHaveLength(0);
+	});
+
+	it('stops propagation on Ctrl+A to prevent host interception', () => {
+		const event = new KeyboardEvent('keydown', {
+			key: 'a',
+			ctrlKey: true,
+			bubbles: true,
+			cancelable: true,
+		});
+		const stopPropagationSpy = jest.spyOn(event, 'stopPropagation');
+		promptInput.dispatchEvent(event);
+
+		expect(stopPropagationSpy).toHaveBeenCalled();
+	});
+
+	it('does NOT prevent default on Ctrl+A so native select-all is preserved', () => {
+		const event = new KeyboardEvent('keydown', {
+			key: 'a',
+			ctrlKey: true,
+			bubbles: true,
+			cancelable: true,
+		});
+		promptInput.dispatchEvent(event);
+
+		expect(event.defaultPrevented).toBe(false);
+	});
+
+	it('stops propagation on Cmd+Shift+A (registered Joplin panel-toggle shortcut)', () => {
+		const event = new KeyboardEvent('keydown', {
+			key: 'A',
+			metaKey: true,
+			shiftKey: true,
+			bubbles: true,
+			cancelable: true,
+		});
+		const stopPropagationSpy = jest.spyOn(event, 'stopPropagation');
+		promptInput.dispatchEvent(event);
+
+		expect(stopPropagationSpy).toHaveBeenCalled();
+	});
+
+	it('prevents default on Ctrl+Shift+A (registered Joplin panel-toggle shortcut)', () => {
+		const event = new KeyboardEvent('keydown', {
+			key: 'A',
+			ctrlKey: true,
+			shiftKey: true,
+			bubbles: true,
+			cancelable: true,
+		});
+		promptInput.dispatchEvent(event);
+
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it('does NOT send execute on Ctrl+Shift+A', () => {
+		promptInput.value = 'Hello AI';
+		pressKey(promptInput, 'A', { ctrlKey: true, shiftKey: true });
+
+		const executeCalls = mockApi.postMessage.mock.calls.filter(
+			(call: any[]) => call[0]?.type === 'execute',
+		);
+		expect(executeCalls).toHaveLength(0);
 	});
 });
 
@@ -1244,7 +1329,7 @@ describe('panel.js file attachment', () => {
 
 	it('renders the attach file button in the DOM', () => {
 		expect(attachFileBtn).not.toBeNull();
-		expect(attachFileBtn.textContent).toContain('File');
+		expect(attachFileBtn.classList.contains('icon-btn')).toBe(true);
 	});
 
 	it('renders a hidden file input element', () => {
@@ -2258,6 +2343,331 @@ describe('panel.js markdown rendering in AI messages', () => {
 	});
 });
 
+describe('panel.js chat persistence across settings navigation', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+	let promptInput: HTMLTextAreaElement;
+
+	beforeEach(() => {
+		localStorage.clear();
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+		promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+		localStorage.clear();
+	});
+
+	it('saves chatHistory to localStorage after a completed exchange', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+
+		promptInput.value = 'Hello';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+		messageHandler({ type: 'result', content: 'Hi there!', isEdit: false, actions: [] });
+
+		const stored = localStorage.getItem('joplin-ai-chat-history');
+		expect(stored).not.toBeNull();
+		const parsed = JSON.parse(stored!);
+		expect(parsed).toEqual([
+			{ role: 'user', content: 'Hello' },
+			{ role: 'assistant', content: 'Hi there!' },
+		]);
+	});
+
+	it('restores chatHistory from localStorage on reinitialisation (simulates return from settings)', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+
+		promptInput.value = 'Hello';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+		messageHandler({ type: 'result', content: 'Hi there!', isEdit: false, actions: [] });
+
+		// Simulate returning from settings: rebuild DOM and re-init (localStorage is preserved)
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const promptInput2 = document.getElementById('promptInput') as HTMLTextAreaElement;
+		promptInput2.value = 'Follow-up question';
+		promptInput2.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+
+		const executeCall = mockApi2.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'execute',
+		);
+		expect(executeCall).toBeDefined();
+		expect(executeCall![0].history).toEqual([
+			{ role: 'user', content: 'Hello' },
+			{ role: 'assistant', content: 'Hi there!' },
+		]);
+	});
+
+	it('restores visible chat messages in the DOM on reinitialisation', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+
+		promptInput.value = 'Hello';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+		messageHandler({ type: 'result', content: 'Hi there!', isEdit: false, actions: [] });
+
+		// Simulate returning from settings
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const messagesEl = document.getElementById('messages') as HTMLElement;
+		expect(messagesEl.querySelector('.message-user')).not.toBeNull();
+		expect(messagesEl.querySelector('.message-ai')).not.toBeNull();
+		expect(messagesEl.textContent).toContain('Hello');
+		expect(messagesEl.textContent).toContain('Hi there!');
+	});
+
+	it('hides empty state after restoring messages from storage', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+
+		promptInput.value = 'Hello';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+		messageHandler({ type: 'result', content: 'Reply', isEdit: false, actions: [] });
+
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const emptyState = document.getElementById('emptyState') as HTMLElement;
+		expect(emptyState.style.display).toBe('none');
+	});
+
+	it('clears localStorage when clear history button is clicked', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+
+		promptInput.value = 'Hello';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+		messageHandler({ type: 'result', content: 'Hi!', isEdit: false, actions: [] });
+
+		const clearHistoryBtn = document.getElementById('clearHistoryBtn') as HTMLButtonElement;
+		clearHistoryBtn.click();
+
+		const stored = localStorage.getItem('joplin-ai-chat-history');
+		expect(stored).toBeNull();
+	});
+
+	it('restores empty chat when localStorage has no saved history', () => {
+		localStorage.clear();
+
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const messagesEl = document.getElementById('messages') as HTMLElement;
+		expect(messagesEl.querySelector('.message')).toBeNull();
+		const emptyState = document.getElementById('emptyState') as HTMLElement;
+		expect(emptyState.style.display).not.toBe('none');
+	});
+
+	it('persists selected work mode to localStorage', () => {
+		const modeSelect = document.getElementById('modeSelect') as HTMLSelectElement;
+		modeSelect.value = 'ask';
+		modeSelect.dispatchEvent(new Event('change'));
+
+		const stored = localStorage.getItem('joplin-ai-mode');
+		expect(stored).toBe('ask');
+	});
+
+	it('restores work mode from localStorage on reinitialisation', () => {
+		const modeSelect = document.getElementById('modeSelect') as HTMLSelectElement;
+		modeSelect.value = 'edit';
+		modeSelect.dispatchEvent(new Event('change'));
+
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const modeSelect2 = document.getElementById('modeSelect') as HTMLSelectElement;
+		expect(modeSelect2.value).toBe('edit');
+	});
+
+	it('sends restored workMode on execute after reinitialisation', () => {
+		const modeSelect = document.getElementById('modeSelect') as HTMLSelectElement;
+		modeSelect.value = 'ask';
+		modeSelect.dispatchEvent(new Event('change'));
+
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const promptInput2 = document.getElementById('promptInput') as HTMLTextAreaElement;
+		promptInput2.value = 'Hello';
+		promptInput2.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+
+		const executeCall = mockApi2.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'execute',
+		);
+		expect(executeCall![0].workMode).toBe('ask');
+	});
+
+	it('persists applied role to localStorage when role is applied', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You are a coding expert' }],
+		});
+
+		const roleSelect = document.getElementById('roleSelect') as HTMLSelectElement;
+		roleSelect.value = 'r1';
+		const applyBtn = document.getElementById('applyRoleBtn') as HTMLButtonElement;
+		applyBtn.click();
+
+		const stored = localStorage.getItem('joplin-ai-applied-role');
+		expect(stored).not.toBeNull();
+		const parsed = JSON.parse(stored!);
+		expect(parsed).toMatchObject({ id: 'r1', name: 'Coder', systemPrompt: 'You are a coding expert' });
+	});
+
+	it('persists null to localStorage when no role is applied', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You code' }],
+		});
+
+		const roleSelect = document.getElementById('roleSelect') as HTMLSelectElement;
+		roleSelect.value = 'r1';
+		document.getElementById('applyRoleBtn')!.click();
+
+		roleSelect.value = '';
+		document.getElementById('applyRoleBtn')!.click();
+
+		const stored = localStorage.getItem('joplin-ai-applied-role');
+		expect(stored).toBeNull();
+	});
+
+	it('restores applied role indicator from localStorage on reinitialisation', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You are a coding expert' }],
+		});
+
+		const roleSelect = document.getElementById('roleSelect') as HTMLSelectElement;
+		roleSelect.value = 'r1';
+		document.getElementById('applyRoleBtn')!.click();
+
+		// Simulate returning from settings
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const indicator = document.querySelector('.role-active-indicator');
+		expect(indicator).not.toBeNull();
+		expect(indicator!.textContent).toContain('Coder');
+	});
+
+	it('sends agentRolePrompt in execute after restoring role from localStorage', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You are a coding expert' }],
+		});
+
+		const roleSelect = document.getElementById('roleSelect') as HTMLSelectElement;
+		roleSelect.value = 'r1';
+		document.getElementById('applyRoleBtn')!.click();
+
+		// Simulate returning from settings
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const promptInput2 = document.getElementById('promptInput') as HTMLTextAreaElement;
+		promptInput2.value = 'Write some code';
+		promptInput2.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+
+		const executeCall = mockApi2.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'execute',
+		);
+		expect(executeCall).toBeDefined();
+		expect(executeCall![0].agentRolePrompt).toBe('You are a coding expert');
+	});
+
+	it('restores role select value when agentRoles message arrives after reinitialisation', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You code' }],
+		});
+
+		const roleSelect = document.getElementById('roleSelect') as HTMLSelectElement;
+		roleSelect.value = 'r1';
+		document.getElementById('applyRoleBtn')!.click();
+
+		// Simulate returning from settings
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		// Now the backend sends agentRoles (simulating panel reload)
+		const messageHandler2 = mockApi2.onMessage.mock.calls[0][0];
+		messageHandler2({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You code' }],
+		});
+
+		const roleSelect2 = document.getElementById('roleSelect') as HTMLSelectElement;
+		expect(roleSelect2.value).toBe('r1');
+	});
+
+	it('clearing history does not clear persisted applied role', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You code' }],
+		});
+
+		const roleSelect = document.getElementById('roleSelect') as HTMLSelectElement;
+		roleSelect.value = 'r1';
+		document.getElementById('applyRoleBtn')!.click();
+
+		// Add a message so history is populated
+		promptInput.value = 'Hello';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+		messageHandler({ type: 'result', content: 'Hi!', isEdit: false, actions: [] });
+
+		// Clear history
+		document.getElementById('clearHistoryBtn')!.click();
+
+		const stored = localStorage.getItem('joplin-ai-applied-role');
+		expect(stored).not.toBeNull();
+		const parsed = JSON.parse(stored!);
+		expect(parsed).toMatchObject({ id: 'r1', name: 'Coder' });
+	});
+});
+
 describe('panel.js image generation progress bar', () => {
 	let mockApi: ReturnType<typeof createMockWebviewApi>;
 
@@ -2397,5 +2807,350 @@ describe('panel.js image generation progress bar', () => {
 		const fill = document.querySelector('.image-progress-fill') as HTMLElement;
 		expect(fill).not.toBeNull();
 		expect(fill.style.width).toBe('55%');
+	});
+});
+
+describe('panel.js PDF base64 fallback', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+	let promptInput: HTMLTextAreaElement;
+	let fileInput: HTMLInputElement;
+	let fileChips: HTMLElement;
+
+	beforeEach(() => {
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+		promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
+		fileInput = document.getElementById('fileInput') as HTMLInputElement;
+		fileChips = document.getElementById('fileChips') as HTMLElement;
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+	});
+
+	it('sends base64Data when PDF text extraction returns empty', (done) => {
+		(window as any).extractPdfText = () => '';
+		const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+		const file = new File([pdfBytes], 'compressed.pdf', { type: 'application/pdf' });
+		Object.defineProperty(fileInput, 'files', {
+			value: [file],
+			writable: true,
+			configurable: true,
+		});
+		fileInput.dispatchEvent(new Event('change'));
+		setTimeout(() => {
+			const chips = fileChips.querySelectorAll('.file-chip');
+			expect(chips.length).toBe(1);
+			expect(chips[0].textContent).toContain('compressed.pdf');
+			promptInput.value = 'Read this PDF';
+			pressKey(promptInput, 'Enter');
+			const executeCall = mockApi.postMessage.mock.calls.find(
+				(call: any[]) => call[0]?.type === 'execute',
+			);
+			expect(executeCall).toBeDefined();
+			const attachedFiles = executeCall![0].attachedFiles;
+			expect(attachedFiles).toHaveLength(1);
+			expect(attachedFiles[0].name).toBe('compressed.pdf');
+			expect(attachedFiles[0].base64Data).toBeTruthy();
+			expect(typeof attachedFiles[0].base64Data).toBe('string');
+			done();
+		}, 200);
+	});
+
+	it('does NOT show error message when PDF text extraction fails', (done) => {
+		(window as any).extractPdfText = () => '';
+		const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+		const file = new File([pdfBytes], 'nodeerror.pdf', { type: 'application/pdf' });
+		Object.defineProperty(fileInput, 'files', {
+			value: [file],
+			writable: true,
+			configurable: true,
+		});
+		fileInput.dispatchEvent(new Event('change'));
+		setTimeout(() => {
+			const errorMsg = document.querySelector('.message-error');
+			expect(errorMsg).toBeNull();
+			done();
+		}, 200);
+	});
+
+	it('sends extracted text (no base64Data) when PDF text extraction succeeds', (done) => {
+		(window as any).extractPdfText = () => 'Extracted PDF text';
+		const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+		const file = new File([pdfBytes], 'readable.pdf', { type: 'application/pdf' });
+		Object.defineProperty(fileInput, 'files', {
+			value: [file],
+			writable: true,
+			configurable: true,
+		});
+		fileInput.dispatchEvent(new Event('change'));
+		setTimeout(() => {
+			promptInput.value = 'Analyze';
+			pressKey(promptInput, 'Enter');
+			const executeCall = mockApi.postMessage.mock.calls.find(
+				(call: any[]) => call[0]?.type === 'execute',
+			);
+			const attachedFiles = executeCall![0].attachedFiles;
+			expect(attachedFiles).toHaveLength(1);
+			expect(attachedFiles[0].content).toBe('Extracted PDF text');
+			expect(attachedFiles[0].base64Data).toBeUndefined();
+			done();
+		}, 200);
+	});
+});
+
+describe('panel.js configurable file size limit', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+	let fileInput: HTMLInputElement;
+	let fileChips: HTMLElement;
+
+	beforeEach(() => {
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+		fileInput = document.getElementById('fileInput') as HTMLInputElement;
+		fileChips = document.getElementById('fileChips') as HTMLElement;
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+	});
+
+	it('requests file size limit on initialization', () => {
+		expect(mockApi.postMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ type: 'getFileSizeLimit' }),
+		);
+	});
+
+	it('uses 10 MB default limit before any fileSizeLimit message', (done) => {
+		const bigFile = new File([new ArrayBuffer(10 * 1024 * 1024 + 1)], 'huge.txt', {
+			type: 'text/plain',
+		});
+		Object.defineProperty(fileInput, 'files', {
+			value: [bigFile],
+			writable: true,
+			configurable: true,
+		});
+		fileInput.dispatchEvent(new Event('change'));
+		setTimeout(() => {
+			const errorMsg = document.querySelector('.message-error');
+			expect(errorMsg).not.toBeNull();
+			expect(errorMsg!.textContent).toContain('exceeds');
+			expect(errorMsg!.textContent).toContain('10');
+			done();
+		}, 100);
+	});
+
+	it('accepts files within the 10 MB default limit', (done) => {
+		const okFile = new File(['x'.repeat(100)], 'small.txt', { type: 'text/plain' });
+		Object.defineProperty(fileInput, 'files', {
+			value: [okFile],
+			writable: true,
+			configurable: true,
+		});
+		fileInput.dispatchEvent(new Event('change'));
+		setTimeout(() => {
+			const chips = fileChips.querySelectorAll('.file-chip');
+			expect(chips.length).toBe(1);
+			done();
+		}, 100);
+	});
+
+	it('updates file size limit when fileSizeLimit message is received', (done) => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'fileSizeLimit', limitBytes: 500 * 1024 });
+
+		const bigFile = new File([new ArrayBuffer(501 * 1024)], 'medium.txt', {
+			type: 'text/plain',
+		});
+		Object.defineProperty(fileInput, 'files', {
+			value: [bigFile],
+			writable: true,
+			configurable: true,
+		});
+		fileInput.dispatchEvent(new Event('change'));
+		setTimeout(() => {
+			const errorMsg = document.querySelector('.message-error');
+			expect(errorMsg).not.toBeNull();
+			expect(errorMsg!.textContent).toContain('exceeds');
+			done();
+		}, 100);
+	});
+
+	it('shows human-readable size in error message for MB limits', (done) => {
+		const bigFile = new File([new ArrayBuffer(11 * 1024 * 1024)], 'big.pdf', {
+			type: 'application/pdf',
+		});
+		Object.defineProperty(fileInput, 'files', {
+			value: [bigFile],
+			writable: true,
+			configurable: true,
+		});
+		fileInput.dispatchEvent(new Event('change'));
+		setTimeout(() => {
+			const errorMsg = document.querySelector('.message-error');
+			expect(errorMsg).not.toBeNull();
+			expect(errorMsg!.textContent).toContain('10 MB');
+			done();
+		}, 100);
+	});
+
+	it('allows large file after limit is increased via setting', (done) => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'fileSizeLimit', limitBytes: 50 * 1024 * 1024 });
+
+		const bigFile = new File(['x'.repeat(1000)], 'large.txt', { type: 'text/plain' });
+		Object.defineProperty(fileInput, 'files', {
+			value: [bigFile],
+			writable: true,
+			configurable: true,
+		});
+		fileInput.dispatchEvent(new Event('change'));
+		setTimeout(() => {
+			const chips = fileChips.querySelectorAll('.file-chip');
+			expect(chips.length).toBe(1);
+			const errorMsg = document.querySelector('.message-error');
+			expect(errorMsg).toBeNull();
+			done();
+		}, 100);
+	});
+});
+
+describe('thinkingStep message handling', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+	let messageHandler: (msg: unknown) => void;
+
+	beforeEach(() => {
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+		messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'loading', status: true });
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+	});
+
+	it('updates loading indicator text when thinkingStep message is received', () => {
+		messageHandler({ type: 'thinkingStep', step: 'search_notes', label: 'Searching notes...' });
+
+		const loadingEl = document.getElementById('loadingIndicator');
+		expect(loadingEl).not.toBeNull();
+		expect(loadingEl!.textContent).toContain('Searching notes...');
+	});
+
+	it('updates loading indicator text for a different step', () => {
+		messageHandler({ type: 'thinkingStep', step: 'create_note', label: 'Creating note...' });
+
+		const loadingEl = document.getElementById('loadingIndicator');
+		expect(loadingEl!.textContent).toContain('Creating note...');
+	});
+
+	it('does not crash if thinkingStep message arrives when not loading', () => {
+		messageHandler({ type: 'result', content: 'done', isEdit: false, actions: [] });
+		expect(() => {
+			messageHandler({ type: 'thinkingStep', step: 'search_notes', label: 'Searching...' });
+		}).not.toThrow();
+	});
+
+	it('shows default loading text initially before any thinkingStep arrives', () => {
+		const loadingEl = document.getElementById('loadingIndicator');
+		expect(loadingEl).not.toBeNull();
+		expect(loadingEl!.textContent).toBeTruthy();
+	});
+});
+
+describe('bottom bar layout', () => {
+	beforeEach(() => {
+		buildDOM();
+		const mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+	});
+
+	it('renders a .bottom-bar element inside .input-area', () => {
+		const inputArea = document.querySelector('.input-area');
+		const bottomBar = inputArea?.querySelector('.bottom-bar');
+		expect(bottomBar).not.toBeNull();
+	});
+
+	it('renders .bottom-bar-left and .bottom-bar-right inside .bottom-bar', () => {
+		const bottomBar = document.querySelector('.bottom-bar');
+		expect(bottomBar?.querySelector('.bottom-bar-left')).not.toBeNull();
+		expect(bottomBar?.querySelector('.bottom-bar-right')).not.toBeNull();
+	});
+
+	it('places modeSelect inside .bottom-bar', () => {
+		const bottomBar = document.querySelector('.bottom-bar');
+		const modeSelect = bottomBar?.querySelector('#modeSelect');
+		expect(modeSelect).not.toBeNull();
+	});
+
+	it('modeSelect is NOT inside the .header', () => {
+		const header = document.querySelector('.header');
+		const modeSelectInHeader = header?.querySelector('#modeSelect');
+		expect(modeSelectInHeader).toBeNull();
+	});
+
+	it('places #executeBtn inside .bottom-bar-right with send-btn class', () => {
+		const bottomBarRight = document.querySelector('.bottom-bar-right');
+		const sendBtn = bottomBarRight?.querySelector('#executeBtn');
+		expect(sendBtn).not.toBeNull();
+		expect(sendBtn?.classList.contains('send-btn')).toBe(true);
+	});
+
+	it('places #attachFileBtn inside .bottom-bar-left', () => {
+		const bottomBarLeft = document.querySelector('.bottom-bar-left');
+		const attachBtn = bottomBarLeft?.querySelector('#attachFileBtn');
+		expect(attachBtn).not.toBeNull();
+	});
+
+	it('places #clearBtn inside .bottom-bar-left', () => {
+		const bottomBarLeft = document.querySelector('.bottom-bar-left');
+		const clearBtn = bottomBarLeft?.querySelector('#clearBtn');
+		expect(clearBtn).not.toBeNull();
+	});
+
+	it('places #contextSizeContainer inside .bottom-bar-right', () => {
+		const bottomBarRight = document.querySelector('.bottom-bar-right');
+		const ctx = bottomBarRight?.querySelector('#contextSizeContainer');
+		expect(ctx).not.toBeNull();
+	});
+
+	it('places #clearHistoryBtn inside .bottom-bar-right', () => {
+		const bottomBarRight = document.querySelector('.bottom-bar-right');
+		const clearHistoryBtn = bottomBarRight?.querySelector('#clearHistoryBtn');
+		expect(clearHistoryBtn).not.toBeNull();
+	});
+
+	it('places #fileChips inside .input-container above the textarea', () => {
+		const container = document.querySelector('.input-container');
+		expect(container).not.toBeNull();
+		const fileChips = container?.querySelector('#fileChips');
+		expect(fileChips).not.toBeNull();
+	});
+});
+
+describe('file chip CSS padding', () => {
+	const cssSource = fs.readFileSync(path.resolve(__dirname, '..', 'panel.css'), 'utf-8');
+
+	it('.file-chip has vertical padding of at least 4px', () => {
+		const match = cssSource.match(/\.file-chip\s*\{[^}]*padding:\s*([^;]+);/);
+		expect(match).not.toBeNull();
+		const paddingValue = match![1].trim();
+		const parts = paddingValue.split(/\s+/);
+		const topPx = parseInt(parts[0], 10);
+		expect(topPx).toBeGreaterThanOrEqual(4);
+	});
+
+	it('.file-chip has horizontal padding of at least 10px', () => {
+		const match = cssSource.match(/\.file-chip\s*\{[^}]*padding:\s*([^;]+);/);
+		expect(match).not.toBeNull();
+		const paddingValue = match![1].trim();
+		const parts = paddingValue.split(/\s+/);
+		// shorthand: top right bottom left — or top+bottom / right+left
+		const rightPx = parts.length >= 2 ? parseInt(parts[1], 10) : parseInt(parts[0], 10);
+		expect(rightPx).toBeGreaterThanOrEqual(10);
 	});
 });

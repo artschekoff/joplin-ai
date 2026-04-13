@@ -27,6 +27,22 @@ const emptyCtx: ActionContext = { currentNoteId: null, currentNoteTitle: null };
 
 beforeEach(() => jest.clearAllMocks());
 
+describe('update_note parameter descriptions', () => {
+	it('title parameter explicitly says it is for renaming the note, not editing content', () => {
+		const handler = getActionHandlers().find((h) => h.name === 'update_note')!;
+		const titleDesc = (handler.parameters as { properties: { title: { description: string } } })
+			.properties.title.description;
+		expect(titleDesc).toMatch(/rename|note.?name|notes.?list/i);
+	});
+
+	it('body parameter says it is the full text content of the note', () => {
+		const handler = getActionHandlers().find((h) => h.name === 'update_note')!;
+		const bodyDesc = (handler.parameters as { properties: { body: { description: string } } })
+			.properties.body.description;
+		expect(bodyDesc).toMatch(/content|text/i);
+	});
+});
+
 describe('getActionHandlers', () => {
 	it('returns all registered handlers', () => {
 		const handlers = getActionHandlers();
@@ -225,6 +241,41 @@ describe('update_note', () => {
 		const result = await executeAction('update_note', { body: 'x' }, emptyCtx);
 		expect(result.success).toBe(false);
 		expect(mockDataPut).not.toHaveBeenCalled();
+	});
+
+	describe('edit mode', () => {
+		const editCtx: ActionContext = {
+			currentNoteId: 'note-1',
+			currentNoteTitle: 'My Note',
+			workMode: 'edit',
+		};
+
+		it('updates body when only body is provided in edit mode', async () => {
+			mockDataPut.mockResolvedValue(undefined);
+			const result = await executeAction('update_note', { body: '# Edit mode body' }, editCtx);
+			expect(result.success).toBe(true);
+			expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, {
+				body: '# Edit mode body',
+			});
+		});
+
+		it('updates only body when both title and body are provided in edit mode', async () => {
+			mockDataPut.mockResolvedValue(undefined);
+			const result = await executeAction(
+				'update_note',
+				{ title: 'New Title', body: '# Updated' },
+				editCtx,
+			);
+			expect(result.success).toBe(true);
+			expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, { body: '# Updated' });
+		});
+
+		it('returns clear title-protected error when only title is provided in edit mode', async () => {
+			const result = await executeAction('update_note', { title: 'New Title' }, editCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toMatch(/title.*read-only|read-only.*title/i);
+			expect(mockDataPut).not.toHaveBeenCalled();
+		});
 	});
 });
 
@@ -480,72 +531,188 @@ jest.mock('../../ai/web-search', () => ({
 	performWebSearch: jest.fn(),
 }));
 
+jest.mock('../../ai/perplexity', () => ({
+	performPerplexityWebSearch: jest.fn(),
+}));
+
 import { performWebSearch } from '../../ai/web-search';
+import { performPerplexityWebSearch } from '../../ai/perplexity';
 
 const mockedPerformWebSearch = performWebSearch as jest.MockedFunction<typeof performWebSearch>;
+const mockedPerplexityWebSearch = performPerplexityWebSearch as jest.MockedFunction<
+	typeof performPerplexityWebSearch
+>;
 
 describe('web_search', () => {
-	beforeEach(() => mockedPerformWebSearch.mockReset());
+	beforeEach(() => {
+		mockedPerformWebSearch.mockReset();
+		mockedPerplexityWebSearch.mockReset();
+	});
 
-	const webCtx: ActionContext = {
+	const openaiWebCtx: ActionContext = {
 		currentNoteId: 'note-1',
 		currentNoteTitle: 'My Note',
 		webSearchEnabled: true,
+		webSearchModel: 'openai:gpt-4o-search-preview',
 		openaiApiKey: 'sk-test-key',
 	};
 
-	it('performs a web search and returns results', async () => {
-		mockedPerformWebSearch.mockResolvedValue({
-			content: 'AI is evolving rapidly.',
-			citations: [{ url: 'https://example.com/ai', title: 'AI News' }],
+	describe('OpenAI web search model', () => {
+		it('routes to OpenAI performWebSearch when webSearchModel is openai:*', async () => {
+			mockedPerformWebSearch.mockResolvedValue({
+				content: 'AI is evolving rapidly.',
+				citations: [{ url: 'https://example.com/ai', title: 'AI News' }],
+			});
+			const result = await executeAction('web_search', { query: 'latest AI news' }, openaiWebCtx);
+			expect(mockedPerformWebSearch).toHaveBeenCalledWith('sk-test-key', 'latest AI news');
+			expect(mockedPerplexityWebSearch).not.toHaveBeenCalled();
+			expect(result.success).toBe(true);
+			expect(result.data?.content).toBe('AI is evolving rapidly.');
+			expect(result.data?.citations).toEqual([{ url: 'https://example.com/ai', title: 'AI News' }]);
+			expect(result.data?.searchProvider).toBe('openai');
+			expect(result.data?.searchModel).toBe('gpt-4o-search-preview');
 		});
-		const result = await executeAction('web_search', { query: 'latest AI news' }, webCtx);
-		expect(mockedPerformWebSearch).toHaveBeenCalledWith('sk-test-key', 'latest AI news');
-		expect(result.success).toBe(true);
-		expect(result.data?.content).toBe('AI is evolving rapidly.');
-		expect(result.data?.citations).toEqual([{ url: 'https://example.com/ai', title: 'AI News' }]);
+
+		it('defaults to OpenAI when webSearchModel is not set', async () => {
+			mockedPerformWebSearch.mockResolvedValue({ content: 'result', citations: [] });
+			const ctxNoModel: ActionContext = {
+				currentNoteId: 'note-1',
+				currentNoteTitle: 'My Note',
+				webSearchEnabled: true,
+				openaiApiKey: 'sk-test-key',
+			};
+			const result = await executeAction('web_search', { query: 'test' }, ctxNoModel);
+			expect(mockedPerformWebSearch).toHaveBeenCalled();
+			expect(result.success).toBe(true);
+		});
+
+		it('fails when OpenAI API key is missing', async () => {
+			const noKeyCtx: ActionContext = {
+				currentNoteId: 'note-1',
+				currentNoteTitle: 'My Note',
+				webSearchEnabled: true,
+				webSearchModel: 'openai:gpt-4o-search-preview',
+			};
+			const result = await executeAction('web_search', { query: 'test' }, noKeyCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toContain('OpenAI API key');
+			expect(mockedPerformWebSearch).not.toHaveBeenCalled();
+		});
+
+		it('returns failure when OpenAI search throws', async () => {
+			mockedPerformWebSearch.mockRejectedValue(new Error('Rate limit exceeded'));
+			const result = await executeAction('web_search', { query: 'test' }, openaiWebCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toContain('Rate limit exceeded');
+		});
+
+		it('handles empty citations', async () => {
+			mockedPerformWebSearch.mockResolvedValue({ content: 'No sources.', citations: [] });
+			const result = await executeAction('web_search', { query: 'obscure topic' }, openaiWebCtx);
+			expect(result.success).toBe(true);
+			expect(result.data?.citations).toEqual([]);
+		});
 	});
 
-	it('fails when web search is not enabled', async () => {
-		const noSearchCtx: ActionContext = {
-			currentNoteId: 'note-1',
-			currentNoteTitle: 'My Note',
-			webSearchEnabled: false,
-			openaiApiKey: 'sk-test',
-		};
-		const result = await executeAction('web_search', { query: 'test' }, noSearchCtx);
-		expect(result.success).toBe(false);
-		expect(result.message).toContain('not enabled');
-		expect(mockedPerformWebSearch).not.toHaveBeenCalled();
-	});
-
-	it('fails when OpenAI API key is missing', async () => {
-		const noKeyCtx: ActionContext = {
+	describe('Perplexity web search model', () => {
+		const perplexityWebCtx: ActionContext = {
 			currentNoteId: 'note-1',
 			currentNoteTitle: 'My Note',
 			webSearchEnabled: true,
+			webSearchModel: 'perplexity:sonar-pro',
+			perplexityApiKey: 'pplx-test-key',
 		};
-		const result = await executeAction('web_search', { query: 'test' }, noKeyCtx);
-		expect(result.success).toBe(false);
-		expect(result.message).toContain('API key');
-		expect(mockedPerformWebSearch).not.toHaveBeenCalled();
-	});
 
-	it('returns failure when search throws', async () => {
-		mockedPerformWebSearch.mockRejectedValue(new Error('Rate limit exceeded'));
-		const result = await executeAction('web_search', { query: 'test' }, webCtx);
-		expect(result.success).toBe(false);
-		expect(result.message).toContain('Rate limit exceeded');
-	});
-
-	it('handles empty citations in results', async () => {
-		mockedPerformWebSearch.mockResolvedValue({
-			content: 'No specific sources found.',
-			citations: [],
+		it('routes to Perplexity when webSearchModel is perplexity:*', async () => {
+			mockedPerplexityWebSearch.mockResolvedValue({
+				content: 'Perplexity search result.',
+				citations: [{ url: 'https://source.com', title: 'Source' }],
+			});
+			const result = await executeAction('web_search', { query: 'latest news' }, perplexityWebCtx);
+			expect(mockedPerplexityWebSearch).toHaveBeenCalledWith(
+				'pplx-test-key',
+				'sonar-pro',
+				'latest news',
+			);
+			expect(mockedPerformWebSearch).not.toHaveBeenCalled();
+			expect(result.success).toBe(true);
+			expect(result.data?.content).toBe('Perplexity search result.');
+			expect(result.data?.citations).toEqual([{ url: 'https://source.com', title: 'Source' }]);
+			expect(result.data?.searchProvider).toBe('perplexity');
+			expect(result.data?.searchModel).toBe('sonar-pro');
 		});
-		const result = await executeAction('web_search', { query: 'obscure topic' }, webCtx);
-		expect(result.success).toBe(true);
-		expect(result.data?.citations).toEqual([]);
+
+		it('routes to correct model when webSearchModel is perplexity:sonar-reasoning-pro', async () => {
+			mockedPerplexityWebSearch.mockResolvedValue({ content: 'reasoned result', citations: [] });
+			const ctx: ActionContext = {
+				...perplexityWebCtx,
+				webSearchModel: 'perplexity:sonar-reasoning-pro',
+			};
+			await executeAction('web_search', { query: 'test' }, ctx);
+			expect(mockedPerplexityWebSearch).toHaveBeenCalledWith(
+				'pplx-test-key',
+				'sonar-reasoning-pro',
+				'test',
+			);
+		});
+
+		it('fails when Perplexity API key is missing', async () => {
+			const noKeyCtx: ActionContext = {
+				currentNoteId: 'note-1',
+				currentNoteTitle: 'My Note',
+				webSearchEnabled: true,
+				webSearchModel: 'perplexity:sonar-pro',
+			};
+			const result = await executeAction('web_search', { query: 'test' }, noKeyCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toContain('Perplexity API key');
+			expect(mockedPerplexityWebSearch).not.toHaveBeenCalled();
+		});
+
+		it('returns failure when Perplexity search throws', async () => {
+			mockedPerplexityWebSearch.mockRejectedValue(new Error('Perplexity rate limit'));
+			const result = await executeAction('web_search', { query: 'test' }, perplexityWebCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toContain('Perplexity rate limit');
+		});
+	});
+
+	describe('web search disabled', () => {
+		it('fails when web search is not enabled', async () => {
+			const noSearchCtx: ActionContext = {
+				currentNoteId: 'note-1',
+				currentNoteTitle: 'My Note',
+				webSearchEnabled: false,
+				openaiApiKey: 'sk-test',
+			};
+			const result = await executeAction('web_search', { query: 'test' }, noSearchCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toContain('not available');
+			expect(mockedPerformWebSearch).not.toHaveBeenCalled();
+			expect(mockedPerplexityWebSearch).not.toHaveBeenCalled();
+		});
+	});
+});
+
+describe('EDIT_ACTIONS set', () => {
+	it('contains read-only actions plus update_note', async () => {
+		const { EDIT_ACTIONS, READ_ONLY_ACTIONS } = await import('../registry');
+		for (const action of READ_ONLY_ACTIONS) {
+			expect(EDIT_ACTIONS.has(action)).toBe(true);
+		}
+		expect(EDIT_ACTIONS.has('update_note')).toBe(true);
+	});
+
+	it('does not contain destructive actions', async () => {
+		const { EDIT_ACTIONS } = await import('../registry');
+		expect(EDIT_ACTIONS.has('create_note')).toBe(false);
+		expect(EDIT_ACTIONS.has('delete_note')).toBe(false);
+		expect(EDIT_ACTIONS.has('move_note')).toBe(false);
+		expect(EDIT_ACTIONS.has('create_notebook')).toBe(false);
+		expect(EDIT_ACTIONS.has('add_tag')).toBe(false);
+		expect(EDIT_ACTIONS.has('remove_tag')).toBe(false);
+		expect(EDIT_ACTIONS.has('generate_image')).toBe(false);
+		expect(EDIT_ACTIONS.has('remove_resource')).toBe(false);
 	});
 });
 
@@ -667,6 +834,34 @@ describe('executeAction — work mode enforcement', () => {
 			expect(result.success).toBe(true);
 		});
 
+		it('strips title from update_note args so the LLM cannot rename the note', async () => {
+			mockDataPut.mockResolvedValue(undefined);
+			await executeAction('update_note', { title: 'New Title', body: '# Fixed' }, editCtx);
+			expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, { body: '# Fixed' });
+		});
+
+		it('succeeds with body-only update when LLM passes both title and body in edit mode', async () => {
+			mockDataPut.mockResolvedValue(undefined);
+			const result = await executeAction(
+				'update_note',
+				{ title: 'Unwanted rename', body: 'Corrected body' },
+				editCtx,
+			);
+			expect(result.success).toBe(true);
+			expect(mockDataPut).not.toHaveBeenCalledWith(
+				expect.anything(),
+				expect.anything(),
+				expect.objectContaining({ title: 'Unwanted rename' }),
+			);
+		});
+
+		it('still succeeds when LLM passes only title (strips it, nothing to update → returns no-op success)', async () => {
+			mockDataPut.mockResolvedValue(undefined);
+			const result = await executeAction('update_note', { title: 'Sneaky Rename' }, editCtx);
+			expect(result.success).toBe(false);
+			expect(mockDataPut).not.toHaveBeenCalled();
+		});
+
 		it('blocks create_note', async () => {
 			const result = await executeAction('create_note', { title: 'T', body: 'B' }, editCtx);
 			expect(result.success).toBe(false);
@@ -680,9 +875,58 @@ describe('executeAction — work mode enforcement', () => {
 			expect(result.message).toMatch(/edit mode/i);
 		});
 
-		it('allows search_notes (read-only actions permitted in edit mode)', async () => {
+		it('blocks move_note', async () => {
+			const result = await executeAction('move_note', { targetNotebookId: 'f1' }, editCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toMatch(/edit mode/i);
+		});
+
+		it('blocks create_notebook', async () => {
+			const result = await executeAction('create_notebook', { title: 'NB' }, editCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toMatch(/edit mode/i);
+		});
+
+		it('blocks add_tag', async () => {
+			const result = await executeAction('add_tag', { tag: 'test' }, editCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toMatch(/edit mode/i);
+		});
+
+		it('blocks remove_tag', async () => {
+			const result = await executeAction('remove_tag', { tag: 'test' }, editCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toMatch(/edit mode/i);
+		});
+
+		it('allows search_notes (read-only access permitted)', async () => {
 			mockDataGet.mockResolvedValue({ items: [] });
 			const result = await executeAction('search_notes', { query: 'test' }, editCtx);
+			expect(result.success).toBe(true);
+		});
+
+		it('allows get_note (read-only access permitted)', async () => {
+			mockDataGet.mockResolvedValue({ id: 'n1', title: 'Found', body: 'content', parent_id: 'f1' });
+			const result = await executeAction('get_note', { noteId: 'n1' }, editCtx);
+			expect(result.success).toBe(true);
+		});
+
+		it('allows open_note (read-only access permitted)', async () => {
+			mockDataGet.mockResolvedValue({ id: 'note-1', title: 'My Note' });
+			mockCommandsExecute.mockResolvedValue(undefined);
+			const result = await executeAction('open_note', { noteId: 'note-1' }, editCtx);
+			expect(result.success).toBe(true);
+		});
+
+		it('allows list_notebooks (read-only access permitted)', async () => {
+			mockDataGet.mockResolvedValue({ items: [] });
+			const result = await executeAction('list_notebooks', {}, editCtx);
+			expect(result.success).toBe(true);
+		});
+
+		it('allows list_tags (read-only access permitted)', async () => {
+			mockDataGet.mockResolvedValue({ items: [] });
+			const result = await executeAction('list_tags', {}, editCtx);
 			expect(result.success).toBe(true);
 		});
 	});

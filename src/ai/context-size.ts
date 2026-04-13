@@ -1,6 +1,14 @@
 import { ChatMessage } from './types';
 
 const MODEL_MAX_TOKENS: Record<string, number> = {
+	'gpt-5.4': 1050000,
+	'gpt-5.4-mini': 400000,
+	'gpt-5.4-nano': 400000,
+	'gpt-4.1': 1047576,
+	'gpt-4.1-mini': 1047576,
+	'gpt-4.1-nano': 1047576,
+	o3: 200000,
+	'o4-mini': 200000,
 	'gpt-4o': 128000,
 	'gpt-4o-mini': 128000,
 	'gpt-4o-search-preview': 128000,

@@ -219,4 +219,51 @@ describe('renderMarkdown', () => {
 			expect(result).toContain('const x = 1;');
 		});
 	});
+
+	describe('non-printable and control character handling', () => {
+		it('strips Unicode replacement characters (U+FFFD) from plain text', () => {
+			const actualResult = renderMarkdown('Hello \uFFFD World');
+			expect(actualResult).not.toContain('\uFFFD');
+			expect(actualResult).toContain('Hello');
+			expect(actualResult).toContain('World');
+		});
+
+		it('strips U+FFFD embedded in Cyrillic words', () => {
+			const actualResult = renderMarkdown('об\uFFFD\uFFFDен данными');
+			expect(actualResult).not.toContain('\uFFFD');
+			expect(actualResult).toContain('обен данными');
+		});
+
+		it('normalizes Windows CRLF line endings to LF', () => {
+			const inputText = 'Line one\r\nLine two';
+			const actualResult = renderMarkdown(inputText);
+			expect(actualResult).not.toContain('\r');
+			expect(actualResult).toContain('Line one');
+			expect(actualResult).toContain('Line two');
+		});
+
+		it('normalizes isolated carriage returns to LF', () => {
+			const inputText = 'Line one\rLine two';
+			const actualResult = renderMarkdown(inputText);
+			expect(actualResult).not.toContain('\r');
+		});
+
+		it('strips U+FFFD from inside code blocks', () => {
+			const inputText = '```\nconst x = \uFFFD;\n```';
+			const actualResult = renderMarkdown(inputText);
+			expect(actualResult).not.toContain('\uFFFD');
+		});
+
+		it('strips U+FFFD from inline code', () => {
+			const actualResult = renderMarkdown('Use `val\uFFFD` here');
+			expect(actualResult).not.toContain('\uFFFD');
+		});
+
+		it('produces correct text when CRLF separates paragraphs', () => {
+			const inputText = 'Para one\r\n\r\nPara two';
+			const actualResult = renderMarkdown(inputText);
+			const pCount = (actualResult.match(/<p>/g) || []).length;
+			expect(pCount).toBe(2);
+		});
+	});
 });

@@ -49,6 +49,7 @@
     "webpack-cli": "^4.10.0"
   },
   "dependencies": {
-    "@joplin/utils": "3.5.1"
+    "@joplin/utils": "3.5.1",
+    "pdfjs-dist": "^3.11.174"
   }
 }

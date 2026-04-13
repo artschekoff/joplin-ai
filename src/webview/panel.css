@@ -161,6 +161,14 @@ body {
 	font-size: 12px;
 }
 
+.message-action-search {
+	background: var(--bg-edit-msg);
+	align-self: flex-start;
+	border-bottom-left-radius: 2px;
+	border-left: 3px solid #3b82f6;
+	font-size: 12px;
+}
+
 .message-label {
 	font-size: 10px;
 	font-weight: 600;
@@ -233,9 +241,21 @@ body {
 /* Input area */
 .input-area {
 	border-top: 1px solid var(--border-color);
-	padding: 10px 12px;
+	padding: 8px 10px;
 	background: var(--bg-secondary);
 	flex-shrink: 0;
+}
+
+.input-container {
+	background: var(--bg-input);
+	border: 1px solid var(--border-input);
+	border-radius: 10px;
+	overflow: hidden;
+	transition: border-color 0.15s;
+}
+
+.input-container:focus-within {
+	border-color: var(--border-focus);
 }
 
 .textarea-wrap {
@@ -244,34 +264,129 @@ body {
 
 .prompt-input {
 	width: 100%;
-	min-height: 60px;
+	min-height: 52px;
 	max-height: 150px;
-	padding: 8px 10px;
-	border: 1px solid var(--border-input);
-	border-radius: 8px;
-	background: var(--bg-input);
+	padding: 10px 12px 4px;
+	border: none;
+	border-radius: 0;
+	background: transparent;
 	color: var(--text-primary);
 	font-family: inherit;
 	font-size: 13px;
 	line-height: 1.5;
-	resize: vertical;
+	resize: none;
 	outline: none;
-	transition: border-color 0.15s;
-}
-
-.prompt-input:focus {
-	border-color: var(--border-focus);
 }
 
 .prompt-input::placeholder {
 	color: var(--text-secondary);
 }
 
-.actions {
+/* Bottom bar */
+.bottom-bar {
 	display: flex;
-	gap: 6px;
-	margin-top: 8px;
 	align-items: center;
+	justify-content: space-between;
+	padding: 4px 8px 6px;
+	gap: 6px;
+}
+
+.bottom-bar-left {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex-wrap: nowrap;
+}
+
+.bottom-bar-right {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex-shrink: 0;
+}
+
+/* Mode pill select */
+.mode-pill-wrap {
+	position: relative;
+}
+
+.mode-pill-select {
+	appearance: none;
+	-webkit-appearance: none;
+	padding: 3px 20px 3px 8px;
+	border: 1px solid var(--border-color);
+	border-radius: 20px;
+	background: var(--bg-secondary);
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 6px center;
+	background-size: 8px 5px;
+	color: var(--text-primary);
+	font-size: 11px;
+	font-weight: 500;
+	cursor: pointer;
+	outline: none;
+	transition: border-color 0.15s, background-color 0.15s;
+}
+
+.mode-pill-select:hover {
+	border-color: var(--border-focus);
+}
+
+.mode-pill-select:focus {
+	border-color: var(--border-focus);
+}
+
+/* Icon buttons */
+.icon-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-secondary);
+	font-size: 14px;
+	cursor: pointer;
+	transition: background 0.15s, color 0.15s;
+	flex-shrink: 0;
+}
+
+.icon-btn:hover {
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+}
+
+/* Send button */
+.send-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	border: none;
+	border-radius: 50%;
+	background: var(--bg-button);
+	color: var(--text-button);
+	font-size: 14px;
+	cursor: pointer;
+	transition: background 0.15s, transform 0.1s;
+	flex-shrink: 0;
+}
+
+.send-btn:hover:not(:disabled) {
+	background: var(--bg-button-hover);
+	transform: scale(1.05);
+}
+
+.send-btn:disabled {
+	background: var(--bg-button-disabled);
+	cursor: not-allowed;
+	transform: none;
 }
 
 .btn {
@@ -315,35 +430,6 @@ body {
 
 .spacer {
 	flex: 1;
-}
-
-.shortcut-hint {
-	font-size: 10px;
-	color: var(--text-secondary);
-}
-
-/* Mode bar */
-.mode-bar {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	margin-top: 6px;
-}
-
-.mode-select {
-	flex: 1;
-	padding: 4px 6px;
-	border: 1px solid var(--border-input);
-	border-radius: 4px;
-	background: var(--bg-input);
-	color: var(--text-primary);
-	font-size: 11px;
-	outline: none;
-	font-weight: 500;
-}
-
-.mode-select:focus {
-	border-color: var(--border-focus);
 }
 
 /* Role bar */
@@ -646,7 +732,7 @@ body {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
-	padding: 2px 6px 2px 8px;
+	padding: 4px 10px 4px 12px;
 	background: var(--bg-ai-msg);
 	border: 1px solid var(--border-color);
 	border-radius: 12px;

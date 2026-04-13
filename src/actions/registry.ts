@@ -3,6 +3,7 @@ import * as path from 'path';
 import joplin from 'api';
 import { ActionResult, ActionContext, ActionHandler } from './types';
 import { performWebSearch } from '../ai/web-search';
+import { performPerplexityWebSearch } from '../ai/perplexity';
 import { generateImage, downloadImageToFile } from '../ai/image-gen';
 
 export const READ_ONLY_ACTIONS = new Set([
@@ -120,7 +121,9 @@ const openNoteHandler: ActionHandler = {
 const updateNoteHandler: ActionHandler = {
 	name: 'update_note',
 	description:
-		'Update a note by ID, or the currently selected note if no noteId is provided. Can change the title, body, or both. Provide only the fields you want to change.',
+		'Update a note by ID, or the currently selected note if no noteId is provided. ' +
+		'Use "body" to edit the note text/content. Use "title" ONLY when renaming the note name in the notes list. ' +
+		'Provide only the fields you want to change.',
 	parameters: {
 		type: 'object',
 		properties: {
@@ -128,10 +131,15 @@ const updateNoteHandler: ActionHandler = {
 				type: 'string',
 				description: 'ID of the note to update. If omitted, updates the currently selected note.',
 			},
-			title: { type: 'string', description: 'New title for the note (optional)' },
+			title: {
+				type: 'string',
+				description:
+					'New note name shown in the notes list (for renaming only — do NOT use this to edit text content inside the note).',
+			},
 			body: {
 				type: 'string',
-				description: 'Complete new Markdown body for the note (optional)',
+				description:
+					'Complete new Markdown text content of the note. Use this to edit any text, fix typos, or update content inside the note.',
 			},
 		},
 	},
@@ -141,9 +149,15 @@ const updateNoteHandler: ActionHandler = {
 			return { success: false, message: 'No note ID provided and no note is selected' };
 		}
 		const updates: Record<string, unknown> = {};
-		if (args.title !== undefined) updates.title = args.title;
+		if (args.title !== undefined && context.workMode !== 'edit') updates.title = args.title;
 		if (args.body !== undefined) updates.body = args.body;
 		if (Object.keys(updates).length === 0) {
+			if (args.title !== undefined && context.workMode === 'edit') {
+				return {
+					success: false,
+					message: 'Note title is read-only in Edit mode. Only the body can be modified.',
+				};
+			}
 			return { success: false, message: 'No fields provided to update' };
 		}
 		await joplin.data.put(['notes', noteId], null, updates);
@@ -428,7 +442,7 @@ const listTagsHandler: ActionHandler = {
 const webSearchHandler: ActionHandler = {
 	name: 'web_search',
 	description:
-		'Search the web for current information using OpenAI web search. Returns results with source citations. Use when the user asks about recent events, needs up-to-date data, or wants information beyond what is in their notes.',
+		'Search the web for current information (OpenAI gpt-4o-search-preview). Returns results with source citations. Use when the user asks about recent events, needs up-to-date data, or wants information beyond what is in their notes. Requires "Enable Web Search" setting and an OpenAI API key.',
 	parameters: {
 		type: 'object',
 		properties: {
@@ -443,24 +457,56 @@ const webSearchHandler: ActionHandler = {
 		if (!context.webSearchEnabled) {
 			return {
 				success: false,
-				message: 'Web search is not enabled. Enable it in Settings → AI Assistant.',
-			};
-		}
-		if (!context.openaiApiKey?.trim()) {
-			return {
-				success: false,
 				message:
-					'OpenAI API key is required for web search. Configure it in Settings → AI Assistant.',
+					'Web search is not available. Enable it in Settings → AI Assistant → Enable Web Search, then pick a Web Search Model. Not needed for Perplexity — it has native built-in web search.',
 			};
 		}
+		const webSearchModel = context.webSearchModel ?? 'openai:gpt-4o-search-preview';
+		const colonIdx = webSearchModel.indexOf(':');
+		const searchProvider = colonIdx !== -1 ? webSearchModel.substring(0, colonIdx) : 'openai';
+		const searchModel = colonIdx !== -1 ? webSearchModel.substring(colonIdx + 1) : webSearchModel;
+		const query = args.query as string;
 		try {
-			const result = await performWebSearch(context.openaiApiKey, args.query as string);
+			if (searchProvider === 'perplexity') {
+				if (!context.perplexityApiKey?.trim()) {
+					return {
+						success: false,
+						message:
+							'Web search with Perplexity requires a Perplexity API key. Add it in Settings → AI Assistant → Perplexity API Key.',
+					};
+				}
+				const result = await performPerplexityWebSearch(
+					context.perplexityApiKey,
+					searchModel,
+					query,
+				);
+				return {
+					success: true,
+					message: `Web search completed via Perplexity ${searchModel} for "${query}"`,
+					data: {
+						content: result.content,
+						citations: result.citations,
+						searchProvider: 'perplexity',
+						searchModel,
+					},
+				};
+			}
+			if (!context.openaiApiKey?.trim()) {
+				return {
+					success: false,
+					message:
+						'Web search with OpenAI requires an OpenAI API key. Add it in Settings → AI Assistant → OpenAI API Key.',
+				};
+			}
+			const result = await performWebSearch(context.openaiApiKey, query);
 			return {
 				success: true,
-				message: `Web search completed for "${args.query}"`,
+				message: `Web search completed via OpenAI for "${query}"`,
 				data: {
 					content: result.content,
 					citations: result.citations,
+					searchProvider: 'openai',
+					searchModel: 'gpt-4o-search-preview',
 				},
 			};
 		} catch (err) {

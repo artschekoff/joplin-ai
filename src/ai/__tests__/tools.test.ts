@@ -24,7 +24,15 @@ jest.mock('../../actions/registry', () => ({
 		'list_tags',
 		'web_search',
 	]),
-	EDIT_ACTIONS: new Set(['update_note']),
+	EDIT_ACTIONS: new Set([
+		'get_note',
+		'open_note',
+		'search_notes',
+		'list_notebooks',
+		'list_tags',
+		'web_search',
+		'update_note',
+	]),
 }));
 
 describe('getOpenAITools with work mode', () => {
@@ -54,10 +62,27 @@ describe('getOpenAITools with work mode', () => {
 	});
 
 	describe('edit mode', () => {
-		it('returns only update_note tool', () => {
+		it('returns read-only tools plus update_note', () => {
 			const tools = getOpenAITools('edit');
 			const names = tools.map((t) => t.function.name);
-			expect(names).toEqual(['update_note']);
+			expect(names).toContain('get_note');
+			expect(names).toContain('open_note');
+			expect(names).toContain('search_notes');
+			expect(names).toContain('list_notebooks');
+			expect(names).toContain('list_tags');
+			expect(names).toContain('web_search');
+			expect(names).toContain('update_note');
+		});
+
+		it('excludes destructive tools', () => {
+			const tools = getOpenAITools('edit');
+			const names = tools.map((t) => t.function.name);
+			expect(names).not.toContain('create_note');
+			expect(names).not.toContain('delete_note');
+			expect(names).not.toContain('move_note');
+			expect(names).not.toContain('create_notebook');
+			expect(names).not.toContain('add_tag');
+			expect(names).not.toContain('remove_tag');
 		});
 	});
 
@@ -88,29 +113,60 @@ describe('getPerplexityTools with work mode', () => {
 		});
 	});
 
+	describe('native web search — web_search tool excluded', () => {
+		it('excludes web_search in agent mode (Perplexity searches natively)', () => {
+			const tools = getPerplexityTools('agent');
+			const names = tools.map((t) => t.name);
+			expect(names).not.toContain('web_search');
+		});
+
+		it('excludes web_search in ask mode', () => {
+			const tools = getPerplexityTools('ask');
+			const names = tools.map((t) => t.name);
+			expect(names).not.toContain('web_search');
+		});
+
+		it('excludes web_search in edit mode', () => {
+			const tools = getPerplexityTools('edit');
+			const names = tools.map((t) => t.name);
+			expect(names).not.toContain('web_search');
+		});
+
+		it('returns 12 tools in agent mode (all tools minus web_search)', () => {
+			const tools = getPerplexityTools('agent');
+			expect(tools).toHaveLength(12);
+		});
+	});
+
 	describe('ask mode', () => {
-		it('returns only read-only tools', () => {
+		it('returns only read-only tools (excluding web_search)', () => {
 			const tools = getPerplexityTools('ask');
 			const names = tools.map((t) => t.name);
 			expect(names).toContain('get_note');
 			expect(names).toContain('search_notes');
 			expect(names).not.toContain('create_note');
 			expect(names).not.toContain('update_note');
+			expect(names).not.toContain('web_search');
 		});
 	});
 
 	describe('edit mode', () => {
-		it('returns only update_note tool', () => {
+		it('returns read-only tools plus update_note (excluding web_search)', () => {
 			const tools = getPerplexityTools('edit');
 			const names = tools.map((t) => t.name);
-			expect(names).toEqual(['update_note']);
+			expect(names).toContain('get_note');
+			expect(names).toContain('search_notes');
+			expect(names).toContain('update_note');
+			expect(names).not.toContain('web_search');
+			expect(names).not.toContain('create_note');
+			expect(names).not.toContain('delete_note');
 		});
 	});
 
 	describe('agent mode', () => {
-		it('returns all tools', () => {
+		it('returns all tools except web_search', () => {
 			const tools = getPerplexityTools('agent');
-			expect(tools).toHaveLength(13);
+			expect(tools).toHaveLength(12);
 		});
 	});
 });
@@ -133,10 +189,15 @@ describe('getClaudeTools with work mode', () => {
 	});
 
 	describe('edit mode', () => {
-		it('returns only update_note tool', () => {
+		it('returns read-only tools plus update_note', () => {
 			const tools = getClaudeTools('edit');
 			const names = tools.map((t) => t.name);
-			expect(names).toEqual(['update_note']);
+			expect(names).toContain('get_note');
+			expect(names).toContain('search_notes');
+			expect(names).toContain('update_note');
+			expect(names).not.toContain('create_note');
+			expect(names).not.toContain('delete_note');
+			expect(names).not.toContain('move_note');
 		});
 	});
 

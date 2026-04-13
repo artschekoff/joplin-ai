@@ -52,6 +52,11 @@ jest.mock('../ai/service', () => ({
 	buildSystemPrompt: jest.fn(() => 'mocked system prompt with some content to estimate tokens'),
 }));
 
+const mockExtractPdf = jest.fn();
+jest.mock('../utils/pdf-extract', () => ({
+	extractPdfTextFromBase64: (...args: unknown[]) => mockExtractPdf(...args),
+}));
+
 import { initPanel } from '../panel';
 import { sendToAI } from '../ai/service';
 
@@ -849,5 +854,199 @@ describe('panel handleExecute', () => {
 			(call: unknown[]) => (call[1] as { type: string }).type,
 		);
 		expect(types).not.toContain('modelInfo');
+	});
+
+	it('sends fileSizeLimit when getFileSizeLimit message is received', async () => {
+		mockSettingsValue.mockResolvedValue(10);
+
+		await capturedOnMessageCallback({ type: 'getFileSizeLimit' });
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'fileSizeLimit',
+				limitBytes: 10 * 1024 * 1024,
+			}),
+		);
+	});
+
+	it('sends fileSizeLimit with custom value from settings', async () => {
+		mockSettingsValue.mockResolvedValue(25);
+
+		await capturedOnMessageCallback({ type: 'getFileSizeLimit' });
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'fileSizeLimit',
+				limitBytes: 25 * 1024 * 1024,
+			}),
+		);
+	});
+
+	it('defaults to 10 MB when fileMaxSizeMb setting is not configured', async () => {
+		mockSettingsValue.mockResolvedValue(undefined);
+
+		await capturedOnMessageCallback({ type: 'getFileSizeLimit' });
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'fileSizeLimit',
+				limitBytes: 10 * 1024 * 1024,
+			}),
+		);
+	});
+
+	it('posts thinkingStep message when onThinkingStep callback fires during execution', async () => {
+		mockedSendToAI.mockImplementation(
+			async (_provider, _key, _model, _prompt, _title, _body, context) => {
+				context?.onThinkingStep?.({ step: 'search_notes', label: 'Searching notes...' });
+				return { content: 'result', isEdit: false, editedBody: undefined, actions: [] };
+			},
+		);
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'find my notes' });
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'thinkingStep',
+				step: 'search_notes',
+				label: 'Searching notes...',
+			}),
+		);
+	});
+
+	it('posts multiple thinkingStep messages for sequential tool calls', async () => {
+		mockedSendToAI.mockImplementation(
+			async (_provider, _key, _model, _prompt, _title, _body, context) => {
+				context?.onThinkingStep?.({ step: 'search_notes', label: 'Searching notes...' });
+				context?.onThinkingStep?.({ step: 'create_note', label: 'Creating note...' });
+				return { content: 'done', isEdit: false, editedBody: undefined, actions: [] };
+			},
+		);
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'find and create' });
+
+		const thinkingStepCalls = mockPostMessage.mock.calls.filter(
+			(call: unknown[]) => (call[1] as { type: string }).type === 'thinkingStep',
+		);
+		expect(thinkingStepCalls).toHaveLength(2);
+		expect(thinkingStepCalls[0][1]).toMatchObject({ step: 'search_notes' });
+		expect(thinkingStepCalls[1][1]).toMatchObject({ step: 'create_note' });
+	});
+
+	it('extracts text from base64 PDF via pdfjs-dist before sending to AI', async () => {
+		mockExtractPdf.mockResolvedValue('Extracted PDF content');
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({
+			type: 'execute',
+			prompt: 'summarize the pdf',
+			attachedFiles: [
+				{
+					name: 'report.pdf',
+					content: '[PDF document]',
+					mimeType: 'application/pdf',
+					size: 1024,
+					base64Data: 'JVBERi0xLjQ=',
+				},
+			],
+		});
+
+		expect(mockExtractPdf).toHaveBeenCalledWith('JVBERi0xLjQ=');
+		const sendCall = mockedSendToAI.mock.calls[0];
+		const context = sendCall[6];
+		const file = context.attachedFiles![0];
+		expect(file.content).toBe('Extracted PDF content');
+		expect(file.base64Data).toBeUndefined();
+	});
+
+	it('keeps base64Data when pdfjs-dist extraction fails', async () => {
+		mockExtractPdf.mockRejectedValue(new Error('corrupt PDF'));
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({
+			type: 'execute',
+			prompt: 'summarize',
+			attachedFiles: [
+				{
+					name: 'bad.pdf',
+					content: '[PDF document]',
+					mimeType: 'application/pdf',
+					size: 500,
+					base64Data: 'aW52YWxpZA==',
+				},
+			],
+		});
+
+		const sendCall = mockedSendToAI.mock.calls[0];
+		const context = sendCall[6];
+		const file = context.attachedFiles![0];
+		expect(file.base64Data).toBe('aW52YWxpZA==');
+	});
+
+	it('keeps base64Data when pdfjs-dist returns empty text', async () => {
+		mockExtractPdf.mockResolvedValue('   ');
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({
+			type: 'execute',
+			prompt: 'read this',
+			attachedFiles: [
+				{
+					name: 'scan.pdf',
+					content: '[PDF document]',
+					mimeType: 'application/pdf',
+					size: 2048,
+					base64Data: 'c2Nhbm5lZA==',
+				},
+			],
+		});
+
+		const sendCall = mockedSendToAI.mock.calls[0];
+		const context = sendCall[6];
+		const file = context.attachedFiles![0];
+		expect(file.base64Data).toBe('c2Nhbm5lZA==');
+	});
+
+	it('skips pdfjs-dist extraction for non-PDF attached files', async () => {
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({
+			type: 'execute',
+			prompt: 'check this',
+			attachedFiles: [
+				{
+					name: 'readme.txt',
+					content: 'hello world',
+					mimeType: 'text/plain',
+					size: 11,
+				},
+			],
+		});
+
+		expect(mockExtractPdf).not.toHaveBeenCalled();
 	});
 });

@@ -45,6 +45,9 @@
 	window.renderMarkdown = function (text) {
 		if (!text || !text.trim()) return '';
 
+		text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\uFFFD/g, '');
+		if (!text.trim()) return '';
+
 		var lines = text.split('\n');
 		var html = [];
 		var i = 0;
