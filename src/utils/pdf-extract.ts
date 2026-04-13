@@ -33,7 +33,8 @@ interface PdfJsLib {
  *   failure / no extractable text.
  */
 export const extractPdfTextFromBase64 = async (base64Data: string): Promise<string> => {
-	const pdfjsLib: PdfJsLib = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as PdfJsLib;
+	const pdfjsLib: PdfJsLib =
+		(await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as PdfJsLib;
 	const data = new Uint8Array(Buffer.from(base64Data, 'base64'));
 	const doc = await pdfjsLib.getDocument({ data }).promise;
 	const pages: string[] = [];
