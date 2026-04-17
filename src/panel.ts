@@ -7,69 +7,82 @@ import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
 import { extractPdfTextFromBase64 } from './utils/pdf-extract';
+import { shareNoteAsText, buildPdfMailtoUrl, openUrlInSystem } from './utils/share-note';
 
 let panelHandle: ViewHandle | null = null;
 let panelVisible = false;
+let blockEditorEnabled = false;
+let editorSelection = '';
 
 const PANEL_HTML = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body>
 	<div id="app">
-		<div class="header">
-			<div class="header-title">
-				<span class="icon">&#x1F916;</span>
-				AI Assistant
-			</div>
-			<div class="note-info" id="noteInfo">Loading...</div>
-			<div class="role-bar" id="roleBar">
-				<select id="roleSelect" class="role-select">
-					<option value="">No role</option>
-				</select>
-				<button id="applyRoleBtn" class="btn btn-secondary btn-sm">Apply</button>
-				<button id="manageRolesBtn" class="btn btn-secondary btn-sm">&#x2699; Roles</button>
-			</div>
-		</div>
-		<div class="messages" id="messages">
-			<div class="empty-state" id="emptyState">
-				<div class="icon">&#x1F4AC;</div>
-				<p>Ask a question about your note or request edits.<br>The current note is shared as context.</p>
-			</div>
-		</div>
-		<div id="queueContainer" class="queue-container"></div>
-		<div class="input-area">
-			<div class="input-container">
-				<div id="fileChips" class="file-chips"></div>
-				<div class="textarea-wrap">
-					<textarea
-						id="promptInput"
-						class="prompt-input"
-						placeholder="What would you like to do with this note?"
-						rows="2"
-					></textarea>
+		<div class="ai-chat-pane">
+			<div class="header">
+				<div class="header-title">
+					<span class="icon">&#x1F916;</span>
+					AI Assistant
 				</div>
-				<div class="bottom-bar">
-					<div class="bottom-bar-left">
-						<div class="mode-pill-wrap">
-							<select id="modeSelect" class="mode-pill-select">
-								<option value="ask">&#x1F4AC; Ask</option>
-								<option value="agent" selected>&#x1F916; Agent</option>
-								<option value="edit">&#x270F; Edit</option>
-							</select>
+				<div class="note-info" id="noteInfo">Loading...</div>
+				<div class="role-bar" id="roleBar">
+					<select id="roleSelect" class="role-select">
+						<option value="">No role</option>
+					</select>
+					<button id="applyRoleBtn" class="btn btn-secondary btn-sm">Apply</button>
+					<button id="manageRolesBtn" class="btn btn-secondary btn-sm">&#x2699; Roles</button>
+				</div>
+			</div>
+			<div class="messages" id="messages">
+				<div class="empty-state" id="emptyState">
+					<div class="icon">&#x1F4AC;</div>
+					<p>Ask a question about your note or request edits.<br>The current note is shared as context.</p>
+				</div>
+			</div>
+			<div id="queueContainer" class="queue-container"></div>
+			<div class="input-area">
+				<div class="input-container">
+					<div id="fileChips" class="file-chips"></div>
+					<div class="textarea-wrap">
+						<textarea
+							id="promptInput"
+							class="prompt-input"
+							placeholder="What would you like to do with this note?"
+							rows="2"
+						></textarea>
+					</div>
+					<div class="bottom-bar">
+						<div class="bottom-bar-left">
+							<div class="mode-pill-wrap">
+								<select id="modeSelect" class="mode-pill-select">
+									<option value="ask">&#x1F4AC; Ask</option>
+									<option value="agent" selected>&#x1F916; Agent</option>
+									<option value="edit">&#x270F; Edit</option>
+								</select>
+							</div>
+							<button id="attachFileBtn" class="icon-btn" title="Attach file">&#x1F4CE;</button>
+							<button id="clearBtn" class="icon-btn" title="Clear input">&#x2715;</button>
 						</div>
-						<button id="attachFileBtn" class="icon-btn" title="Attach file">&#x1F4CE;</button>
-						<button id="clearBtn" class="icon-btn" title="Clear input">&#x2715;</button>
-					</div>
-					<div class="bottom-bar-right">
-						<div id="contextSizeContainer" class="context-size-container"></div>
-						<button id="clearHistoryBtn" class="icon-btn" title="Clear history">&#x1F9F9;</button>
-						<button id="executeBtn" class="btn send-btn" title="Send (Enter)">&#x27A4;</button>
+						<div class="bottom-bar-right">
+							<div id="contextSizeContainer" class="context-size-container"></div>
+							<button id="clearHistoryBtn" class="icon-btn" title="Clear history">&#x1F9F9;</button>
+							<button id="executeBtn" class="btn send-btn" title="Send (Enter)">&#x27A4;</button>
+						</div>
 					</div>
 				</div>
+				<input type="file" id="fileInput" style="display:none" multiple accept=".pdf,.txt,.md,.csv,.json,.xml,.js,.ts,.py,.java,.c,.cpp,.h,.html,.css,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.bat,.sql,.r,.rb,.go,.rs,.swift,.kt,.scala,.lua,.pl,.php" />
 			</div>
-			<input type="file" id="fileInput" style="display:none" multiple accept=".pdf,.txt,.md,.csv,.json,.xml,.js,.ts,.py,.java,.c,.cpp,.h,.html,.css,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.bat,.sql,.r,.rb,.go,.rs,.swift,.kt,.scala,.lua,.pl,.php" />
+			<div id="roleManageView" class="role-manage-view" style="display: none;"></div>
 		</div>
-		<div id="roleManageView" class="role-manage-view" style="display: none;"></div>
+		<div id="editor-resizer" style="display: none;"></div>
+		<div id="editor-pane" style="display: none;">
+			<div id="editor-container" tabindex="-1"></div>
+			<div id="slash-menu"></div>
+			<div id="vim-statusbar" data-mode="insert">
+				<span id="vim-mode-label">INSERT</span>
+			</div>
+		</div>
 	</div>
 </body>
 </html>`;
@@ -439,7 +452,19 @@ export const initPanel = async () => {
 	await joplin.views.panels.addScript(panelHandle, './webview/panel.css');
 	await joplin.views.panels.addScript(panelHandle, './webview/markdown.js');
 	await joplin.views.panels.addScript(panelHandle, './webview/pdf-parser.js');
+	// EditorJS vendor bundles must load before block-editor.js so that the
+	// expected window globals (EditorJS, Header, …) are already defined.
+	await joplin.views.panels.addScript(panelHandle, './webview/vendor/editorjs.umd.js');
+	await joplin.views.panels.addScript(panelHandle, './webview/vendor/header.umd.js');
+	await joplin.views.panels.addScript(panelHandle, './webview/vendor/editorjs-list.umd.js');
+	await joplin.views.panels.addScript(panelHandle, './webview/vendor/checklist.umd.js');
+	await joplin.views.panels.addScript(panelHandle, './webview/vendor/code.umd.js');
+	await joplin.views.panels.addScript(panelHandle, './webview/vendor/quote.umd.js');
+	await joplin.views.panels.addScript(panelHandle, './webview/vendor/delimiter.umd.js');
+	await joplin.views.panels.addScript(panelHandle, './webview/vendor/editorjs-drag-drop.js');
+	await joplin.views.panels.addScript(panelHandle, './webview/markdown-converter.js');
 	await joplin.views.panels.addScript(panelHandle, './webview/panel.js');
+	await joplin.views.panels.addScript(panelHandle, './webview/block-editor.js');
 	await joplin.views.panels.hide(panelHandle);
 	panelVisible = false;
 
@@ -448,6 +473,16 @@ export const initPanel = async () => {
 		if (!panelHandle) return;
 
 		if (message.type === 'abortRequest') {
+			return;
+		}
+
+		if (message.type === 'saveBlocks') {
+			const { noteId, markdown } = message as { noteId: unknown; markdown: unknown };
+			if (noteId && typeof markdown === 'string') {
+				try {
+					await joplin.data.put(['notes', noteId as string], null, { body: markdown });
+				} catch (_) {}
+			}
 			return;
 		}
 
@@ -502,5 +537,50 @@ export const togglePanel = async () => {
 		await sendNoteInfo(panelHandle);
 	} else {
 		await joplin.views.panels.hide(panelHandle);
+	}
+};
+
+export const getBlockEditorEnabled = (): boolean => blockEditorEnabled;
+
+export const setEditorSelection = (text: string): void => {
+	editorSelection = text;
+};
+
+/**
+ * Toggles the block editor pane and notifies the webview of the new state.
+ * Shows the panel if it is currently hidden so the block editor is visible.
+ * The editorHider content script polls this state to hide/show the native CM editor.
+ */
+export const toggleBlockEditorPane = async (): Promise<void> => {
+	blockEditorEnabled = !blockEditorEnabled;
+	if (!panelHandle) return;
+	if (blockEditorEnabled && !panelVisible) {
+		panelVisible = true;
+		await joplin.views.panels.show(panelHandle);
+		await sendNoteInfo(panelHandle);
+	}
+	joplin.views.panels.postMessage(panelHandle, {
+		type: 'blockEditorState',
+		active: blockEditorEnabled,
+	});
+};
+
+/**
+ * Shares the currently selected note via email.
+ *
+ * - 'pdf'  → delegates to Joplin's built-in exportPdf command which opens the
+ *             native OS save dialog and renders the note via Chromium print-to-PDF,
+ *             then opens the default email client with the subject pre-filled.
+ * - 'text' → converts the note body to structured plain text and opens the
+ *             email client with the full content in the message body.
+ */
+export const shareCurrentNote = async (format: string): Promise<void> => {
+	const note = await getCurrentNote();
+	if (!note) throw new Error('No note selected. Please open a note first.');
+	if (format === 'pdf') {
+		await joplin.commands.execute('exportPdf', [note.id]);
+		await openUrlInSystem(buildPdfMailtoUrl(note.title));
+	} else {
+		await shareNoteAsText({ title: note.title, body: note.body });
 	}
 };

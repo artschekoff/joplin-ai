@@ -9,9 +9,20 @@ const mockSettingsValue = jest.fn();
 const mockSettingsSetValue = jest.fn().mockResolvedValue(undefined);
 const mockSelectedNote = jest.fn();
 const mockDataGet = jest.fn();
+const mockDataPut = jest.fn().mockResolvedValue(undefined);
 const mockOnNoteSelectionChange = jest.fn().mockResolvedValue(undefined);
 
 let capturedOnMessageCallback: (message: any) => Promise<void>;
+
+const mockShareNoteAsText = jest.fn().mockResolvedValue(undefined);
+const mockOpenUrlInSystem = jest.fn().mockResolvedValue(undefined);
+jest.mock('../utils/share-note', () => ({
+	shareNoteAsText: (...args: unknown[]) => mockShareNoteAsText(...args),
+	openUrlInSystem: (...args: unknown[]) => mockOpenUrlInSystem(...args),
+	buildPdfMailtoUrl: (title: string) => `mailto:?subject=${encodeURIComponent(title)}&body=PDF`,
+}));
+
+const mockCommandsExecute = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('api', () => ({
 	__esModule: true,
@@ -43,6 +54,10 @@ jest.mock('api', () => ({
 		},
 		data: {
 			get: (...args: any[]) => mockDataGet(...args),
+			put: (...args: any[]) => mockDataPut(...args),
+		},
+		commands: {
+			execute: (...args: any[]) => mockCommandsExecute(...args),
 		},
 	},
 }));
@@ -57,7 +72,7 @@ jest.mock('../utils/pdf-extract', () => ({
 	extractPdfTextFromBase64: (...args: unknown[]) => mockExtractPdf(...args),
 }));
 
-import { initPanel } from '../panel';
+import { initPanel, shareCurrentNote } from '../panel';
 import { sendToAI } from '../ai/service';
 
 const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
@@ -1048,5 +1063,106 @@ describe('panel handleExecute', () => {
 		});
 
 		expect(mockExtractPdf).not.toHaveBeenCalled();
+	});
+});
+
+describe('shareCurrentNote', () => {
+	beforeEach(async () => {
+		jest.clearAllMocks();
+		mockCreate.mockResolvedValue(MOCK_PANEL_HANDLE);
+		mockSelectedNote.mockResolvedValue({ id: 'note-42' });
+		mockDataGet.mockResolvedValue({ id: 'note-42', title: 'My Test Note', body: '# Hello' });
+		await initPanel();
+	});
+
+	it('calls joplin exportPdf command with the current note id for pdf format', async () => {
+		await shareCurrentNote('pdf');
+		expect(mockCommandsExecute).toHaveBeenCalledWith('exportPdf', ['note-42']);
+	});
+
+	it('opens email client with subject pre-filled after pdf export', async () => {
+		await shareCurrentNote('pdf');
+		expect(mockOpenUrlInSystem).toHaveBeenCalledWith(
+			expect.stringContaining('My%20Test%20Note'),
+		);
+	});
+
+	it('calls shareNoteAsText with note data for text format', async () => {
+		await shareCurrentNote('text');
+		expect(mockShareNoteAsText).toHaveBeenCalledWith({
+			title: 'My Test Note',
+			body: '# Hello',
+		});
+	});
+
+	it('does not call exportPdf for text format', async () => {
+		await shareCurrentNote('text');
+		expect(mockCommandsExecute).not.toHaveBeenCalledWith('exportPdf', expect.anything());
+	});
+
+	it('throws a user-readable error when no note is selected', async () => {
+		mockSelectedNote.mockResolvedValue(null);
+		await expect(shareCurrentNote('text')).rejects.toThrow('No note selected');
+	});
+});
+
+describe('saveBlocks message handler', () => {
+	beforeEach(async () => {
+		jest.clearAllMocks();
+		mockCreate.mockResolvedValue(MOCK_PANEL_HANDLE);
+		await initPanel();
+	});
+
+	it('persists note body to Joplin when valid saveBlocks message is received', async () => {
+		await capturedOnMessageCallback({
+			type: 'saveBlocks',
+			noteId: 'note-abc',
+			markdown: '# Hello\n\nWorld',
+		});
+
+		expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-abc'], null, {
+			body: '# Hello\n\nWorld',
+		});
+	});
+
+	it('ignores saveBlocks when noteId is an empty string', async () => {
+		await capturedOnMessageCallback({
+			type: 'saveBlocks',
+			noteId: '',
+			markdown: '# Hello',
+		});
+
+		expect(mockDataPut).not.toHaveBeenCalled();
+	});
+
+	it('ignores saveBlocks when noteId is missing', async () => {
+		await capturedOnMessageCallback({
+			type: 'saveBlocks',
+			markdown: '# Hello',
+		});
+
+		expect(mockDataPut).not.toHaveBeenCalled();
+	});
+
+	it('ignores saveBlocks when markdown is not a string', async () => {
+		await capturedOnMessageCallback({
+			type: 'saveBlocks',
+			noteId: 'note-abc',
+			markdown: null,
+		});
+
+		expect(mockDataPut).not.toHaveBeenCalled();
+	});
+
+	it('does not throw when joplin.data.put rejects — silently continues', async () => {
+		mockDataPut.mockRejectedValueOnce(new Error('Joplin write failed'));
+
+		await expect(
+			capturedOnMessageCallback({
+				type: 'saveBlocks',
+				noteId: 'note-abc',
+				markdown: '# Hello',
+			}),
+		).resolves.not.toThrow();
 	});
 });

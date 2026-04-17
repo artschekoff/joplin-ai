@@ -3139,6 +3139,16 @@ describe('bottom bar layout', () => {
 describe('file chip CSS padding', () => {
 	const cssSource = fs.readFileSync(path.resolve(__dirname, '..', 'panel.css'), 'utf-8');
 
+	it('.file-chips container has non-zero padding so chips are not flush with container edges', () => {
+		const match = cssSource.match(/\.file-chips\s*\{([^}]+)\}/);
+		expect(match).not.toBeNull();
+		const ruleBody = match![1];
+		const paddingMatch = ruleBody.match(/padding:\s*([^;]+);/);
+		expect(paddingMatch).not.toBeNull();
+		const paddingValue = paddingMatch![1].trim();
+		expect(paddingValue).not.toBe('0');
+	});
+
 	it('.file-chip has vertical padding of at least 4px', () => {
 		const match = cssSource.match(/\.file-chip\s*\{[^}]*padding:\s*([^;]+);/);
 		expect(match).not.toBeNull();

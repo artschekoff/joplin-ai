@@ -900,6 +900,21 @@ function initPanel() {
 		const message = event && event.message && event.message.type ? event.message : event;
 		if (!message) return;
 
+		if (message.type === 'blockEditorState') {
+			var editorEvent = message.active ? 'ai:enableEditor' : 'ai:disableEditor';
+			window.dispatchEvent(
+				new CustomEvent(editorEvent, { detail: { editorOnly: false } }),
+			);
+		}
+
+		if (message.type === 'noteLoaded') {
+			window.dispatchEvent(
+				new CustomEvent('ai:noteLoaded', {
+					detail: { note: message.note, blockEditorActive: message.blockEditorActive },
+				}),
+			);
+		}
+
 		if (message.type === 'noteInfo') {
 			noteInfoEl.textContent = message.title ? '\u{1F4C4} ' + message.title : 'No note selected';
 		}
