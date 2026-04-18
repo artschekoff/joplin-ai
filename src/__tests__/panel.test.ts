@@ -19,10 +19,12 @@ let capturedOnMessageCallback: (message: any) => Promise<void>;
 
 const mockShareNoteAsText = jest.fn().mockResolvedValue(undefined);
 const mockOpenUrlInSystem = jest.fn().mockResolvedValue(undefined);
+const mockExportNoteWithPandoc = jest.fn().mockResolvedValue('/tmp/note.docx');
 jest.mock('../utils/share-note', () => ({
 	shareNoteAsText: (...args: unknown[]) => mockShareNoteAsText(...args),
 	openUrlInSystem: (...args: unknown[]) => mockOpenUrlInSystem(...args),
 	buildPdfMailtoUrl: (title: string) => `mailto:?subject=${encodeURIComponent(title)}&body=PDF`,
+	exportNoteWithPandoc: (...args: unknown[]) => mockExportNoteWithPandoc(...args),
 }));
 
 const mockCommandsExecute = jest.fn().mockResolvedValue(undefined);
@@ -1086,9 +1088,9 @@ describe('shareCurrentNote', () => {
 		expect(mockCommandsExecute).toHaveBeenCalledWith('exportPdf', ['note-42']);
 	});
 
-	it('opens email client with subject pre-filled after pdf export', async () => {
+	it('does not open email client after pdf export', async () => {
 		await shareCurrentNote('pdf');
-		expect(mockOpenUrlInSystem).toHaveBeenCalledWith(expect.stringContaining('My%20Test%20Note'));
+		expect(mockOpenUrlInSystem).not.toHaveBeenCalled();
 	});
 
 	it('calls shareNoteAsText with note data for text format', async () => {
@@ -1107,6 +1109,46 @@ describe('shareCurrentNote', () => {
 	it('throws a user-readable error when no note is selected', async () => {
 		mockSelectedNote.mockResolvedValue(null);
 		await expect(shareCurrentNote('text')).rejects.toThrow('No note selected');
+	});
+
+	it('calls exportNoteWithPandoc with docx format for doc export', async () => {
+		await shareCurrentNote('doc');
+		expect(mockExportNoteWithPandoc).toHaveBeenCalledWith({
+			title: 'My Test Note',
+			body: '# Hello',
+			format: 'docx',
+		});
+	});
+
+	it('opens the exported docx file in the system after doc export', async () => {
+		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.docx');
+		await shareCurrentNote('doc');
+		expect(mockOpenUrlInSystem).toHaveBeenCalledWith('/tmp/My Test Note.docx');
+	});
+
+	it('calls exportNoteWithPandoc with rtf format for rtf export', async () => {
+		await shareCurrentNote('rtf');
+		expect(mockExportNoteWithPandoc).toHaveBeenCalledWith({
+			title: 'My Test Note',
+			body: '# Hello',
+			format: 'rtf',
+		});
+	});
+
+	it('opens the exported rtf file in the system after rtf export', async () => {
+		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.rtf');
+		await shareCurrentNote('rtf');
+		expect(mockOpenUrlInSystem).toHaveBeenCalledWith('/tmp/My Test Note.rtf');
+	});
+
+	it('does not call pandoc for pdf format', async () => {
+		await shareCurrentNote('pdf');
+		expect(mockExportNoteWithPandoc).not.toHaveBeenCalled();
+	});
+
+	it('does not call pandoc for text format', async () => {
+		await shareCurrentNote('text');
+		expect(mockExportNoteWithPandoc).not.toHaveBeenCalled();
 	});
 });
 

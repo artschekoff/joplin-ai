@@ -1,14 +1,18 @@
 /**
  * @jest-environment jsdom
  *
- * Regression tests for undo-after-multi-block-deletion in block-editor.js.
+ * Regression tests for undo in block-editor.js.
  *
- * Bug: user selects multiple blocks and presses Delete — blocks are removed —
+ * Bug 1: user selects multiple blocks and presses Delete — blocks are removed —
  * but Ctrl+Z does not restore them because EditorJS 2.x does not track
  * multi-block deletions in its native undo history.
  *
- * Fix: block-editor.js maintains its own undo stack (via onChange snapshots)
- * and intercepts Ctrl+Z / Cmd+Z before EditorJS can handle it.
+ * Bug 2: Cmd+Z doesn't undo normal edits because onEditorChange is async
+ * (race condition) and loadNote may fail to capture the initial snapshot.
+ *
+ * Fix: block-editor.js maintains its own undo stack (via onChange snapshots),
+ * intercepts Ctrl+Z / Cmd+Z before EditorJS, and force-captures the
+ * current state before attempting undo to close the async gap.
  */
 
 import * as fs from 'fs';
@@ -260,7 +264,11 @@ describe('BlockEditor — undo after multi-block deletion', () => {
 		capturedOnChange!();
 		await flushPromises();
 
+		// Track what the editor "shows" so save() matches render() state
 		(mockEditor.render as jest.Mock).mockClear();
+		(mockEditor.render as jest.Mock).mockImplementation(async (data: unknown) => {
+			(mockEditor.save as jest.Mock).mockResolvedValue(data);
+		});
 
 		// First undo: should restore state2
 		fireKeyInContainer({ key: 'z', ctrlKey: true });
@@ -291,12 +299,12 @@ describe('BlockEditor — undo after multi-block deletion', () => {
 		capturedOnChange!();
 		await flushPromises();
 
-		// Simulate editor.render triggering onChange during restore
-		(mockEditor.render as jest.Mock).mockImplementationOnce(async () => {
+		// Simulate editor.render triggering onChange during restore, and
+		// make save return the rendered state (as real EditorJS would).
+		(mockEditor.render as jest.Mock).mockImplementationOnce(async (data: unknown) => {
+			(mockEditor.save as jest.Mock).mockResolvedValue(data);
 			capturedOnChange!(); // render triggers onChange
 		});
-
-		(mockEditor.save as jest.Mock).mockResolvedValue(inputStateBefore);
 
 		// First Ctrl+Z
 		fireKeyInContainer({ key: 'z', ctrlKey: true });
@@ -362,6 +370,103 @@ describe('BlockEditor — undo after multi-block deletion', () => {
 		await flushPromises();
 
 		// Should not restore anything from the old note
+		expect(mockEditor.render).not.toHaveBeenCalled();
+	});
+
+	// ── Bug-2: Cmd+Z race condition & loadNote failure ─────────────────────────
+
+	it('should undo on Cmd+Z even when onEditorChange has not flushed yet', async () => {
+		// Arrange: load a note so currentSnapshot is set to the initial state
+		const inputInitialState = {
+			blocks: [{ type: 'paragraph', data: { text: 'hello' } }],
+		};
+		(mockEditor.save as jest.Mock).mockResolvedValue(inputInitialState);
+		await (window as any).BlockEditor.loadNote({ id: 'n1', body: 'hello' });
+		await flushPromises();
+
+		// User edits — onChange fires but the async snapshot push has NOT completed
+		const inputEditedState = {
+			blocks: [{ type: 'paragraph', data: { text: 'hello world' } }],
+		};
+		(mockEditor.save as jest.Mock).mockResolvedValue(inputEditedState);
+		capturedOnChange!();
+		// Intentionally DO NOT flush — simulates Cmd+Z pressed immediately
+
+		// Act: press Cmd+Z before onEditorChange's editor.save() resolves
+		(mockEditor.render as jest.Mock).mockClear();
+		const event = fireKeyInContainer({ key: 'z', metaKey: true });
+		await flushPromises();
+
+		// Assert: should have prevented default and restored the initial state
+		expect(event.defaultPrevented).toBe(true);
+		expect(mockEditor.render).toHaveBeenCalledWith(inputInitialState);
+	});
+
+	it('should undo after loadNote render failure (initial snapshot still captured)', async () => {
+		// Arrange: loadNote's render throws (e.g. "Incorrect data")
+		(mockEditor.render as jest.Mock).mockRejectedValueOnce(
+			new Error('Incorrect data passed to the render() method'),
+		);
+		const inputFallbackState = {
+			blocks: [{ type: 'paragraph', data: { text: '' } }],
+		};
+		(mockEditor.save as jest.Mock).mockResolvedValue(inputFallbackState);
+
+		await (window as any).BlockEditor.loadNote({ id: 'n1', body: '# broken' });
+		await flushPromises();
+
+		// User types something — editor now has new content
+		const inputEditedState = {
+			blocks: [{ type: 'paragraph', data: { text: 'typed stuff' } }],
+		};
+		(mockEditor.save as jest.Mock).mockResolvedValue(inputEditedState);
+		capturedOnChange!();
+		await flushPromises();
+
+		// Act: press Cmd+Z — should restore the fallback state
+		(mockEditor.render as jest.Mock).mockClear();
+		(mockEditor.save as jest.Mock).mockResolvedValue(inputEditedState);
+		const event = fireKeyInContainer({ key: 'z', metaKey: true });
+		await flushPromises();
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(mockEditor.render).toHaveBeenCalledWith(inputFallbackState);
+	});
+
+	it('should always prevent default on Cmd+Z when editor has had changes (owns undo fully)', async () => {
+		// Arrange: load a note and make one change
+		const inputInitialState = {
+			blocks: [{ type: 'paragraph', data: { text: 'original' } }],
+		};
+		(mockEditor.save as jest.Mock).mockResolvedValue(inputInitialState);
+		await (window as any).BlockEditor.loadNote({ id: 'n1', body: 'original' });
+		await flushPromises();
+
+		const inputEditedState = {
+			blocks: [{ type: 'paragraph', data: { text: 'changed' } }],
+		};
+		(mockEditor.save as jest.Mock).mockResolvedValue(inputEditedState);
+		capturedOnChange!();
+		await flushPromises();
+
+		// Make render update what save returns (real EditorJS behaviour)
+		(mockEditor.render as jest.Mock).mockImplementation(async (data: unknown) => {
+			(mockEditor.save as jest.Mock).mockResolvedValue(data);
+		});
+
+		// First Cmd+Z — restores initial (undo stack has 1 entry)
+		(mockEditor.render as jest.Mock).mockClear();
+		fireKeyInContainer({ key: 'z', metaKey: true });
+		await flushPromises();
+		expect(mockEditor.render).toHaveBeenCalledWith(inputInitialState);
+
+		// Second Cmd+Z — stack is now empty, but Cmd+Z should STILL be
+		// prevented to avoid EditorJS native undo (broken by prior render calls)
+		(mockEditor.render as jest.Mock).mockClear();
+		const event = fireKeyInContainer({ key: 'z', metaKey: true });
+		await flushPromises();
+
+		expect(event.defaultPrevented).toBe(true);
 		expect(mockEditor.render).not.toHaveBeenCalled();
 	});
 });

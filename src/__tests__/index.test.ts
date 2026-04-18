@@ -73,8 +73,9 @@ jest.mock('api', () => ({
 
 jest.mock('../utils/share-note', () => ({
 	shareNoteAsText: jest.fn().mockResolvedValue(undefined),
-	generateNotePdf: jest.fn().mockResolvedValue('/tmp/note.pdf'),
-	openEmailWithAttachment: jest.fn().mockResolvedValue(undefined),
+	openUrlInSystem: jest.fn().mockResolvedValue(undefined),
+	buildPdfMailtoUrl: jest.fn().mockReturnValue('mailto:'),
+	exportNoteWithPandoc: jest.fn().mockResolvedValue('/tmp/note.docx'),
 }));
 
 jest.mock('../ai/service', () => ({
@@ -141,6 +142,65 @@ describe('index onStart registration', () => {
 			expect(aiButtonIdx).toBeGreaterThanOrEqual(0);
 			expect(blockEditorButtonIdx).toBeGreaterThanOrEqual(0);
 			expect(aiButtonIdx).toBeLessThan(blockEditorButtonIdx);
+		});
+	});
+
+	describe('export toolbar buttons', () => {
+		it('should register an exportNoteAsDoc command with Word icon', () => {
+			expect(mockCommandsRegister).toHaveBeenCalledWith(
+				expect.objectContaining({
+					name: 'exportNoteAsDoc',
+					iconName: 'fas fa-file-word',
+				}),
+			);
+		});
+
+		it('should register an exportNoteAsRtf command with file icon', () => {
+			expect(mockCommandsRegister).toHaveBeenCalledWith(
+				expect.objectContaining({
+					name: 'exportNoteAsRtf',
+					iconName: 'fas fa-file-alt',
+				}),
+			);
+		});
+
+		it('should create a toolbar button for exportNoteAsDoc', () => {
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'exportNoteAsDocBtn',
+				'exportNoteAsDoc',
+				ToolbarButtonLocation.EditorToolbar,
+			);
+		});
+
+		it('should create a toolbar button for exportNoteAsRtf', () => {
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'exportNoteAsRtfBtn',
+				'exportNoteAsRtf',
+				ToolbarButtonLocation.EditorToolbar,
+			);
+		});
+
+		it('should register PDF export command with label not containing "Email"', () => {
+			const pdfCommand = mockCommandsRegister.mock.calls.find(
+				(call: unknown[]) => (call[0] as { name: string }).name === 'shareNoteAsPdf',
+			);
+			expect(pdfCommand).toBeDefined();
+			const label = (pdfCommand![0] as { label: string }).label;
+			expect(label).not.toContain('Email');
+			expect(label).toContain('PDF');
+		});
+
+		it('should create menu items for doc and rtf export in Tools', () => {
+			expect(mockMenuItemsCreate).toHaveBeenCalledWith(
+				'exportNoteAsDocMenuItem',
+				'exportNoteAsDoc',
+				expect.anything(),
+			);
+			expect(mockMenuItemsCreate).toHaveBeenCalledWith(
+				'exportNoteAsRtfMenuItem',
+				'exportNoteAsRtf',
+				expect.anything(),
+			);
 		});
 	});
 });

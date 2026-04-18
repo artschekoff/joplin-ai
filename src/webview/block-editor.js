@@ -39,6 +39,8 @@
   let currentSnapshot = null;
   /** True while an undo restore is in progress — prevents re-entrancy. */
   let isRestoringUndo = false;
+  /** True after the first change; once true Cmd+Z is always intercepted. */
+  let hasEverChanged = false;
 
   // ── Save helpers ───────────────────────────────────────────────────────────
 
@@ -57,12 +59,11 @@
   // ── Undo helpers ───────────────────────────────────────────────────────────
 
   /**
-   * Called on every editor change.  Pushes the *previous* snapshot onto the
-   * undo stack so that Ctrl+Z can restore it, then advances currentSnapshot to
-   * the new state.  No-ops when a restore is already in progress.
+   * Captures the current editor state and pushes the previous snapshot onto
+   * the undo stack.  Returns true when a new snapshot was recorded.
    */
-  const onEditorChange = async () => {
-    if (isRestoringUndo || !editor) return;
+  const captureSnapshot = async () => {
+    if (!editor) return false;
     try {
       const out = await editor.save();
       const snap = JSON.stringify(out);
@@ -72,8 +73,15 @@
           if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
         }
         currentSnapshot = snap;
+        return true;
       }
     } catch (_) {}
+    return false;
+  };
+
+  const onEditorChange = async () => {
+    if (isRestoringUndo) return;
+    await captureSnapshot();
   };
 
   /**
@@ -251,11 +259,7 @@
     document.addEventListener('keydown', async (e) => {
       if (!container.contains(e.target) && e.target !== container) return;
 
-      // Slash menu takes priority
-      if (slashVisible && handleSlashMenuKey(e)) return;
-
       if (e.key === 'Escape' && vimMode === 'insert') {
-        if (slashVisible) { hideSlashMenu(); e.preventDefault(); return; }
         try { vimIndex = editor.blocks.getCurrentBlockIndex(); } catch (_) {}
         if (document.activeElement) document.activeElement.blur();
         // Keep focus on the container so subsequent keydown events (hjkl) still
@@ -267,13 +271,18 @@
         return;
       }
 
-      // Ctrl+Z / Cmd+Z — intercept before EditorJS handles it so our undo
-      // stack (which correctly tracks multi-block deletions) takes precedence.
+      // Ctrl+Z / Cmd+Z — always intercept once any change has been made so
+      // EditorJS native undo (broken by render() calls) never fires.
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-        if (undoStack.length > 0) {
+        if (hasEverChanged || undoStack.length > 0) {
           e.preventDefault();
           e.stopImmediatePropagation();
-          await performUndo();
+          // Force-capture closes the async gap: if onEditorChange has not
+          // flushed yet, this grabs the current state before we undo.
+          await captureSnapshot();
+          if (undoStack.length > 0) {
+            await performUndo();
+          }
           return;
         }
       }
@@ -307,13 +316,13 @@
           new window.DragDrop(editor);
         }
         attachVimListeners();
-        attachSlashListeners();
         updateVimUI();
         if (typeof window.webviewApi !== 'undefined') {
           window.webviewApi.postMessage({ type: 'getNote' });
         }
       },
       onChange: () => {
+        hasEverChanged = true;
         onEditorChange();
         scheduleSave();
       },
@@ -332,21 +341,24 @@
       undoStack.length = 0;
       currentSnapshot = null;
       isRestoringUndo = false;
+      hasEverChanged = false;
       try {
         await editor.isReady;
-        if (!note || !note.body) { await editor.clear(); return; }
-        const blocks = window.MarkdownConverter.markdownToBlocks(note.body);
-        await editor.render({ blocks });
-        vimIndex = 0;
-        updateVimUI();
-        // Capture the initial state so the first undo step is tracked correctly.
-        try {
-          const out = await editor.save();
-          currentSnapshot = JSON.stringify(out);
-        } catch (_) {}
+        if (!note || !note.body) { await editor.clear(); } else {
+          const blocks = window.MarkdownConverter.markdownToBlocks(note.body);
+          await editor.render({ blocks });
+          vimIndex = 0;
+          updateVimUI();
+        }
       } catch (err) {
         console.error('[BlockEditor] loadNote:', err);
       }
+      // Always capture the initial state — even when render fails the editor
+      // still has a DOM state that the user can edit and may want to undo to.
+      try {
+        const out = await editor.save();
+        currentSnapshot = JSON.stringify(out);
+      } catch (_) {}
     },
 
     getMarkdown: async () => {
@@ -364,202 +376,6 @@
       vimMode = mode;
       updateVimUI();
     },
-  };
-
-  // ── Slash menu ─────────────────────────────────────────────────────────────
-
-  const SVG = {
-    paragraph: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 2h5a3 3 0 0 1 0 6H6V2zm0 6v6M4 2v12"/></svg>`,
-    h1: `<svg viewBox="0 0 16 16" fill="currentColor"><text x="0" y="12" font-size="11" font-weight="700" font-family="sans-serif">H1</text></svg>`,
-    h2: `<svg viewBox="0 0 16 16" fill="currentColor"><text x="0" y="12" font-size="11" font-weight="700" font-family="sans-serif">H2</text></svg>`,
-    h3: `<svg viewBox="0 0 16 16" fill="currentColor"><text x="0" y="12" font-size="11" font-weight="700" font-family="sans-serif">H3</text></svg>`,
-    bulletList: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="2.5" cy="4" r="1" fill="currentColor" stroke="none"/><circle cx="2.5" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="2.5" cy="12" r="1" fill="currentColor" stroke="none"/><line x1="5" y1="4" x2="14" y2="4"/><line x1="5" y1="8" x2="14" y2="8"/><line x1="5" y1="12" x2="14" y2="12"/></svg>`,
-    numberedList: `<svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><text x="0" y="5.5" font-size="4.5" font-family="sans-serif">1.</text><text x="0" y="9.5" font-size="4.5" font-family="sans-serif">2.</text><text x="0" y="13.5" font-size="4.5" font-family="sans-serif">3.</text><rect x="5" y="2.5" width="9" height="1.5" rx="0.75"/><rect x="5" y="6.5" width="9" height="1.5" rx="0.75"/><rect x="5" y="10.5" width="9" height="1.5" rx="0.75"/></svg>`,
-    checklist: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="1.5" width="5" height="5" rx="1"/><polyline points="2.5,4 3.5,5 5.5,2.5"/><rect x="1.5" y="9.5" width="5" height="5" rx="1"/><line x1="9" y1="4" x2="14.5" y2="4"/><line x1="9" y1="12" x2="14.5" y2="12"/></svg>`,
-    code: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5,4 1.5,8 5,12"/><polyline points="11,4 14.5,8 11,12"/></svg>`,
-    quote: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h5v5H4a2 2 0 0 0 2 2v2a4 4 0 0 1-4-4V3zm7 0h5v5h-3a2 2 0 0 0 2 2v2a4 4 0 0 1-4-4V3z"/></svg>`,
-    divider: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="8" x2="15" y2="8"/></svg>`,
-  };
-
-  const SLASH_ITEMS = [
-    { icon: SVG.paragraph,    label: 'Text',          hint: 'Plain paragraph',   type: 'paragraph', data: {} },
-    { icon: SVG.h1,           label: 'Heading 1',     hint: 'Large title',       type: 'header',    data: { level: 1, text: '' } },
-    { icon: SVG.h2,           label: 'Heading 2',     hint: 'Medium title',      type: 'header',    data: { level: 2, text: '' } },
-    { icon: SVG.h3,           label: 'Heading 3',     hint: 'Small title',       type: 'header',    data: { level: 3, text: '' } },
-    { icon: SVG.bulletList,   label: 'Bullet List',   hint: 'Unordered list',    type: 'list',      data: { style: 'unordered', items: [''] } },
-    { icon: SVG.numberedList, label: 'Numbered List', hint: 'Ordered list',      type: 'list',      data: { style: 'ordered',   items: [''] } },
-    { icon: SVG.checklist,    label: 'Checklist',     hint: 'To-do items',       type: 'checklist', data: { items: [{ text: '', checked: false }] } },
-    { icon: SVG.code,         label: 'Code',          hint: 'Code block',        type: 'code',      data: { code: '' } },
-    { icon: SVG.quote,        label: 'Quote',         hint: 'Blockquote',        type: 'quote',     data: { text: '', caption: '' } },
-    { icon: SVG.divider,      label: 'Divider',       hint: 'Horizontal line',   type: 'delimiter', data: {} },
-  ];
-
-  let slashVisible = false;
-  let slashQuery = '';
-  let slashSelected = 0;
-  let slashBlockIdx = -1;
-
-  const slashMenu = () => document.getElementById('slash-menu');
-
-  const filteredItems = () => {
-    if (!slashQuery) return SLASH_ITEMS;
-    const q = slashQuery.toLowerCase();
-    return SLASH_ITEMS.filter(it =>
-      it.label.toLowerCase().includes(q) || it.hint.toLowerCase().includes(q)
-    );
-  };
-
-  const renderSlashMenu = () => {
-    const menu = slashMenu();
-    if (!menu) return;
-    const items = filteredItems();
-
-    menu.innerHTML = '';
-
-    if (items.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'slash-item slash-item--empty';
-      empty.textContent = 'No results';
-      menu.appendChild(empty);
-      return;
-    }
-
-    let selectedRow = null;
-    items.forEach((item, idx) => {
-      const row = document.createElement('div');
-      row.className = 'slash-item' + (idx === slashSelected ? ' slash-item--selected' : '');
-      row.innerHTML =
-        `<span class="slash-item-icon">${item.icon}</span>` +
-        `<span class="slash-item-body">` +
-          `<span class="slash-item-label">${item.label}</span>` +
-          `<span class="slash-item-hint">${item.hint}</span>` +
-        `</span>`;
-      row.addEventListener('mousedown', (e) => {
-        e.preventDefault(); // keep editor focus
-        selectSlashItem(item);
-      });
-      menu.appendChild(row);
-      if (idx === slashSelected) selectedRow = row;
-    });
-    if (selectedRow) selectedRow.scrollIntoView({ block: 'nearest' });
-  };
-
-  const positionSlashMenu = () => {
-    const menu = slashMenu();
-    if (!menu) return;
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
-    const rect = sel.getRangeAt(0).getBoundingClientRect();
-    if (!rect.width && !rect.height) return;
-
-    const menuH = 280;
-    const top = (rect.bottom + 4 + menuH > window.innerHeight)
-      ? rect.top - menuH - 4
-      : rect.bottom + 4;
-
-    menu.style.top  = Math.max(4, top) + 'px';
-    menu.style.left = Math.max(8, rect.left) + 'px';
-  };
-
-  const showSlashMenu = () => {
-    slashVisible = true;
-    slashQuery   = '';
-    slashSelected = 0;
-    try { slashBlockIdx = editor.blocks.getCurrentBlockIndex(); } catch (_) {}
-    try { positionSlashMenu(); } catch (_) {}
-    renderSlashMenu();
-    slashMenu()?.classList.add('visible');
-  };
-
-  const hideSlashMenu = () => {
-    slashVisible = false;
-    slashQuery   = '';
-    slashMenu()?.classList.remove('visible');
-  };
-
-  const moveSlashSelection = (delta) => {
-    const items = filteredItems();
-    if (!items.length) return;
-    slashSelected = (slashSelected + delta + items.length) % items.length;
-    renderSlashMenu();
-  };
-
-  const selectSlashItem = async (item) => {
-    hideSlashMenu();
-    try {
-      const idx = slashBlockIdx >= 0 ? slashBlockIdx : editor.blocks.getCurrentBlockIndex();
-      editor.blocks.delete(idx);
-      editor.blocks.insert(item.type, item.data, null, idx, true);
-      scheduleSave();
-    } catch (err) {
-      console.error('[BlockEditor] slash insert:', err);
-    }
-  };
-
-  const handleSlashMenuKey = (e) => {
-    if (!slashVisible) return false;
-    switch (e.key) {
-      case 'ArrowDown':  e.preventDefault(); moveSlashSelection(+1); return true;
-      case 'ArrowUp':    e.preventDefault(); moveSlashSelection(-1); return true;
-      case 'Tab':
-        e.preventDefault();
-        moveSlashSelection(e.shiftKey ? -1 : +1);
-        return true;
-      case 'Enter': {
-        e.preventDefault();
-        const items = filteredItems();
-        if (items[slashSelected]) selectSlashItem(items[slashSelected]);
-        return true;
-      }
-      case 'Escape':     e.preventDefault(); hideSlashMenu(); return true;
-      case 'Backspace': {
-        if (slashQuery.length === 0) {
-          hideSlashMenu();
-        } else {
-          slashQuery = slashQuery.slice(0, -1);
-          slashSelected = 0;
-          renderSlashMenu();
-        }
-        return false;
-      }
-      default: return false;
-    }
-  };
-
-  const attachSlashListeners = () => {
-    const container = document.getElementById('editor-container');
-    if (!container) return;
-
-    container.addEventListener('keydown', (e) => {
-      if (slashVisible) return;
-      if (e.key !== '/') return;
-      setTimeout(() => {
-        try {
-          const idx = editor.blocks.getCurrentBlockIndex();
-          const blockEls = container.querySelectorAll('.ce-block');
-          const blockEl = blockEls[idx];
-          if (!blockEl) return;
-          const text = (blockEl.querySelector('[contenteditable]') || blockEl).textContent || '';
-          if (text.trim() === '/') showSlashMenu();
-        } catch (_) {}
-      }, 0);
-    });
-
-    container.addEventListener('input', () => {
-      if (!slashVisible) return;
-      try {
-        const idx = slashBlockIdx >= 0 ? slashBlockIdx : editor.blocks.getCurrentBlockIndex();
-        const blockEls = container.querySelectorAll('.ce-block');
-        const blockEl = blockEls[idx];
-        if (!blockEl) { hideSlashMenu(); return; }
-        const text = (blockEl.querySelector('[contenteditable]') || blockEl).textContent || '';
-        if (!text.startsWith('/')) { hideSlashMenu(); return; }
-        slashQuery = text.slice(1).toLowerCase();
-        slashSelected = 0;
-        renderSlashMenu();
-        positionSlashMenu();
-      } catch (_) { hideSlashMenu(); }
-    });
   };
 
   // ── Native Editor.js popover — first-item auto-focus ─────────────────────

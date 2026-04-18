@@ -19,7 +19,6 @@ const buildDOM = (): void => {
 	document.body.innerHTML = `
 		<div id="app">
 			<div id="editor-container" tabindex="-1"></div>
-			<div id="slash-menu"></div>
 			<div id="vim-statusbar" data-mode="insert">
 				<span id="vim-mode-label">INSERT</span>
 			</div>

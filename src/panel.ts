@@ -7,7 +7,7 @@ import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
 import { extractPdfTextFromBase64 } from './utils/pdf-extract';
-import { shareNoteAsText, openUrlInSystem, buildPdfMailtoUrl } from './utils/share-note';
+import { shareNoteAsText, openUrlInSystem, exportNoteWithPandoc } from './utils/share-note';
 
 let chatPanelHandle: ViewHandle | null = null;
 let editorPanelHandle: ViewHandle | null = null;
@@ -86,7 +86,6 @@ const EDITOR_PANEL_HTML = `<!DOCTYPE html>
 <body>
 	<div id="app">
 		<div id="editor-container" tabindex="-1"></div>
-		<div id="slash-menu"></div>
 		<div id="vim-statusbar" data-mode="insert">
 			<span id="vim-mode-label">INSERT</span>
 		</div>
@@ -607,11 +606,12 @@ export const toggleBlockEditorPane = async (): Promise<void> => {
 };
 
 /**
- * Shares the currently selected note via the default email client.
+ * Exports or shares the currently selected note.
  *
  * - 'text' → converts markdown to plain text and opens a mailto: URL.
- * - 'pdf'  → triggers Joplin's exportPdf, then opens a mailto: URL
- *             prompting the user to attach the saved file.
+ * - 'pdf'  → triggers Joplin's built-in PDF export dialog.
+ * - 'doc'  → converts markdown to DOCX via pandoc and opens the file.
+ * - 'rtf'  → converts markdown to RTF via pandoc and opens the file.
  */
 export const shareCurrentNote = async (format: string): Promise<void> => {
 	const note = await getCurrentNote();
@@ -620,7 +620,19 @@ export const shareCurrentNote = async (format: string): Promise<void> => {
 		await shareNoteAsText({ title: note.title, body: note.body });
 	} else if (format === 'pdf') {
 		await joplin.commands.execute('exportPdf', [note.id]);
-		const url = buildPdfMailtoUrl(note.title);
-		await openUrlInSystem(url);
+	} else if (format === 'doc') {
+		const outputPath = await exportNoteWithPandoc({
+			title: note.title,
+			body: note.body,
+			format: 'docx',
+		});
+		await openUrlInSystem(outputPath);
+	} else if (format === 'rtf') {
+		const outputPath = await exportNoteWithPandoc({
+			title: note.title,
+			body: note.body,
+			format: 'rtf',
+		});
+		await openUrlInSystem(outputPath);
 	}
 };

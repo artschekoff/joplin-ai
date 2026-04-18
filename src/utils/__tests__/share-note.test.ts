@@ -1,13 +1,23 @@
 import * as os from 'os';
+import * as path from 'path';
 
+const mockExecFile = jest.fn();
 jest.mock('child_process', () => ({
-	execFile: jest.fn(),
+	execFile: (...args: unknown[]) => mockExecFile(...args),
+}));
+
+const mockWriteFile = jest.fn().mockResolvedValue(undefined);
+jest.mock('fs', () => ({
+	promises: {
+		writeFile: (...args: unknown[]) => mockWriteFile(...args),
+	},
 }));
 
 import {
 	buildTextMailtoUrl,
 	buildPdfMailtoUrl,
 	markdownToPlainText,
+	exportNoteWithPandoc,
 	MAX_BODY_LENGTH,
 } from '../share-note';
 
@@ -167,5 +177,115 @@ describe('buildPdfMailtoUrl', () => {
 		const actualUrl = buildPdfMailtoUrl('My Note');
 		const decoded = decodeURIComponent(actualUrl);
 		expect(decoded).toContain('PDF');
+	});
+});
+
+describe('exportNoteWithPandoc', () => {
+	beforeEach(() => {
+		jest.clearAllMocks();
+		mockExecFile.mockImplementation(
+			(_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+				cb(null);
+			},
+		);
+	});
+
+	it('writes markdown to a temp file and calls pandoc for docx format', async () => {
+		await exportNoteWithPandoc({ title: 'My Note', body: '# Hello', format: 'docx' });
+		expect(mockWriteFile).toHaveBeenCalledWith(
+			expect.stringContaining('My Note.md'),
+			'# Hello',
+			'utf-8',
+		);
+		expect(mockExecFile).toHaveBeenCalledWith(
+			'pandoc',
+			expect.arrayContaining([
+				expect.stringContaining('My Note.md'),
+				'-o',
+				expect.stringContaining('My Note.docx'),
+			]),
+			expect.any(Function),
+		);
+	});
+
+	it('writes markdown to a temp file and calls pandoc for rtf format', async () => {
+		await exportNoteWithPandoc({ title: 'Report', body: 'Some text', format: 'rtf' });
+		expect(mockWriteFile).toHaveBeenCalledWith(
+			expect.stringContaining('Report.md'),
+			'Some text',
+			'utf-8',
+		);
+		expect(mockExecFile).toHaveBeenCalledWith(
+			'pandoc',
+			expect.arrayContaining([
+				expect.stringContaining('Report.md'),
+				'-o',
+				expect.stringContaining('Report.rtf'),
+			]),
+			expect.any(Function),
+		);
+	});
+
+	it('returns the output file path', async () => {
+		const actualPath = await exportNoteWithPandoc({
+			title: 'Test',
+			body: 'content',
+			format: 'docx',
+		});
+		expect(actualPath).toBe(path.join(os.tmpdir(), 'Test.docx'));
+	});
+
+	it('sanitizes special characters from title for the filename', async () => {
+		const actualPath = await exportNoteWithPandoc({
+			title: 'My/Note: "special" <chars>',
+			body: 'body',
+			format: 'docx',
+		});
+		expect(actualPath).not.toContain('/Note');
+		expect(actualPath).not.toContain('"');
+		expect(actualPath).not.toContain('<');
+		expect(actualPath).toContain('.docx');
+	});
+
+	it('uses fallback filename when title is empty', async () => {
+		const actualPath = await exportNoteWithPandoc({
+			title: '',
+			body: 'body',
+			format: 'rtf',
+		});
+		expect(actualPath).toContain('note.rtf');
+	});
+
+	it('uses fallback filename when title contains only special characters', async () => {
+		const actualPath = await exportNoteWithPandoc({
+			title: '///???',
+			body: 'body',
+			format: 'docx',
+		});
+		expect(actualPath).toContain('note.docx');
+	});
+
+	it('rejects when pandoc exits with an error', async () => {
+		mockExecFile.mockImplementation(
+			(_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+				cb(new Error('pandoc: command not found'));
+			},
+		);
+		await expect(
+			exportNoteWithPandoc({ title: 'Test', body: 'content', format: 'docx' }),
+		).rejects.toThrow('pandoc');
+	});
+
+	it('rejects when writing the temp file fails', async () => {
+		mockWriteFile.mockRejectedValueOnce(new Error('EACCES: permission denied'));
+		await expect(
+			exportNoteWithPandoc({ title: 'Test', body: 'content', format: 'rtf' }),
+		).rejects.toThrow('EACCES');
+	});
+
+	it('places temp files in the OS temp directory', async () => {
+		await exportNoteWithPandoc({ title: 'Temp Test', body: 'data', format: 'docx' });
+		const writePath = mockWriteFile.mock.calls[0][0] as string;
+		expect(writePath).toContain(os.tmpdir());
 	});
 });

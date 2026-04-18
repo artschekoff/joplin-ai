@@ -1,6 +1,8 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 
 const execFileAsync = promisify(execFile);
 
@@ -132,4 +134,27 @@ export const openUrlInSystem = async (url: string): Promise<void> => {
 export const shareNoteAsText = async (note: { title: string; body: string }): Promise<void> => {
 	const url = buildTextMailtoUrl(note.title, note.body);
 	await openUrlInSystem(url);
+};
+
+const sanitizeFilename = (title: string): string => {
+	const cleaned = title.replace(/[^a-zA-Z0-9\-_ ]/g, '').trim();
+	return cleaned || 'note';
+};
+
+/**
+ * Exports a note's markdown body to DOCX or RTF via pandoc.
+ * Writes markdown to a temp file, runs pandoc, and returns the output path.
+ */
+export const exportNoteWithPandoc = async (opts: {
+	title: string;
+	body: string;
+	format: 'docx' | 'rtf';
+}): Promise<string> => {
+	const tmpDir = os.tmpdir();
+	const safeName = sanitizeFilename(opts.title);
+	const inputPath = path.join(tmpDir, `${safeName}.md`);
+	const outputPath = path.join(tmpDir, `${safeName}.${opts.format}`);
+	await fs.promises.writeFile(inputPath, opts.body, 'utf-8');
+	await execFileAsync('pandoc', [inputPath, '-o', outputPath]);
+	return outputPath;
 };

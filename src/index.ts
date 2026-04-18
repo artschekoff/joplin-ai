@@ -95,13 +95,41 @@ joplin.plugins.register({
 
 		await joplin.commands.register({
 			name: 'shareNoteAsPdf',
-			label: 'Share note — Email as PDF',
+			label: 'Export note as PDF',
 			iconName: 'fas fa-file-pdf',
 			execute: async () => {
 				try {
 					await shareCurrentNote('pdf');
 				} catch (err) {
-					const msg = err instanceof Error ? err.message : 'Failed to share note as PDF.';
+					const msg = err instanceof Error ? err.message : 'Failed to export note as PDF.';
+					await joplin.views.dialogs.showMessageBox(msg);
+				}
+			},
+		});
+
+		await joplin.commands.register({
+			name: 'exportNoteAsDoc',
+			label: 'Export note as DOCX',
+			iconName: 'fas fa-file-word',
+			execute: async () => {
+				try {
+					await shareCurrentNote('doc');
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : 'Failed to export note as DOCX.';
+					await joplin.views.dialogs.showMessageBox(msg);
+				}
+			},
+		});
+
+		await joplin.commands.register({
+			name: 'exportNoteAsRtf',
+			label: 'Export note as RTF',
+			iconName: 'fas fa-file-alt',
+			execute: async () => {
+				try {
+					await shareCurrentNote('rtf');
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : 'Failed to export note as RTF.';
 					await joplin.views.dialogs.showMessageBox(msg);
 				}
 			},
@@ -119,6 +147,18 @@ joplin.plugins.register({
 			MenuItemLocation.Tools,
 		);
 
+		await joplin.views.menuItems.create(
+			'exportNoteAsDocMenuItem',
+			'exportNoteAsDoc',
+			MenuItemLocation.Tools,
+		);
+
+		await joplin.views.menuItems.create(
+			'exportNoteAsRtfMenuItem',
+			'exportNoteAsRtf',
+			MenuItemLocation.Tools,
+		);
+
 		await joplin.views.toolbarButtons.create(
 			'shareNoteAsTextBtn',
 			'shareNoteAsText',
@@ -128,6 +168,18 @@ joplin.plugins.register({
 		await joplin.views.toolbarButtons.create(
 			'shareNoteAsPdfBtn',
 			'shareNoteAsPdf',
+			ToolbarButtonLocation.EditorToolbar,
+		);
+
+		await joplin.views.toolbarButtons.create(
+			'exportNoteAsDocBtn',
+			'exportNoteAsDoc',
+			ToolbarButtonLocation.EditorToolbar,
+		);
+
+		await joplin.views.toolbarButtons.create(
+			'exportNoteAsRtfBtn',
+			'exportNoteAsRtf',
 			ToolbarButtonLocation.EditorToolbar,
 		);
 	},
