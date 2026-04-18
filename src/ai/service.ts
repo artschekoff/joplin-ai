@@ -13,6 +13,7 @@ import {
 	PerplexityInputItem,
 	sendSonarChatRequest,
 	isSonarApiModel,
+	isPerplexityNativeModel,
 	SonarChatMessage,
 	parseSonarToolCalls,
 	buildSonarToolCallPrompt,
@@ -521,7 +522,7 @@ export const sendToAI = async (
 		workMode: actionContext.workMode,
 		referencedNotes: actionContext.referencedNotes,
 		attachedFiles: actionContext.attachedFiles,
-		nativeWebSearch: provider === 'perplexity',
+		nativeWebSearch: provider === 'perplexity' && isPerplexityNativeModel(model),
 	});
 
 	const runLoop = () => {

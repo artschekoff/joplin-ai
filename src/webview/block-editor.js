@@ -48,7 +48,7 @@
       if (!editor || !currentNoteId) return;
       try {
         const out = await editor.save();
-        const md = window.MarkdownConverter.blocksToMarkdown(out);
+        const md = window.MarkdownConverter.blocksToMarkdown(out.blocks);
         window.webviewApi.postMessage({ type: 'saveBlocks', noteId: currentNoteId, markdown: md });
       } catch (_) {}
     }, SAVE_DEBOUNCE_MS);
@@ -309,6 +309,9 @@
         attachVimListeners();
         attachSlashListeners();
         updateVimUI();
+        if (typeof window.webviewApi !== 'undefined') {
+          window.webviewApi.postMessage({ type: 'getNote' });
+        }
       },
       onChange: () => {
         onEditorChange();
@@ -332,8 +335,8 @@
       try {
         await editor.isReady;
         if (!note || !note.body) { await editor.clear(); return; }
-        const data = window.MarkdownConverter.markdownToBlocks(note.body);
-        await editor.render(data);
+        const blocks = window.MarkdownConverter.markdownToBlocks(note.body);
+        await editor.render({ blocks });
         vimIndex = 0;
         updateVimUI();
         // Capture the initial state so the first undo step is tracked correctly.
@@ -350,7 +353,7 @@
       if (!editor) return '';
       try {
         const out = await editor.save();
-        return window.MarkdownConverter.blocksToMarkdown(out);
+        return window.MarkdownConverter.blocksToMarkdown(out.blocks);
       } catch (_) { return ''; }
     },
 

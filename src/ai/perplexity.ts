@@ -55,12 +55,16 @@ const makeRequest = (
 
 const AGENT_API_PATH = '/v1/agent';
 const SONAR_API_PATH = '/v1/sonar';
-const AGENT_MODEL_PREFIX = 'perplexity/';
+const PERPLEXITY_MODEL_PREFIX = 'perplexity/';
 
 const SONAR_API_MODELS = new Set(['sonar-pro', 'sonar-reasoning-pro', 'sonar-deep-research']);
 
 /** Returns true if the model should use the Sonar chat completions API instead of the Agent API. */
 export const isSonarApiModel = (model: string): boolean => SONAR_API_MODELS.has(model);
+
+/** Returns true if the model is a Perplexity-native Sonar model (not a third-party model routed via Perplexity). */
+export const isPerplexityNativeModel = (model: string): boolean =>
+	model === 'sonar' || SONAR_API_MODELS.has(model);
 
 /** Send a request to Perplexity's Agent API (supports tool calling). */
 export const sendPerplexityRequest = async (
@@ -70,7 +74,7 @@ export const sendPerplexityRequest = async (
 	instructions?: string,
 	tools?: PerplexityTool[],
 ): Promise<AIProviderResponse> => {
-	const agentModel = model.startsWith(AGENT_MODEL_PREFIX) ? model : `${AGENT_MODEL_PREFIX}${model}`;
+	const agentModel = model.includes('/') ? model : `${PERPLEXITY_MODEL_PREFIX}${model}`;
 	const requestBody: Record<string, unknown> = { model: agentModel, input };
 	if (instructions) {
 		requestBody.instructions = instructions;

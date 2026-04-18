@@ -86,9 +86,7 @@ const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
 describe('panel handleExecute', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate
-			.mockResolvedValueOnce(MOCK_CHAT_HANDLE)
-			.mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -1077,9 +1075,7 @@ describe('panel handleExecute', () => {
 describe('shareCurrentNote', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate
-			.mockResolvedValueOnce(MOCK_CHAT_HANDLE)
-			.mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSelectedNote.mockResolvedValue({ id: 'note-42' });
 		mockDataGet.mockResolvedValue({ id: 'note-42', title: 'My Test Note', body: '# Hello' });
 		await initPanel();
@@ -1092,9 +1088,7 @@ describe('shareCurrentNote', () => {
 
 	it('opens email client with subject pre-filled after pdf export', async () => {
 		await shareCurrentNote('pdf');
-		expect(mockOpenUrlInSystem).toHaveBeenCalledWith(
-			expect.stringContaining('My%20Test%20Note'),
-		);
+		expect(mockOpenUrlInSystem).toHaveBeenCalledWith(expect.stringContaining('My%20Test%20Note'));
 	});
 
 	it('calls shareNoteAsText with note data for text format', async () => {
@@ -1121,9 +1115,7 @@ describe('saveBlocks message handler', () => {
 
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate
-			.mockResolvedValueOnce(MOCK_CHAT_HANDLE)
-			.mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		await initPanel();
 		editorCallback = capturedCallbacks[MOCK_EDITOR_HANDLE];
 	});

@@ -114,22 +114,33 @@ export const initSettings = async () => {
 				'Your Perplexity API key (pplx-...). Get one at https://www.perplexity.ai/settings/api',
 		},
 
-		[SETTING_KEYS.perplexityModel]: {
-			value: 'sonar',
-			type: SettingItemType.String,
-			section: 'aiAssistant',
-			public: true,
-			isEnum: true,
-			label: 'Perplexity Model',
-			description:
-				'All Perplexity models have native built-in web search. Sonar also supports tool calling (create/edit notes). Sonar Pro, Reasoning Pro, and Deep Research are search-focused without tool calling.',
-			options: {
-				sonar: 'Sonar — native web search + tool calling',
-				'sonar-pro': 'Sonar Pro — native web search',
-				'sonar-reasoning-pro': 'Sonar Reasoning Pro — native web search',
-				'sonar-deep-research': 'Sonar Deep Research — native web search',
-			},
+	[SETTING_KEYS.perplexityModel]: {
+		value: 'sonar',
+		type: SettingItemType.String,
+		section: 'aiAssistant',
+		public: true,
+		isEnum: true,
+		label: 'Perplexity Model',
+		description:
+			'Sonar models have native built-in web search. Third-party models (Claude, GPT, Gemini, etc.) are accessed via the Perplexity Agent API with tool calling support.',
+		options: {
+			sonar: 'Sonar — native web search + tool calling',
+			'sonar-pro': 'Sonar Pro — native web search',
+			'sonar-reasoning-pro': 'Sonar Reasoning Pro — native web search',
+			'sonar-deep-research': 'Sonar Deep Research — native web search',
+			'anthropic/claude-opus-4-6': 'Claude Opus 4.6 — tool calling (via Perplexity)',
+			'anthropic/claude-sonnet-4-6': 'Claude Sonnet 4.6 — tool calling (via Perplexity)',
+			'anthropic/claude-haiku-4-5': 'Claude Haiku 4.5 — tool calling (via Perplexity)',
+			'openai/gpt-5.4': 'GPT-5.4 — tool calling (via Perplexity)',
+			'openai/gpt-5.2': 'GPT-5.2 — tool calling (via Perplexity)',
+			'openai/gpt-5.1': 'GPT-5.1 — tool calling (via Perplexity)',
+			'openai/gpt-5-mini': 'GPT-5 Mini — tool calling (via Perplexity)',
+			'google/gemini-3.1-pro-preview': 'Gemini 3.1 Pro — tool calling (via Perplexity)',
+			'google/gemini-3-flash-preview': 'Gemini 3.0 Flash — tool calling (via Perplexity)',
+			'xai/grok-4-1-fast-non-reasoning': 'Grok 4.1 — tool calling (via Perplexity)',
+			'nvidia/nemotron-3-super-120b-a12b': 'Nemotron 3 Super — tool calling (via Perplexity)',
 		},
+	},
 
 		[SETTING_KEYS.webSearchEnabled]: {
 			value: false,

@@ -129,9 +129,7 @@ describe('block-editor.js standalone message handling', () => {
 describe('block-editor.js does NOT rely on cross-panel events', () => {
 	it('does NOT listen for ai:enableEditor and change visibility', () => {
 		const app = document.getElementById('app');
-		window.dispatchEvent(
-			new CustomEvent('ai:enableEditor', { detail: { editorOnly: true } }),
-		);
+		window.dispatchEvent(new CustomEvent('ai:enableEditor', { detail: { editorOnly: true } }));
 		expect(app?.classList.contains('editor-visible')).toBe(false);
 		expect(app?.classList.contains('editor-only')).toBe(false);
 	});
@@ -159,5 +157,13 @@ describe('block-editor.js does NOT rely on cross-panel events', () => {
 		sendMessage({ type: 'noteLoaded', note: { id: '1', title: 'T', body: '# B' } });
 		expect(localStorage.getItem('joplin-ai-editor-visible')).toBeNull();
 		expect(localStorage.getItem('joplin-ai-editor-only')).toBeNull();
+	});
+});
+
+describe('block-editor.js requests initial note on boot', () => {
+	it('sends getNote message via webviewApi.postMessage during boot', () => {
+		expect((window as any).webviewApi.postMessage).toHaveBeenCalledWith({
+			type: 'getNote',
+		});
 	});
 });

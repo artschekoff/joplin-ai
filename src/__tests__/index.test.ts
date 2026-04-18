@@ -58,8 +58,7 @@ jest.mock('api', () => ({
 		},
 		workspace: {
 			selectedNote: jest.fn().mockResolvedValue(null),
-			onNoteSelectionChange: (...args: unknown[]) =>
-				mockWorkspaceOnNoteSelectionChange(...args),
+			onNoteSelectionChange: (...args: unknown[]) => mockWorkspaceOnNoteSelectionChange(...args),
 		},
 		data: {
 			get: jest.fn().mockResolvedValue({ items: [] }),
