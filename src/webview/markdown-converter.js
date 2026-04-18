@@ -11,11 +11,24 @@
 
 /* global window */
 
+// ── Backslash escape helpers ──────────────────────────────────────────────
+
+const ESCAPE_PLACEHOLDER = '\x00ESC';
+const ESCAPE_RE = /\\([\\`*_~\[\]()#+\-.!])/g;
+const PLACEHOLDER_RE = new RegExp(ESCAPE_PLACEHOLDER + '(..)', 'g');
+
+const protectEscapes = (text) =>
+	text.replace(ESCAPE_RE, (_, ch) => ESCAPE_PLACEHOLDER + ch.charCodeAt(0).toString(16).padStart(2, '0'));
+
+const restoreEscapes = (text) =>
+	text.replace(PLACEHOLDER_RE, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+
 // ── Inline: Markdown → HTML ───────────────────────────────────────────────
 
 const mdInlineToHtml = (md) => {
 	if (!md) return '';
-	return md
+	let s = protectEscapes(md);
+	s = s
 		.replace(/&(?!(?:amp|lt|gt|quot|#\d+|#x[\da-f]+);)/gi, '&amp;')
 		.replace(/`([^`]+)`/g, '<code>$1</code>')
 		.replace(/\*\*(.+?)\*\*/gs, '<b>$1</b>')
@@ -24,13 +37,21 @@ const mdInlineToHtml = (md) => {
 		.replace(/_([^_]+)_/gs, '<i>$1</i>')
 		.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
 		.replace(/~~(.+?)~~/gs, '<s>$1</s>');
+	return restoreEscapes(s);
 };
 
 // ── Inline: HTML → Markdown ───────────────────────────────────────────────
 
+/**
+ * Escape runs of underscores (2+) that would be misinterpreted as bold/italic
+ * when the plain text is converted back from HTML to Markdown.
+ */
+const escapeMarkdownSpecials = (text) =>
+	text.replace(/_{2,}/g, (m) => m.split('').map((ch) => `\\${ch}`).join(''));
+
 const htmlInlineToMd = (html) => {
 	if (!html) return '';
-	return html
+	let s = html
 		.replace(/<b>([\s\S]*?)<\/b>/gi, '**$1**')
 		.replace(/<strong>([\s\S]*?)<\/strong>/gi, '**$1**')
 		.replace(/<i>([\s\S]*?)<\/i>/gi, '*$1*')
@@ -44,6 +65,7 @@ const htmlInlineToMd = (html) => {
 		.replace(/&lt;/g, '<')
 		.replace(/&gt;/g, '>')
 		.replace(/&quot;/g, '"');
+	return escapeMarkdownSpecials(s);
 };
 
 // ── Markdown → Editor.js blocks ───────────────────────────────────────────
