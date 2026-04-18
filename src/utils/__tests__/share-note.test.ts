@@ -7,9 +7,11 @@ jest.mock('child_process', () => ({
 }));
 
 const mockWriteFile = jest.fn().mockResolvedValue(undefined);
+const mockCopyFile = jest.fn().mockResolvedValue(undefined);
 jest.mock('fs', () => ({
 	promises: {
 		writeFile: (...args: unknown[]) => mockWriteFile(...args),
+		copyFile: (...args: unknown[]) => mockCopyFile(...args),
 	},
 }));
 
@@ -18,6 +20,7 @@ import {
 	buildPdfMailtoUrl,
 	markdownToPlainText,
 	exportNoteWithPandoc,
+	copyFileToDirectory,
 	MAX_BODY_LENGTH,
 } from '../share-note';
 
@@ -190,39 +193,39 @@ describe('exportNoteWithPandoc', () => {
 		);
 	});
 
-	it('writes markdown to a temp file and calls pandoc for docx format', async () => {
+	it('writes markdown to a temp file and calls pandoc with --standalone for docx format', async () => {
 		await exportNoteWithPandoc({ title: 'My Note', body: '# Hello', format: 'docx' });
 		expect(mockWriteFile).toHaveBeenCalledWith(
 			expect.stringContaining('My Note.md'),
 			'# Hello',
 			'utf-8',
 		);
-		expect(mockExecFile).toHaveBeenCalledWith(
-			'pandoc',
+		const pandocArgs = mockExecFile.mock.calls[0][1] as string[];
+		expect(pandocArgs).toContain('--standalone');
+		expect(pandocArgs).toContain('-o');
+		expect(pandocArgs).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining('My Note.md'),
-				'-o',
 				expect.stringContaining('My Note.docx'),
 			]),
-			expect.any(Function),
 		);
 	});
 
-	it('writes markdown to a temp file and calls pandoc for rtf format', async () => {
+	it('writes markdown to a temp file and calls pandoc with --standalone for rtf format', async () => {
 		await exportNoteWithPandoc({ title: 'Report', body: 'Some text', format: 'rtf' });
 		expect(mockWriteFile).toHaveBeenCalledWith(
 			expect.stringContaining('Report.md'),
 			'Some text',
 			'utf-8',
 		);
-		expect(mockExecFile).toHaveBeenCalledWith(
-			'pandoc',
+		const pandocArgs = mockExecFile.mock.calls[0][1] as string[];
+		expect(pandocArgs).toContain('--standalone');
+		expect(pandocArgs).toContain('-o');
+		expect(pandocArgs).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining('Report.md'),
-				'-o',
 				expect.stringContaining('Report.rtf'),
 			]),
-			expect.any(Function),
 		);
 	});
 
@@ -287,5 +290,32 @@ describe('exportNoteWithPandoc', () => {
 		await exportNoteWithPandoc({ title: 'Temp Test', body: 'data', format: 'docx' });
 		const writePath = mockWriteFile.mock.calls[0][0] as string;
 		expect(writePath).toContain(os.tmpdir());
+	});
+});
+
+describe('copyFileToDirectory', () => {
+	beforeEach(() => {
+		jest.clearAllMocks();
+	});
+
+	it('copies the source file to the target directory preserving the filename', async () => {
+		const actualDest = await copyFileToDirectory('/tmp/My Note.docx', '/Users/me/Documents');
+		expect(mockCopyFile).toHaveBeenCalledWith(
+			'/tmp/My Note.docx',
+			path.join('/Users/me/Documents', 'My Note.docx'),
+		);
+		expect(actualDest).toBe(path.join('/Users/me/Documents', 'My Note.docx'));
+	});
+
+	it('preserves the original extension when copying', async () => {
+		const actualDest = await copyFileToDirectory('/tmp/Report.rtf', '/Users/me/Desktop');
+		expect(actualDest).toBe(path.join('/Users/me/Desktop', 'Report.rtf'));
+	});
+
+	it('rejects when fs.copyFile fails', async () => {
+		mockCopyFile.mockRejectedValueOnce(new Error('EACCES: permission denied'));
+		await expect(
+			copyFileToDirectory('/tmp/Note.docx', '/Users/me/Documents'),
+		).rejects.toThrow('EACCES');
 	});
 });

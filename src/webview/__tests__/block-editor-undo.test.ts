@@ -469,4 +469,78 @@ describe('BlockEditor — undo after multi-block deletion', () => {
 		expect(event.defaultPrevented).toBe(true);
 		expect(mockEditor.render).not.toHaveBeenCalled();
 	});
+
+	// ── Bug-3: save() time field causes phantom undo ────────────────────────
+
+	it('should undo to previous content when save() includes changing time field', async () => {
+		// Arrange: load a note — save() returns full OutputData with a time field
+		let saveCallCount = 0;
+		const initialBlocks = [{ type: 'paragraph', data: { text: 'original' } }];
+		const editedBlocks = [{ type: 'paragraph', data: { text: 'edited' } }];
+		let currentBlocks = initialBlocks;
+
+		(mockEditor.save as jest.Mock).mockImplementation(async () => {
+			saveCallCount++;
+			return {
+				time: 1700000000000 + saveCallCount * 1000,
+				blocks: currentBlocks,
+				version: '2.29.1',
+			};
+		});
+
+		await (window as any).BlockEditor.loadNote({ id: 'n1', body: 'original' });
+		await flushPromises();
+
+		// User edits — onChange fires, blocks change
+		currentBlocks = editedBlocks;
+		capturedOnChange!();
+		await flushPromises();
+
+		// Act: press Cmd+Z — should undo to "original", not flash with "edited"
+		(mockEditor.render as jest.Mock).mockClear();
+		(mockEditor.render as jest.Mock).mockImplementation(async (data: any) => {
+			currentBlocks = data.blocks;
+		});
+		fireKeyInContainer({ key: 'z', metaKey: true });
+		await flushPromises();
+
+		// Assert: render was called with original blocks, not the same edited blocks
+		expect(mockEditor.render).toHaveBeenCalledTimes(1);
+		const renderedData = (mockEditor.render as jest.Mock).mock.calls[0][0];
+		expect(renderedData.blocks).toEqual(initialBlocks);
+	});
+
+	it('should not push duplicate snapshots when only time field changes between saves', async () => {
+		// Arrange: load a note with time-bearing save output
+		let saveCallCount = 0;
+		const sameBlocks = [{ type: 'paragraph', data: { text: 'unchanged' } }];
+
+		(mockEditor.save as jest.Mock).mockImplementation(async () => {
+			saveCallCount++;
+			return {
+				time: 1700000000000 + saveCallCount * 1000,
+				blocks: sameBlocks,
+				version: '2.29.1',
+			};
+		});
+
+		await (window as any).BlockEditor.loadNote({ id: 'n1', body: 'unchanged' });
+		await flushPromises();
+
+		// Multiple onChange events WITHOUT actual content changes
+		capturedOnChange!();
+		await flushPromises();
+		capturedOnChange!();
+		await flushPromises();
+		capturedOnChange!();
+		await flushPromises();
+
+		// Act: Cmd+Z — undo stack should be empty (no real changes)
+		(mockEditor.render as jest.Mock).mockClear();
+		fireKeyInContainer({ key: 'z', metaKey: true });
+		await flushPromises();
+
+		// Assert: no render call — nothing to undo
+		expect(mockEditor.render).not.toHaveBeenCalled();
+	});
 });

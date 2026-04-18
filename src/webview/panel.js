@@ -2,6 +2,7 @@ var STORAGE_KEY_HISTORY = 'joplin-ai-chat-history';
 var STORAGE_KEY_MESSAGES = 'joplin-ai-messages';
 var STORAGE_KEY_MODE = 'joplin-ai-mode';
 var STORAGE_KEY_ROLE = 'joplin-ai-applied-role';
+var STORAGE_KEY_TOTAL_COST = 'joplin-ai-total-cost';
 
 function initPanel() {
 	const messagesEl = document.getElementById('messages');
@@ -15,6 +16,10 @@ function initPanel() {
 	const applyRoleBtn = document.getElementById('applyRoleBtn');
 	const manageRolesBtn = document.getElementById('manageRolesBtn');
 	const roleManageView = document.getElementById('roleManageView');
+	const settingsBtn = document.getElementById('settingsBtn');
+	const settingsManageView = document.getElementById('settingsManageView');
+	var settingsPendingOpen = false;
+	var lastSettingsData = null;
 	let isLoading = false;
 	let chatHistory = [];
 	let savedMessages = [];
@@ -70,6 +75,9 @@ function initPanel() {
 	let queueIdCounter = 0;
 	let responsesToSkip = 0;
 	let consecutiveErrors = 0;
+	let streamingMsgDiv = null;
+	let streamingText = '';
+	let sessionTotalCost = 0;
 
 	function escapeHtml(text) {
 		const div = document.createElement('div');
@@ -77,13 +85,58 @@ function initPanel() {
 		return div.innerHTML;
 	}
 
-	function addMessage(type, label, content, files, modelName, skipPersist) {
+	function svgIcon(name, size) {
+		if (typeof window.SVGIcons !== 'undefined' && window.SVGIcons[name]) {
+			return window.SVGIcons[name](size);
+		}
+		return '';
+	}
+
+	function formatCost(cost) {
+		if (cost === null || cost === undefined || cost === 0) return null;
+		if (cost < 0.001) return '< $0.001';
+		return '$' + cost.toFixed(4);
+	}
+
+	function persistTotalCost() {
+		try { localStorage.setItem(STORAGE_KEY_TOTAL_COST, String(sessionTotalCost)); } catch (_e) {}
+	}
+
+	function addCostToMessage(msgDiv, costUsd, usage) {
+		if (!costUsd && !usage) return;
+		var footer = document.createElement('div');
+		footer.className = 'message-cost-footer';
+		var parts = [];
+		if (usage) parts.push(usage.inputTokens + ' in / ' + usage.outputTokens + ' out');
+		var costStr = formatCost(costUsd);
+		if (costStr) parts.push(costStr);
+		footer.textContent = parts.join(' \u2022 ');
+		msgDiv.appendChild(footer);
+	}
+
+	function updateSessionCostDisplay() {
+		var existing = document.getElementById('sessionCostTotal');
+		if (sessionTotalCost <= 0) {
+			if (existing) existing.remove();
+			return;
+		}
+		if (!existing) {
+			existing = document.createElement('div');
+			existing.id = 'sessionCostTotal';
+			existing.className = 'session-cost-total';
+			messagesEl.parentElement.appendChild(existing);
+		}
+		var label = formatCost(sessionTotalCost) || '< $0.001';
+		existing.textContent = 'Session total: ' + label;
+	}
+
+	function addMessage(type, label, content, files, modelName, skipPersist, costInfo) {
 		if (emptyState) {
 			emptyState.style.display = 'none';
 		}
 
 		if (!skipPersist) {
-			savedMessages.push({ type: type, label: label, content: content, files: files || null, modelName: modelName || null });
+			savedMessages.push({ type: type, label: label, content: content, files: files || null, modelName: modelName || null, costUsd: costInfo ? costInfo.costUsd : null, usage: costInfo ? costInfo.usage : null });
 			persistMessages();
 		}
 
@@ -92,7 +145,7 @@ function initPanel() {
 
 		const labelDiv = document.createElement('div');
 		labelDiv.className = 'message-label';
-		labelDiv.textContent = label;
+		labelDiv.innerHTML = label;
 		msgDiv.appendChild(labelDiv);
 
 		if (modelName) {
@@ -118,10 +171,14 @@ function initPanel() {
 			for (let i = 0; i < files.length; i++) {
 				const chip = document.createElement('span');
 				chip.className = 'message-attachment-chip';
-				chip.textContent = '\uD83D\uDCCE ' + files[i].name;
+				chip.innerHTML = svgIcon('paperclip', '12') + ' ' + escapeHtml(files[i].name);
 				attachmentsDiv.appendChild(chip);
 			}
 			msgDiv.appendChild(attachmentsDiv);
+		}
+
+		if (isAiMessage && costInfo) {
+			addCostToMessage(msgDiv, costInfo.costUsd, costInfo.usage);
 		}
 
 		messagesEl.appendChild(msgDiv);
@@ -220,6 +277,49 @@ function initPanel() {
 		if (existing) existing.remove();
 	}
 
+	function ensureStreamingMessage() {
+		if (streamingMsgDiv) return;
+		if (emptyState) emptyState.style.display = 'none';
+		streamingMsgDiv = document.createElement('div');
+		streamingMsgDiv.className = 'message message-ai';
+		var labelDiv = document.createElement('div');
+		labelDiv.className = 'message-label';
+		labelDiv.textContent = 'AI';
+		streamingMsgDiv.appendChild(labelDiv);
+		var contentDiv = document.createElement('div');
+		contentDiv.className = 'markdown-content streaming-content';
+		contentDiv.id = 'streamingContent';
+		streamingMsgDiv.appendChild(contentDiv);
+		messagesEl.appendChild(streamingMsgDiv);
+		streamingText = '';
+	}
+
+	function appendStreamChunk(text) {
+		ensureStreamingMessage();
+		streamingText += text;
+		var contentDiv = document.getElementById('streamingContent');
+		if (contentDiv && typeof window.renderMarkdown === 'function') {
+			contentDiv.innerHTML = window.renderMarkdown(streamingText);
+		} else if (contentDiv) {
+			contentDiv.textContent = streamingText;
+		}
+		messagesEl.scrollTop = messagesEl.scrollHeight;
+	}
+
+	function finalizeStreamingMessage(modelName, costUsd, usage) {
+		if (streamingMsgDiv) {
+			if (modelName) {
+				var modelDiv = document.createElement('div');
+				modelDiv.className = 'message-model-label';
+				modelDiv.textContent = modelName;
+				streamingMsgDiv.insertBefore(modelDiv, streamingMsgDiv.children[1]);
+			}
+			addCostToMessage(streamingMsgDiv, costUsd, usage);
+			streamingMsgDiv = null;
+			streamingText = '';
+		}
+	}
+
 	function formatWebSearchLabel(a) {
 		const provider = (a.data && a.data.searchProvider) || '';
 		const model = (a.data && a.data.searchModel) || '';
@@ -235,14 +335,14 @@ function initPanel() {
 			if (a.action === 'web_search' && a.success) {
 				addMessage(
 					'action-search',
-					'\uD83C\uDF10 Web Search \u2014 ' + formatWebSearchLabel(a),
+					svgIcon('globe', '14') + ' Web Search \u2014 ' + formatWebSearchLabel(a),
 					a.message,
 				);
 				continue;
 			}
 			const type = a.success ? 'action-success' : 'action-error';
-			const icon = a.success ? '\u2705' : '\u274C';
-			addMessage(type, icon + ' ' + formatActionName(a.action), a.message);
+			const iconSvg = a.success ? svgIcon('checkCircle', '14') : svgIcon('xCircle', '14');
+			addMessage(type, iconSvg + ' ' + formatActionName(a.action), a.message);
 		}
 	}
 
@@ -278,7 +378,7 @@ function initPanel() {
 		if (appliedRole) {
 			const indicator = document.createElement('div');
 			indicator.className = 'role-active-indicator';
-			indicator.textContent = '\uD83C\uDFAD ' + appliedRole.name;
+			indicator.innerHTML = svgIcon('masks', '12') + ' ' + escapeHtml(appliedRole.name);
 			const roleBar = document.getElementById('roleBar');
 			if (roleBar) {
 				roleBar.appendChild(indicator);
@@ -290,7 +390,7 @@ function initPanel() {
 		let html =
 			'<div class="manage-header">' +
 			'<h3>Manage Agent Roles</h3>' +
-			'<button id="closeManageView" class="btn btn-secondary btn-sm">\u2715 Close</button>' +
+			'<button id="closeManageView" class="btn btn-secondary btn-sm">' + svgIcon('x', '12') + ' Close</button>' +
 			'</div>';
 
 		html +=
@@ -453,7 +553,7 @@ function initPanel() {
 			chip.appendChild(nameSpan);
 			const removeBtn = document.createElement('button');
 			removeBtn.className = 'file-chip-remove';
-			removeBtn.textContent = '\u00D7';
+			removeBtn.innerHTML = svgIcon('x', '10');
 			removeBtn.setAttribute('data-file-index', String(i));
 			removeBtn.addEventListener('click', function () {
 				const idx = parseInt(this.getAttribute('data-file-index'), 10);
@@ -601,7 +701,7 @@ function initPanel() {
 			actionsDiv.className = 'queue-item-actions';
 			const editBtn = document.createElement('button');
 			editBtn.className = 'queue-item-edit';
-			editBtn.textContent = '\u270F';
+			editBtn.innerHTML = svgIcon('pencil', '12');
 			editBtn.title = 'Edit';
 			editBtn.setAttribute('data-queue-id', String(item.id));
 			editBtn.addEventListener('click', (function (qId) {
@@ -610,7 +710,7 @@ function initPanel() {
 			actionsDiv.appendChild(editBtn);
 			const deleteBtn = document.createElement('button');
 			deleteBtn.className = 'queue-item-delete';
-			deleteBtn.textContent = '\u2715';
+			deleteBtn.innerHTML = svgIcon('x', '12');
 			deleteBtn.title = 'Delete';
 			deleteBtn.setAttribute('data-queue-id', String(item.id));
 			deleteBtn.addEventListener('click', (function (qId) {
@@ -619,7 +719,7 @@ function initPanel() {
 			actionsDiv.appendChild(deleteBtn);
 			const forceBtn = document.createElement('button');
 			forceBtn.className = 'queue-item-force';
-			forceBtn.textContent = '\u26A1';
+			forceBtn.innerHTML = svgIcon('zap', '12');
 			forceBtn.title = 'Force push';
 			forceBtn.setAttribute('data-queue-id', String(item.id));
 			forceBtn.addEventListener('click', (function (qId) {
@@ -830,6 +930,118 @@ function initPanel() {
 		}
 	});
 
+	function buildSelectHtml(id, label, options, selectedValue) {
+		var html = '<label class="settings-label" for="' + id + '">' + escapeHtml(label) + '</label>';
+		html += '<select id="' + id + '" class="settings-select">';
+		var keys = Object.keys(options);
+		for (var i = 0; i < keys.length; i++) {
+			var sel = keys[i] === selectedValue ? ' selected' : '';
+			html += '<option value="' + escapeHtml(keys[i]) + '"' + sel + '>' + escapeHtml(options[keys[i]]) + '</option>';
+		}
+		html += '</select>';
+		return '<div class="settings-field">' + html + '</div>';
+	}
+
+	function buildKeyInputHtml(id, label, isSet, placeholder) {
+		var html = '<label class="settings-label" for="' + id + '">' + escapeHtml(label) + '</label>';
+		var ph = isSet ? '\u2022\u2022\u2022\u2022 configured — leave blank to keep' : (placeholder || 'Enter API key...');
+		html += '<input id="' + id + '" type="password" class="settings-input" placeholder="' + escapeHtml(ph) + '" value="" />';
+		return '<div class="settings-field">' + html + '</div>';
+	}
+
+	function renderSettingsView(data) {
+		lastSettingsData = data;
+		var html =
+			'<div class="manage-header">' +
+			'<h3>AI Settings</h3>' +
+			'<button id="closeSettingsView" class="btn btn-secondary btn-sm">' + svgIcon('x', '12') + ' Close</button>' +
+			'</div>';
+
+		html += '<div class="settings-form">';
+		html += buildSelectHtml('settingsProvider', 'AI Provider', data.providerOptions || {}, data.provider);
+		html += '<div id="settingsProviderSection">';
+		html += buildKeyInputHtml('settingsOpenaiKey', 'OpenAI API Key', data.openaiKeySet, 'sk-...');
+		html += buildSelectHtml('settingsOpenaiModel', 'OpenAI Model', data.openaiModelOptions || {}, data.openaiModel);
+		html += buildKeyInputHtml('settingsClaudeKey', 'Claude API Key', data.claudeKeySet, 'sk-ant-...');
+		html += buildSelectHtml('settingsClaudeModel', 'Claude Model', data.claudeModelOptions || {}, data.claudeModel);
+		html += buildKeyInputHtml('settingsPerplexityKey', 'Perplexity API Key', data.perplexityKeySet, 'pplx-...');
+		html += buildSelectHtml('settingsPerplexityModel', 'Perplexity Model', data.perplexityModelOptions || {}, data.perplexityModel);
+		html += '</div>';
+		html += '<div class="settings-divider"></div>';
+		html += '<div class="settings-field">';
+		html += '<label class="settings-label settings-checkbox-label"><input id="settingsWebSearch" type="checkbox"' + (data.webSearchEnabled ? ' checked' : '') + ' /> Enable Web Search</label>';
+		html += '</div>';
+		html += buildSelectHtml('settingsWebSearchModel', 'Web Search Model', data.webSearchModelOptions || {}, data.webSearchModel);
+		html += '<div class="settings-divider"></div>';
+		html += buildKeyInputHtml('settingsKieKey', 'Kie.ai API Key', data.kieKeySet, 'Enter Kie.ai key...');
+		html += buildSelectHtml('settingsImageGenModel', 'Image Generation Model', data.imageGenModelOptions || {}, data.imageGenModel);
+		html += '<div class="settings-divider"></div>';
+		html += '<div class="settings-field">';
+		html += '<label class="settings-label" for="settingsFileMaxSize">Max File Attachment Size (MB)</label>';
+		html += '<input id="settingsFileMaxSize" type="number" class="settings-input" min="1" max="100" value="' + (data.fileMaxSizeMb || 10) + '" />';
+		html += '</div>';
+		html += '<button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>';
+		html += '</div>';
+
+		settingsManageView.innerHTML = html;
+		updateProviderVisibility(data.provider);
+
+		document.getElementById('closeSettingsView').addEventListener('click', function () {
+			settingsManageView.style.display = 'none';
+		});
+
+		document.getElementById('settingsProvider').addEventListener('change', function () {
+			updateProviderVisibility(this.value);
+		});
+
+		document.getElementById('saveSettingsBtn').addEventListener('click', function () {
+			var settings = {};
+			var provider = document.getElementById('settingsProvider').value;
+			settings.aiProvider = provider;
+			var openaiKey = document.getElementById('settingsOpenaiKey').value.trim();
+			if (openaiKey) settings.openaiApiKey = openaiKey;
+			settings.openaiModel = document.getElementById('settingsOpenaiModel').value;
+			var claudeKey = document.getElementById('settingsClaudeKey').value.trim();
+			if (claudeKey) settings.claudeApiKey = claudeKey;
+			settings.claudeModel = document.getElementById('settingsClaudeModel').value;
+			var perplexityKey = document.getElementById('settingsPerplexityKey').value.trim();
+			if (perplexityKey) settings.perplexityApiKey = perplexityKey;
+			settings.perplexityModel = document.getElementById('settingsPerplexityModel').value;
+			settings.webSearchEnabled = document.getElementById('settingsWebSearch').checked;
+			settings.webSearchModel = document.getElementById('settingsWebSearchModel').value;
+			var kieKey = document.getElementById('settingsKieKey').value.trim();
+			if (kieKey) settings.kieApiKey = kieKey;
+			settings.imageGenModel = document.getElementById('settingsImageGenModel').value;
+			var maxSize = parseInt(document.getElementById('settingsFileMaxSize').value, 10);
+			if (maxSize > 0) settings.fileMaxSizeMb = maxSize;
+			webviewApi.postMessage({ type: 'saveSettings', settings: settings });
+		});
+	}
+
+	function updateProviderVisibility(provider) {
+		var fields = [
+			{ prefix: 'OpenaiKey', providers: ['openai'] },
+			{ prefix: 'OpenaiModel', providers: ['openai'] },
+			{ prefix: 'ClaudeKey', providers: ['claude'] },
+			{ prefix: 'ClaudeModel', providers: ['claude'] },
+			{ prefix: 'PerplexityKey', providers: ['perplexity'] },
+			{ prefix: 'PerplexityModel', providers: ['perplexity'] },
+		];
+		for (var i = 0; i < fields.length; i++) {
+			var el = document.getElementById('settings' + fields[i].prefix);
+			if (el && el.parentElement) {
+				el.parentElement.style.display = fields[i].providers.indexOf(provider) !== -1 ? '' : 'none';
+			}
+		}
+	}
+
+	if (settingsBtn) {
+		settingsBtn.addEventListener('click', function () {
+			settingsPendingOpen = true;
+			webviewApi.postMessage({ type: 'getSettings' });
+		});
+	}
+
 	applyRoleBtn.addEventListener('click', function () {
 		const selectedId = roleSelect.value;
 		if (!selectedId) {
@@ -888,8 +1100,11 @@ function initPanel() {
 		savedMessages = [];
 		lastSentPrompt = null;
 		messageQueue = [];
+		sessionTotalCost = 0;
 		renderQueue();
 		clearPersistedHistory();
+		try { localStorage.removeItem(STORAGE_KEY_TOTAL_COST); } catch (_e) {}
+		updateSessionCostDisplay();
 		if (emptyState) {
 			messagesEl.appendChild(emptyState);
 			emptyState.style.display = '';
@@ -901,7 +1116,11 @@ function initPanel() {
 		if (!message) return;
 
 		if (message.type === 'noteInfo') {
-			noteInfoEl.textContent = message.title ? '\u{1F4C4} ' + message.title : 'No note selected';
+			if (message.title) {
+				noteInfoEl.innerHTML = svgIcon('fileText', '12') + ' ' + escapeHtml(message.title);
+			} else {
+				noteInfoEl.textContent = 'No note selected';
+			}
 		}
 
 		if (message.type === 'agentRoles') {
@@ -916,11 +1135,18 @@ function initPanel() {
 			showImageProgress(message.progress, message.state);
 		}
 
+		if (message.type === 'streamChunk') {
+			appendStreamChunk(message.text);
+			return;
+		}
+
 		if (message.type === 'result') {
 			if (responsesToSkip > 0) {
 				responsesToSkip--;
 				showLoading(false);
 				hideImageProgress();
+				streamingMsgDiv = null;
+				streamingText = '';
 				return;
 			}
 			consecutiveErrors = 0;
@@ -932,13 +1158,24 @@ function initPanel() {
 			if (message.isEdit && !hasActions) {
 				addMessage(
 					'edit',
-					'\u2705 Note Updated',
+					svgIcon('checkCircle', '14') + ' Note Updated',
 					'The note has been updated with the AI response.',
 				);
 			}
-			if (message.content) {
-				addMessage('ai', 'AI', message.content, null, message.modelName);
+			var msgCostUsd = message.costUsd || null;
+			var msgUsage = message.usage || null;
+			if (typeof msgCostUsd === 'number' && msgCostUsd > 0) {
+				sessionTotalCost += msgCostUsd;
+				persistTotalCost();
 			}
+			if (streamingMsgDiv && streamingText) {
+				finalizeStreamingMessage(message.modelName, msgCostUsd, msgUsage);
+				savedMessages.push({ type: 'ai', label: 'AI', content: message.content || streamingText, files: null, modelName: message.modelName || null, costUsd: msgCostUsd, usage: msgUsage });
+				persistMessages();
+			} else if (message.content) {
+				addMessage('ai', 'AI', message.content, null, message.modelName, false, { costUsd: msgCostUsd, usage: msgUsage });
+			}
+			updateSessionCostDisplay();
 			if (lastSentPrompt && (message.content || hasActions)) {
 				let assistantContent = '';
 				if (hasActions) {
@@ -1013,6 +1250,16 @@ function initPanel() {
 			}
 		}
 
+		if (message.type === 'settingsData') {
+			if (settingsPendingOpen) {
+				settingsPendingOpen = false;
+				renderSettingsView(message);
+				settingsManageView.style.display = '';
+			} else if (settingsManageView && settingsManageView.style.display !== 'none') {
+				renderSettingsView(message);
+			}
+		}
+
 		if (message.type === 'loading') {
 			showLoading(message.status);
 		}
@@ -1048,16 +1295,24 @@ function initPanel() {
 		} catch (_e) {}
 
 		try {
+			const storedCost = localStorage.getItem(STORAGE_KEY_TOTAL_COST);
+			if (storedCost) sessionTotalCost = parseFloat(storedCost) || 0;
+		} catch (_e) {}
+
+		try {
 			const storedMessages = localStorage.getItem(STORAGE_KEY_MESSAGES);
 			if (storedMessages) {
 				const messages = JSON.parse(storedMessages);
 				for (let i = 0; i < messages.length; i++) {
 					const m = messages[i];
-					addMessage(m.type, m.label, m.content, m.files, m.modelName, true);
+					var ci = (m.costUsd || m.usage) ? { costUsd: m.costUsd, usage: m.usage } : undefined;
+					addMessage(m.type, m.label, m.content, m.files, m.modelName, true, ci);
 				}
 				savedMessages = messages;
 			}
 		} catch (_e) {}
+
+		updateSessionCostDisplay();
 	}
 
 	restoreFromStorage();

@@ -51,6 +51,7 @@ export interface ActionContext {
 	imageGenModel?: string;
 	onImageProgress?: (info: ImageProgressInfo) => void;
 	onThinkingStep?: (info: ThinkingStepInfo) => void;
+	onStreamChunk?: (text: string) => void;
 }
 
 export interface ActionHandler {

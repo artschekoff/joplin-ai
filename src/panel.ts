@@ -1,13 +1,26 @@
 import joplin from 'api';
 import { ViewHandle } from 'api/types';
-import { SETTING_KEYS } from './settings';
+import {
+	SETTING_KEYS,
+	PROVIDER_OPTIONS,
+	OPENAI_MODEL_OPTIONS,
+	CLAUDE_MODEL_OPTIONS,
+	PERPLEXITY_MODEL_OPTIONS,
+	WEB_SEARCH_MODEL_OPTIONS,
+	IMAGE_GEN_MODEL_OPTIONS,
+	ALLOWED_SETTING_KEYS,
+} from './settings';
 import { sendToAI, buildSystemPrompt } from './ai/service';
 import { AIProvider, AgentRole, AIActionOutcome, ChatMessage, WorkMode } from './ai/types';
 import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
 import { extractPdfTextFromBase64 } from './utils/pdf-extract';
-import { shareNoteAsText, openUrlInSystem, exportNoteWithPandoc } from './utils/share-note';
+import {
+	shareNoteAsText,
+	exportNoteWithPandoc,
+	copyFileToDirectory,
+} from './utils/share-note';
 
 let chatPanelHandle: ViewHandle | null = null;
 let editorPanelHandle: ViewHandle | null = null;
@@ -23,8 +36,9 @@ const CHAT_PANEL_HTML = `<!DOCTYPE html>
 		<div class="ai-chat-pane">
 			<div class="header">
 				<div class="header-title">
-					<span class="icon">&#x1F916;</span>
+					<span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8" y2="16.01"/><line x1="16" y1="16" x2="16" y2="16.01"/></svg></span>
 					AI Assistant
+					<button id="settingsBtn" class="icon-btn header-settings-btn" title="AI Settings"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
 				</div>
 				<div class="note-info" id="noteInfo">Loading...</div>
 				<div class="role-bar" id="roleBar">
@@ -32,12 +46,12 @@ const CHAT_PANEL_HTML = `<!DOCTYPE html>
 						<option value="">No role</option>
 					</select>
 					<button id="applyRoleBtn" class="btn btn-secondary btn-sm">Apply</button>
-					<button id="manageRolesBtn" class="btn btn-secondary btn-sm">&#x2699; Roles</button>
+					<button id="manageRolesBtn" class="btn btn-secondary btn-sm"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Roles</button>
 				</div>
 			</div>
 			<div class="messages" id="messages">
 				<div class="empty-state" id="emptyState">
-					<div class="icon">&#x1F4AC;</div>
+					<div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></div>
 					<p>Ask a question about your note or request edits.<br>The current note is shared as context.</p>
 				</div>
 			</div>
@@ -57,24 +71,25 @@ const CHAT_PANEL_HTML = `<!DOCTYPE html>
 						<div class="bottom-bar-left">
 							<div class="mode-pill-wrap">
 								<select id="modeSelect" class="mode-pill-select">
-									<option value="ask">&#x1F4AC; Ask</option>
-									<option value="agent" selected>&#x1F916; Agent</option>
-									<option value="edit">&#x270F; Edit</option>
+									<option value="ask">Ask</option>
+									<option value="agent" selected>Agent</option>
+									<option value="edit">Edit</option>
 								</select>
 							</div>
-							<button id="attachFileBtn" class="icon-btn" title="Attach file">&#x1F4CE;</button>
-							<button id="clearBtn" class="icon-btn" title="Clear input">&#x2715;</button>
+							<button id="attachFileBtn" class="icon-btn" title="Attach file"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+							<button id="clearBtn" class="icon-btn" title="Clear input"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
 						</div>
 						<div class="bottom-bar-right">
 							<div id="contextSizeContainer" class="context-size-container"></div>
-							<button id="clearHistoryBtn" class="icon-btn" title="Clear history">&#x1F9F9;</button>
-							<button id="executeBtn" class="btn send-btn" title="Send (Enter)">&#x27A4;</button>
+							<button id="clearHistoryBtn" class="icon-btn" title="Clear history"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>
+							<button id="executeBtn" class="btn send-btn" title="Send (Enter)"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
 						</div>
 					</div>
 				</div>
 				<input type="file" id="fileInput" style="display:none" multiple accept=".pdf,.txt,.md,.csv,.json,.xml,.js,.ts,.py,.java,.c,.cpp,.h,.html,.css,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.bat,.sql,.r,.rb,.go,.rs,.swift,.kt,.scala,.lua,.pl,.php" />
 			</div>
 			<div id="roleManageView" class="role-manage-view" style="display: none;"></div>
+			<div id="settingsManageView" class="settings-manage-view" style="display: none;"></div>
 		</div>
 	</div>
 </body>
@@ -238,6 +253,55 @@ const saveAgentRoles = async (handle: ViewHandle, roles: AgentRole[]) => {
 	joplin.views.panels.postMessage(handle, { type: 'agentRoles', roles });
 };
 
+const sendSettings = async (handle: ViewHandle) => {
+	const vals = await joplin.settings.values([
+		SETTING_KEYS.provider,
+		SETTING_KEYS.openaiKey,
+		SETTING_KEYS.openaiModel,
+		SETTING_KEYS.claudeKey,
+		SETTING_KEYS.claudeModel,
+		SETTING_KEYS.perplexityKey,
+		SETTING_KEYS.perplexityModel,
+		SETTING_KEYS.webSearchEnabled,
+		SETTING_KEYS.webSearchModel,
+		SETTING_KEYS.kieApiKey,
+		SETTING_KEYS.imageGenModel,
+		SETTING_KEYS.fileMaxSizeMb,
+	]);
+	joplin.views.panels.postMessage(handle, {
+		type: 'settingsData',
+		provider: vals[SETTING_KEYS.provider] ?? 'openai',
+		openaiModel: vals[SETTING_KEYS.openaiModel] ?? 'gpt-4o',
+		claudeModel: vals[SETTING_KEYS.claudeModel] ?? 'claude-sonnet-4-20250514',
+		perplexityModel: vals[SETTING_KEYS.perplexityModel] ?? 'sonar',
+		webSearchEnabled: !!vals[SETTING_KEYS.webSearchEnabled],
+		webSearchModel: vals[SETTING_KEYS.webSearchModel] ?? 'openai:gpt-4o-search-preview',
+		imageGenModel: vals[SETTING_KEYS.imageGenModel] ?? 'gpt-image/1.5-text-to-image',
+		fileMaxSizeMb: vals[SETTING_KEYS.fileMaxSizeMb] ?? 10,
+		openaiKeySet: !!((vals[SETTING_KEYS.openaiKey] as string) ?? '').trim(),
+		claudeKeySet: !!((vals[SETTING_KEYS.claudeKey] as string) ?? '').trim(),
+		perplexityKeySet: !!((vals[SETTING_KEYS.perplexityKey] as string) ?? '').trim(),
+		kieKeySet: !!((vals[SETTING_KEYS.kieApiKey] as string) ?? '').trim(),
+		providerOptions: PROVIDER_OPTIONS,
+		openaiModelOptions: OPENAI_MODEL_OPTIONS,
+		claudeModelOptions: CLAUDE_MODEL_OPTIONS,
+		perplexityModelOptions: PERPLEXITY_MODEL_OPTIONS,
+		webSearchModelOptions: WEB_SEARCH_MODEL_OPTIONS,
+		imageGenModelOptions: IMAGE_GEN_MODEL_OPTIONS,
+	});
+};
+
+const handleSaveSettings = async (
+	handle: ViewHandle,
+	settings: Record<string, unknown>,
+) => {
+	const entries = Object.entries(settings).filter(([key]) => ALLOWED_SETTING_KEYS.has(key));
+	await Promise.all(entries.map(([key, value]) => joplin.settings.setValue(key, value)));
+	await sendSettings(handle);
+	const note = await getCurrentNote();
+	await sendContextSize(handle, note);
+};
+
 interface ProviderConfig {
 	provider: AIProvider;
 	apiKey: string;
@@ -299,9 +363,15 @@ const fetchNotebooks = async (): Promise<Notebook[]> => {
 	}));
 };
 
+const formatCostUsd = (cost?: number): string | null => {
+	if (cost === undefined || cost === null) return null;
+	if (cost < 0.001) return `< $0.001`;
+	return `$${cost.toFixed(4)}`;
+};
+
 const sendResult = (
 	handle: ViewHandle,
-	response: { isEdit: boolean; content: string; actions: AIActionOutcome[] },
+	response: { isEdit: boolean; content: string; actions: AIActionOutcome[]; usage?: { inputTokens: number; outputTokens: number }; costUsd?: number },
 	model: string,
 ) => {
 	joplin.views.panels.postMessage(handle, {
@@ -310,6 +380,9 @@ const sendResult = (
 		content: response.content,
 		actions: response.actions,
 		modelName: getModelDisplayName(model),
+		usage: response.usage ?? null,
+		costLabel: formatCostUsd(response.costUsd),
+		costUsd: response.costUsd ?? null,
 	});
 };
 
@@ -405,6 +478,12 @@ const handleExecute = async (
 				label: info.label,
 			});
 		};
+		const onStreamChunk = (text: string) => {
+			joplin.views.panels.postMessage(handle, {
+				type: 'streamChunk',
+				text,
+			});
+		};
 		if (attachedFiles?.length) {
 			await Promise.all(
 				attachedFiles
@@ -439,6 +518,7 @@ const handleExecute = async (
 			imageGenModel: config.imageGenModel,
 			onImageProgress,
 			onThinkingStep,
+			onStreamChunk,
 		};
 		const response = await sendToAI(
 			config.provider,
@@ -479,6 +559,15 @@ export const initPanel = async () => {
 	editorPanelVisible = false;
 	editorSelection = '';
 
+	chatPanelHandle = await joplin.views.panels.create('aiChatPanel');
+	await joplin.views.panels.setHtml(chatPanelHandle, CHAT_PANEL_HTML);
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/panel.css');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/icons.js');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/markdown.js');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/pdf-parser.js');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/panel.js');
+	await joplin.views.panels.hide(chatPanelHandle);
+
 	editorPanelHandle = await joplin.views.panels.create('blockEditorPanel');
 	await joplin.views.panels.setHtml(editorPanelHandle, EDITOR_PANEL_HTML);
 	await joplin.views.panels.addScript(editorPanelHandle, './webview/panel.css');
@@ -493,14 +582,6 @@ export const initPanel = async () => {
 	await joplin.views.panels.addScript(editorPanelHandle, './webview/markdown-converter.js');
 	await joplin.views.panels.addScript(editorPanelHandle, './webview/block-editor.js');
 	await joplin.views.panels.hide(editorPanelHandle);
-
-	chatPanelHandle = await joplin.views.panels.create('aiChatPanel');
-	await joplin.views.panels.setHtml(chatPanelHandle, CHAT_PANEL_HTML);
-	await joplin.views.panels.addScript(chatPanelHandle, './webview/panel.css');
-	await joplin.views.panels.addScript(chatPanelHandle, './webview/markdown.js');
-	await joplin.views.panels.addScript(chatPanelHandle, './webview/pdf-parser.js');
-	await joplin.views.panels.addScript(chatPanelHandle, './webview/panel.js');
-	await joplin.views.panels.hide(chatPanelHandle);
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	await joplin.views.panels.onMessage(chatPanelHandle, async (message: any) => {
@@ -544,6 +625,17 @@ export const initPanel = async () => {
 
 		if (message.type === 'saveAgentRoles') {
 			await saveAgentRoles(chatPanelHandle, message.roles as AgentRole[]);
+		}
+
+		if (message.type === 'getSettings') {
+			await sendSettings(chatPanelHandle);
+		}
+
+		if (message.type === 'saveSettings') {
+			await handleSaveSettings(
+				chatPanelHandle,
+				(message.settings as Record<string, unknown>) ?? {},
+			);
 		}
 	});
 
@@ -606,12 +698,22 @@ export const toggleBlockEditorPane = async (): Promise<void> => {
 };
 
 /**
+ * Copies the exported file to ~/Desktop and shows a success notification.
+ */
+const saveExportedFile = async (tempPath: string): Promise<void> => {
+	const desktopDir = require('path').join(require('os').homedir(), 'Desktop');
+	const dest = await copyFileToDirectory(tempPath, desktopDir);
+	const filename = require('path').basename(dest);
+	await joplin.views.dialogs.showMessageBox(`Exported to Desktop: ${filename}`);
+};
+
+/**
  * Exports or shares the currently selected note.
  *
  * - 'text' → converts markdown to plain text and opens a mailto: URL.
  * - 'pdf'  → triggers Joplin's built-in PDF export dialog.
- * - 'doc'  → converts markdown to DOCX via pandoc and opens the file.
- * - 'rtf'  → converts markdown to RTF via pandoc and opens the file.
+ * - 'doc'  → converts markdown to DOCX via pandoc, then saves to a user-chosen folder.
+ * - 'rtf'  → converts markdown to RTF via pandoc, then saves to a user-chosen folder.
  */
 export const shareCurrentNote = async (format: string): Promise<void> => {
 	const note = await getCurrentNote();
@@ -626,13 +728,13 @@ export const shareCurrentNote = async (format: string): Promise<void> => {
 			body: note.body,
 			format: 'docx',
 		});
-		await openUrlInSystem(outputPath);
+		await saveExportedFile(outputPath);
 	} else if (format === 'rtf') {
 		const outputPath = await exportNoteWithPandoc({
 			title: note.title,
 			body: note.body,
 			format: 'rtf',
 		});
-		await openUrlInSystem(outputPath);
+		await saveExportedFile(outputPath);
 	}
 };

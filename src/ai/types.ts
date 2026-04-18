@@ -19,11 +19,17 @@ export interface AIToolCall {
 	args: Record<string, unknown>;
 }
 
+export interface TokenUsage {
+	inputTokens: number;
+	outputTokens: number;
+}
+
 export interface AIProviderResponse {
 	textContent: string | null;
 	toolCalls: AIToolCall[];
 	finishReason: string;
 	rawAssistantMessage: unknown;
+	usage?: TokenUsage;
 }
 
 export interface AIActionOutcome {
@@ -38,4 +44,6 @@ export interface AIResponse {
 	isEdit: boolean;
 	editedBody?: string;
 	actions: AIActionOutcome[];
+	usage?: TokenUsage;
+	costUsd?: number;
 }

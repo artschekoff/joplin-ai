@@ -5,9 +5,10 @@ import {
 	AIActionOutcome,
 	ChatMessage,
 	WorkMode,
+	TokenUsage,
 } from './types';
-import { sendOpenAIMessages } from './openai';
-import { sendClaudeMessages } from './claude';
+import { sendOpenAIMessages, streamOpenAIMessages } from './openai';
+import { sendClaudeMessages, streamClaudeMessages } from './claude';
 import {
 	sendPerplexityRequest,
 	PerplexityInputItem,
@@ -21,6 +22,7 @@ import {
 import { getOpenAITools, getClaudeTools, getPerplexityTools } from './tools';
 import { executeAction, READ_ONLY_ACTIONS, EDIT_ACTIONS } from '../actions/registry';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from '../actions/types';
+import { CostTracker, defaultCostTracker } from './cost-tracker';
 
 const MAX_TOOL_ROUNDS = 5;
 
@@ -313,6 +315,14 @@ const runToolCalls = async (
 	return { outcomes, results };
 };
 
+const accumulateUsage = (total: TokenUsage, add?: TokenUsage): TokenUsage => {
+	if (!add) return total;
+	return {
+		inputTokens: total.inputTokens + add.inputTokens,
+		outputTokens: total.outputTokens + add.outputTokens,
+	};
+};
+
 const runOpenAILoop = async (
 	apiKey: string,
 	model: string,
@@ -320,7 +330,7 @@ const runOpenAILoop = async (
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
-): Promise<{ text: string; outcomes: AIActionOutcome[] }> => {
+): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const tools = getOpenAITools(context.workMode);
 	const historyMessages = (history ?? []).map((m) => ({ role: m.role, content: m.content }));
 	const pdfParts = buildOpenAIPdfParts(context.attachedFiles ?? []);
@@ -336,12 +346,17 @@ const runOpenAILoop = async (
 		userMessage,
 	];
 	const allOutcomes: AIActionOutcome[] = [];
+	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+	const onChunk = context.onStreamChunk;
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		const response = await sendOpenAIMessages(apiKey, model, messages, tools);
+		const response = onChunk && round === 0
+			? await streamOpenAIMessages(apiKey, model, messages, onChunk, tools)
+			: await sendOpenAIMessages(apiKey, model, messages, tools);
+		totalUsage = accumulateUsage(totalUsage, response.usage);
 
 		if (response.toolCalls.length === 0) {
-			return { text: response.textContent || '', outcomes: allOutcomes };
+			return { text: response.textContent || '', outcomes: allOutcomes, usage: totalUsage };
 		}
 
 		messages.push(response.rawAssistantMessage);
@@ -354,8 +369,11 @@ const runOpenAILoop = async (
 		}
 	}
 
-	const finalResponse = await sendOpenAIMessages(apiKey, model, messages);
-	return { text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE, outcomes: allOutcomes };
+	const finalResponse = onChunk
+		? await streamOpenAIMessages(apiKey, model, messages, onChunk)
+		: await sendOpenAIMessages(apiKey, model, messages);
+	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
+	return { text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE, outcomes: allOutcomes, usage: totalUsage };
 };
 
 const runClaudeLoop = async (
@@ -365,7 +383,7 @@ const runClaudeLoop = async (
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
-): Promise<{ text: string; outcomes: AIActionOutcome[] }> => {
+): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const tools = getClaudeTools(context.workMode);
 	const historyMessages = (history ?? []).map((m) => ({ role: m.role, content: m.content }));
 	const pdfParts = buildClaudePdfParts(context.attachedFiles ?? []);
@@ -377,12 +395,17 @@ const runClaudeLoop = async (
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const messages: any[] = [...historyMessages, userMessage];
 	const allOutcomes: AIActionOutcome[] = [];
+	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+	const onChunk = context.onStreamChunk;
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		const response = await sendClaudeMessages(apiKey, model, systemPrompt, messages, tools);
+		const response = onChunk && round === 0
+			? await streamClaudeMessages(apiKey, model, systemPrompt, messages, onChunk, tools)
+			: await sendClaudeMessages(apiKey, model, systemPrompt, messages, tools);
+		totalUsage = accumulateUsage(totalUsage, response.usage);
 
 		if (response.toolCalls.length === 0) {
-			return { text: response.textContent || '', outcomes: allOutcomes };
+			return { text: response.textContent || '', outcomes: allOutcomes, usage: totalUsage };
 		}
 
 		messages.push(response.rawAssistantMessage);
@@ -398,8 +421,11 @@ const runClaudeLoop = async (
 		messages.push({ role: 'user', content: toolResultBlocks });
 	}
 
-	const finalResponse = await sendClaudeMessages(apiKey, model, systemPrompt, messages);
-	return { text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE, outcomes: allOutcomes };
+	const finalResponse = onChunk
+		? await streamClaudeMessages(apiKey, model, systemPrompt, messages, onChunk)
+		: await sendClaudeMessages(apiKey, model, systemPrompt, messages);
+	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
+	return { text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE, outcomes: allOutcomes, usage: totalUsage };
 };
 
 const runPerplexityLoop = async (
@@ -409,7 +435,7 @@ const runPerplexityLoop = async (
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
-): Promise<{ text: string; outcomes: AIActionOutcome[] }> => {
+): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const tools = getPerplexityTools(context.workMode);
 	const historyItems: PerplexityInputItem[] = (history ?? []).map((m) => ({
 		role: m.role,
@@ -418,12 +444,14 @@ const runPerplexityLoop = async (
 	let input: string | PerplexityInputItem[] =
 		historyItems.length > 0 ? [...historyItems, { role: 'user', content: userPrompt }] : userPrompt;
 	const allOutcomes: AIActionOutcome[] = [];
+	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
 		const response = await sendPerplexityRequest(apiKey, model, input, systemPrompt, tools);
+		totalUsage = accumulateUsage(totalUsage, response.usage);
 
 		if (response.toolCalls.length === 0) {
-			return { text: response.textContent || '', outcomes: allOutcomes };
+			return { text: response.textContent || '', outcomes: allOutcomes, usage: totalUsage };
 		}
 
 		const rawOutput = response.rawAssistantMessage as PerplexityInputItem[];
@@ -444,7 +472,8 @@ const runPerplexityLoop = async (
 	}
 
 	const finalResponse = await sendPerplexityRequest(apiKey, model, input, systemPrompt);
-	return { text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE, outcomes: allOutcomes };
+	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
+	return { text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE, outcomes: allOutcomes, usage: totalUsage };
 };
 
 const runSonarLoop = async (
@@ -454,7 +483,7 @@ const runSonarLoop = async (
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
-): Promise<{ text: string; outcomes: AIActionOutcome[] }> => {
+): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const tools = getPerplexityTools(context.workMode);
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
@@ -464,6 +493,7 @@ const runSonarLoop = async (
 		{ role: 'user', content: userPrompt },
 	];
 	const allOutcomes: AIActionOutcome[] = [];
+	const totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
 		const response = await sendSonarChatRequest(apiKey, model, messages);
 		const responseText = response.textContent || '';
@@ -483,9 +513,10 @@ const runSonarLoop = async (
 				return {
 					text: `Cannot perform "${truncated.action}" in ${truncated.modeLabel} mode. Switch to Agent mode to enable all actions.`,
 					outcomes: allOutcomes,
+					usage: totalUsage,
 				};
 			}
-			return { text: cleanText || responseText, outcomes: allOutcomes };
+			return { text: cleanText || responseText, outcomes: allOutcomes, usage: totalUsage };
 		}
 		messages.push({ role: 'assistant', content: responseText });
 		const { outcomes, results } = await runToolCalls(toolCalls, context);
@@ -496,7 +527,7 @@ const runSonarLoop = async (
 	const finalResponse = await sendSonarChatRequest(apiKey, model, messages);
 	const finalText = finalResponse.textContent || '';
 	const parsed = parseSonarToolCalls(finalText);
-	return { text: (parsed.cleanText || finalText) + TOOL_LIMIT_NOTICE, outcomes: allOutcomes };
+	return { text: (parsed.cleanText || finalText) + TOOL_LIMIT_NOTICE, outcomes: allOutcomes, usage: totalUsage };
 };
 
 export const sendToAI = async (
@@ -508,6 +539,7 @@ export const sendToAI = async (
 	noteBody: string,
 	context?: ActionContext,
 	history?: ChatMessage[],
+	tracker?: CostTracker,
 ): Promise<AIResponse> => {
 	validateApiKey(provider, apiKey);
 	const actionContext: ActionContext = context ?? {
@@ -525,6 +557,10 @@ export const sendToAI = async (
 		nativeWebSearch: provider === 'perplexity' && isPerplexityNativeModel(model),
 	});
 
+	const ct = tracker ?? defaultCostTracker;
+	const traceId = `trace-${Date.now()}`;
+	const gen = ct.startGeneration(traceId, { name: `${provider}-chat`, model });
+
 	const runLoop = () => {
 		if (provider === 'openai')
 			return runOpenAILoop(apiKey, model, systemPrompt, userPrompt, actionContext, history);
@@ -535,7 +571,13 @@ export const sendToAI = async (
 		}
 		return runClaudeLoop(apiKey, model, systemPrompt, userPrompt, actionContext, history);
 	};
-	const { text, outcomes } = await runLoop();
+	const { text, outcomes, usage } = await runLoop();
+
+	ct.endGeneration(gen, {
+		output: text,
+		usageDetails: { input: usage.inputTokens, output: usage.outputTokens },
+	});
+	const traceCost = ct.getTraceCost(traceId);
 
 	const hasNoteUpdate = outcomes.some((o) => o.action === 'update_note' && o.success);
 
@@ -544,5 +586,7 @@ export const sendToAI = async (
 		isEdit: hasNoteUpdate,
 		editedBody: undefined,
 		actions: outcomes,
+		usage,
+		costUsd: traceCost.total,
 	};
 };

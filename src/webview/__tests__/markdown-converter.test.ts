@@ -121,9 +121,7 @@ describe('mdInlineToHtml — backslash escape handling', () => {
 
 describe('blocksToMarkdown — escaping characters that would be misinterpreted', () => {
 	it('should escape consecutive underscores so they round-trip correctly', () => {
-		const inputBlocks = [
-			{ type: 'paragraph', data: { text: 'ФИО: __________' } },
-		];
+		const inputBlocks = [{ type: 'paragraph', data: { text: 'ФИО: __________' } }];
 		const md = converter.blocksToMarkdown(inputBlocks);
 		expect(md).not.toContain('<b>');
 		const roundTripped = converter.markdownToBlocks(md);

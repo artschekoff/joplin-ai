@@ -6,13 +6,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const markdownJsSource = fs.readFileSync(path.resolve(__dirname, '..', 'markdown.js'), 'utf-8');
+const iconsJsSource = fs.readFileSync(path.resolve(__dirname, '..', 'icons.js'), 'utf-8');
 const panelJsSource = fs.readFileSync(path.resolve(__dirname, '..', 'panel.js'), 'utf-8');
 
 const buildDOM = (): void => {
 	document.body.innerHTML = `
 		<div id="app">
 			<div class="header">
-				<div id="noteInfo"></div>
+				<div class="header-title">
+					<span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/></svg></span>
+					AI Assistant
+					<button id="settingsBtn" class="icon-btn header-settings-btn" title="AI Settings"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg></button>
+				</div>
+				<div id="noteInfo" class="note-info"></div>
 				<div class="role-bar" id="roleBar">
 					<select id="roleSelect" class="role-select">
 						<option value="">No role</option>
@@ -40,19 +46,20 @@ const buildDOM = (): void => {
 									<option value="edit">Edit</option>
 								</select>
 							</div>
-							<button id="attachFileBtn" class="icon-btn" title="Attach file">&#x1F4CE;</button>
-							<button id="clearBtn" class="icon-btn" title="Clear input">&#x2715;</button>
+							<button id="attachFileBtn" class="icon-btn" title="Attach file"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.44 11.05-9.19 9.19"/></svg></button>
+							<button id="clearBtn" class="icon-btn" title="Clear input"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
 						</div>
 						<div class="bottom-bar-right">
 							<div id="contextSizeContainer" class="context-size-container"></div>
-							<button id="clearHistoryBtn" class="icon-btn" title="Clear history">&#x1F9F9;</button>
-							<button id="executeBtn" class="btn send-btn"></button>
+							<button id="clearHistoryBtn" class="icon-btn" title="Clear history"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/></svg></button>
+							<button id="executeBtn" class="btn send-btn"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/></svg></button>
 						</div>
 					</div>
 				</div>
 				<input type="file" id="fileInput" style="display:none" multiple accept=".txt,.md,.csv,.json,.xml,.js,.ts,.py,.java,.c,.cpp,.h,.html,.css,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.bat,.sql,.r,.rb,.go,.rs,.swift,.kt,.scala,.lua,.pl,.php" />
 			</div>
 			<div id="roleManageView" class="role-manage-view" style="display: none;"></div>
+			<div id="settingsManageView" class="settings-manage-view" style="display: none;"></div>
 		</div>
 	`;
 };
@@ -65,6 +72,7 @@ const createMockWebviewApi = () => ({
 const initPanel = (mockApi: ReturnType<typeof createMockWebviewApi>): void => {
 	(window as any).webviewApi = mockApi;
 	eval(markdownJsSource);
+	eval(iconsJsSource);
 	eval(panelJsSource);
 	document.dispatchEvent(new Event('DOMContentLoaded'));
 };
@@ -1554,7 +1562,7 @@ describe('panel.js file attachments shown under user message', () => {
 			const lastUserMsg = userMessages[userMessages.length - 1] as HTMLElement;
 			const chip = lastUserMsg.querySelector('.message-attachment-chip') as HTMLElement;
 			expect(chip).not.toBeNull();
-			expect(chip.textContent).toContain('\uD83D\uDCCE');
+			expect(chip.querySelector('svg')).not.toBeNull();
 			done();
 		}, 100);
 	});
@@ -3166,5 +3174,394 @@ describe('file chip CSS padding', () => {
 		// shorthand: top right bottom left — or top+bottom / right+left
 		const rightPx = parts.length >= 2 ? parseInt(parts[1], 10) : parseInt(parts[0], 10);
 		expect(rightPx).toBeGreaterThanOrEqual(10);
+	});
+});
+
+describe('settings panel gear icon', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+
+	beforeEach(() => {
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+	});
+
+	it('renders a settings gear button in the header', () => {
+		const btn = document.getElementById('settingsBtn');
+		expect(btn).not.toBeNull();
+	});
+
+	it('sends getSettings message when gear button is clicked', () => {
+		const btn = document.getElementById('settingsBtn') as HTMLButtonElement;
+		btn.click();
+		expect(mockApi.postMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ type: 'getSettings' }),
+		);
+	});
+
+	it('shows settings overlay when settingsData is received after gear click', () => {
+		const btn = document.getElementById('settingsBtn') as HTMLButtonElement;
+		btn.click();
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'settingsData',
+			provider: 'openai',
+			openaiModel: 'gpt-4o',
+			claudeModel: 'claude-sonnet-4-20250514',
+			perplexityModel: 'sonar',
+			webSearchEnabled: false,
+			webSearchModel: 'openai:gpt-4o-search-preview',
+			imageGenModel: 'gpt-image/1.5-text-to-image',
+			fileMaxSizeMb: 10,
+			openaiKeySet: true,
+			claudeKeySet: false,
+			perplexityKeySet: false,
+			kieKeySet: false,
+			providerOptions: { openai: 'OpenAI', claude: 'Claude (Anthropic)', perplexity: 'Perplexity' },
+			openaiModelOptions: { 'gpt-4o': 'GPT-4o' },
+			claudeModelOptions: { 'claude-sonnet-4-20250514': 'Claude Sonnet 4' },
+			perplexityModelOptions: { sonar: 'Sonar' },
+			webSearchModelOptions: { 'openai:gpt-4o-search-preview': 'GPT-4o Search Preview' },
+			imageGenModelOptions: { 'gpt-image/1.5-text-to-image': 'GPT Image 1.5' },
+		});
+
+		const settingsView = document.getElementById('settingsManageView') as HTMLElement;
+		expect(settingsView.style.display).not.toBe('none');
+	});
+
+	it('renders provider select in the settings overlay with current value', () => {
+		const btn = document.getElementById('settingsBtn') as HTMLButtonElement;
+		btn.click();
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'settingsData',
+			provider: 'claude',
+			openaiModel: 'gpt-4o',
+			claudeModel: 'claude-sonnet-4-20250514',
+			perplexityModel: 'sonar',
+			webSearchEnabled: false,
+			webSearchModel: 'openai:gpt-4o-search-preview',
+			imageGenModel: 'gpt-image/1.5-text-to-image',
+			fileMaxSizeMb: 10,
+			openaiKeySet: false,
+			claudeKeySet: true,
+			perplexityKeySet: false,
+			kieKeySet: false,
+			providerOptions: { openai: 'OpenAI', claude: 'Claude (Anthropic)', perplexity: 'Perplexity' },
+			openaiModelOptions: { 'gpt-4o': 'GPT-4o' },
+			claudeModelOptions: { 'claude-sonnet-4-20250514': 'Claude Sonnet 4' },
+			perplexityModelOptions: { sonar: 'Sonar' },
+			webSearchModelOptions: { 'openai:gpt-4o-search-preview': 'GPT-4o Search Preview' },
+			imageGenModelOptions: { 'gpt-image/1.5-text-to-image': 'GPT Image 1.5' },
+		});
+
+		const providerSelect = document.getElementById('settingsProvider') as HTMLSelectElement;
+		expect(providerSelect).not.toBeNull();
+		expect(providerSelect.value).toBe('claude');
+	});
+
+	it('hides settings overlay when close button is clicked', () => {
+		const btn = document.getElementById('settingsBtn') as HTMLButtonElement;
+		btn.click();
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'settingsData',
+			provider: 'openai',
+			openaiModel: 'gpt-4o',
+			claudeModel: 'claude-sonnet-4-20250514',
+			perplexityModel: 'sonar',
+			webSearchEnabled: false,
+			webSearchModel: 'openai:gpt-4o-search-preview',
+			imageGenModel: 'gpt-image/1.5-text-to-image',
+			fileMaxSizeMb: 10,
+			openaiKeySet: false,
+			claudeKeySet: false,
+			perplexityKeySet: false,
+			kieKeySet: false,
+			providerOptions: { openai: 'OpenAI', claude: 'Claude' },
+			openaiModelOptions: { 'gpt-4o': 'GPT-4o' },
+			claudeModelOptions: {},
+			perplexityModelOptions: {},
+			webSearchModelOptions: {},
+			imageGenModelOptions: {},
+		});
+
+		const closeBtn = document.getElementById('closeSettingsView') as HTMLButtonElement;
+		expect(closeBtn).not.toBeNull();
+		closeBtn.click();
+
+		const settingsView = document.getElementById('settingsManageView') as HTMLElement;
+		expect(settingsView.style.display).toBe('none');
+	});
+
+	it('sends saveSettings message when save button is clicked', () => {
+		const btn = document.getElementById('settingsBtn') as HTMLButtonElement;
+		btn.click();
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'settingsData',
+			provider: 'openai',
+			openaiModel: 'gpt-4o',
+			claudeModel: 'claude-sonnet-4-20250514',
+			perplexityModel: 'sonar',
+			webSearchEnabled: false,
+			webSearchModel: 'openai:gpt-4o-search-preview',
+			imageGenModel: 'gpt-image/1.5-text-to-image',
+			fileMaxSizeMb: 10,
+			openaiKeySet: false,
+			claudeKeySet: false,
+			perplexityKeySet: false,
+			kieKeySet: false,
+			providerOptions: { openai: 'OpenAI', claude: 'Claude' },
+			openaiModelOptions: { 'gpt-4o': 'GPT-4o' },
+			claudeModelOptions: {},
+			perplexityModelOptions: {},
+			webSearchModelOptions: {},
+			imageGenModelOptions: {},
+		});
+
+		const saveBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
+		expect(saveBtn).not.toBeNull();
+		saveBtn.click();
+
+		expect(mockApi.postMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ type: 'saveSettings' }),
+		);
+	});
+
+	it('shows API key status indicator when key is configured', () => {
+		const btn = document.getElementById('settingsBtn') as HTMLButtonElement;
+		btn.click();
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'settingsData',
+			provider: 'openai',
+			openaiModel: 'gpt-4o',
+			claudeModel: 'claude-sonnet-4-20250514',
+			perplexityModel: 'sonar',
+			webSearchEnabled: false,
+			webSearchModel: 'openai:gpt-4o-search-preview',
+			imageGenModel: 'gpt-image/1.5-text-to-image',
+			fileMaxSizeMb: 10,
+			openaiKeySet: true,
+			claudeKeySet: false,
+			perplexityKeySet: false,
+			kieKeySet: false,
+			providerOptions: { openai: 'OpenAI' },
+			openaiModelOptions: { 'gpt-4o': 'GPT-4o' },
+			claudeModelOptions: {},
+			perplexityModelOptions: {},
+			webSearchModelOptions: {},
+			imageGenModelOptions: {},
+		});
+
+		const openaiKeyInput = document.getElementById('settingsOpenaiKey') as HTMLInputElement;
+		expect(openaiKeyInput).not.toBeNull();
+		expect(openaiKeyInput.placeholder).toContain('configured');
+	});
+});
+
+describe('SVG icon replacement — HTML template', () => {
+	let container: HTMLDivElement;
+
+	beforeEach(() => {
+		const panelTsSource = fs.readFileSync(path.resolve(__dirname, '..', '..', 'panel.ts'), 'utf-8');
+		const htmlMatch = panelTsSource.match(/const CHAT_PANEL_HTML = `([\s\S]*?)`;/);
+		expect(htmlMatch).not.toBeNull();
+		container = document.createElement('div');
+		container.innerHTML = htmlMatch![1];
+	});
+
+	it('should render the header robot icon as SVG', () => {
+		const headerIcon = container.querySelector('.header-title .icon');
+		expect(headerIcon).not.toBeNull();
+		expect(headerIcon!.querySelector('svg')).not.toBeNull();
+	});
+
+	it('should render the settings gear button as SVG', () => {
+		const settingsBtn = container.querySelector('#settingsBtn');
+		expect(settingsBtn).not.toBeNull();
+		expect(settingsBtn!.querySelector('svg')).not.toBeNull();
+	});
+
+	it('should render the empty state icon as SVG', () => {
+		const emptyIcon = container.querySelector('.empty-state .icon');
+		expect(emptyIcon).not.toBeNull();
+		expect(emptyIcon!.querySelector('svg')).not.toBeNull();
+	});
+
+	it('should render the attach file button as SVG', () => {
+		const attachBtn = container.querySelector('#attachFileBtn');
+		expect(attachBtn).not.toBeNull();
+		expect(attachBtn!.querySelector('svg')).not.toBeNull();
+	});
+
+	it('should render the clear input button as SVG', () => {
+		const clearBtn = container.querySelector('#clearBtn');
+		expect(clearBtn).not.toBeNull();
+		expect(clearBtn!.querySelector('svg')).not.toBeNull();
+	});
+
+	it('should render the clear history button as SVG', () => {
+		const historyBtn = container.querySelector('#clearHistoryBtn');
+		expect(historyBtn).not.toBeNull();
+		expect(historyBtn!.querySelector('svg')).not.toBeNull();
+	});
+
+	it('should render the send button as SVG', () => {
+		const sendBtn = container.querySelector('#executeBtn');
+		expect(sendBtn).not.toBeNull();
+		expect(sendBtn!.querySelector('svg')).not.toBeNull();
+	});
+
+	it('should not contain emoji HTML entities in the template', () => {
+		const panelTsSource = fs.readFileSync(path.resolve(__dirname, '..', '..', 'panel.ts'), 'utf-8');
+		const htmlMatch = panelTsSource.match(/const CHAT_PANEL_HTML = `([\s\S]*?)`;/);
+		const html = htmlMatch![1];
+		const emojiEntities = ['&#x1F916;', '&#x1F4AC;', '&#x1F4CE;', '&#x1F9F9;', '&#x27A4;', '&#x2699;', '&#x270F;'];
+		for (const entity of emojiEntities) {
+			expect(html).not.toContain(entity);
+		}
+	});
+});
+
+describe('SVG icon replacement — dynamic content', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+
+	beforeEach(() => {
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+	});
+
+	it('should render success action labels with SVG instead of emoji', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'result',
+			isEdit: false,
+			content: 'Done',
+			actions: [{ action: 'test_action', success: true, message: 'OK' }],
+		});
+
+		const actionMsg = document.querySelector('.message-action-success');
+		expect(actionMsg).not.toBeNull();
+		const label = actionMsg!.querySelector('.message-label') as HTMLElement;
+		expect(label.querySelector('svg')).not.toBeNull();
+		expect(label.textContent).not.toContain('\u2705');
+	});
+
+	it('should render error action labels with SVG instead of emoji', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'result',
+			isEdit: false,
+			content: 'Oops',
+			actions: [{ action: 'fail_action', success: false, message: 'Fail' }],
+		});
+
+		const actionMsg = document.querySelector('.message-action-error');
+		expect(actionMsg).not.toBeNull();
+		const label = actionMsg!.querySelector('.message-label') as HTMLElement;
+		expect(label.querySelector('svg')).not.toBeNull();
+		expect(label.textContent).not.toContain('\u274C');
+	});
+
+	it('should render note info with SVG document icon instead of emoji', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({ type: 'noteInfo', title: 'Test Note' });
+
+		const noteInfo = document.getElementById('noteInfo') as HTMLElement;
+		expect(noteInfo.querySelector('svg')).not.toBeNull();
+		expect(noteInfo.textContent).not.toContain('\uD83D\uDCC4');
+	});
+
+	it('should render file attachment chips with SVG paperclip instead of emoji', (done) => {
+		const fileInput = document.getElementById('fileInput') as HTMLInputElement;
+		const promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
+		const file = new File(['data'], 'test.csv', { type: 'text/csv' });
+		Object.defineProperty(fileInput, 'files', { value: [file], writable: true, configurable: true });
+		fileInput.dispatchEvent(new Event('change'));
+
+		setTimeout(() => {
+			promptInput.value = 'Check file';
+			pressKey(promptInput, 'Enter');
+			const chip = document.querySelector('.message-attachment-chip') as HTMLElement;
+			expect(chip).not.toBeNull();
+			expect(chip.querySelector('svg')).not.toBeNull();
+			expect(chip.textContent).not.toContain('\uD83D\uDCCE');
+			done();
+		}, 100);
+	});
+
+	it('should render edit confirmation with SVG check instead of emoji', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'result',
+			isEdit: true,
+			content: '',
+			actions: [],
+		});
+
+		const editMsg = document.querySelector('.message-edit');
+		expect(editMsg).not.toBeNull();
+		const label = editMsg!.querySelector('.message-label') as HTMLElement;
+		expect(label.querySelector('svg')).not.toBeNull();
+		expect(label.textContent).not.toContain('\u2705');
+	});
+
+	it('should render web search action with SVG globe instead of emoji', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'result',
+			isEdit: false,
+			content: 'Search result',
+			actions: [{ action: 'web_search', success: true, message: 'Found info', data: { searchProvider: 'google', searchModel: 'test' } }],
+		});
+
+		const searchMsg = document.querySelector('.message-action-search');
+		expect(searchMsg).not.toBeNull();
+		const label = searchMsg!.querySelector('.message-label') as HTMLElement;
+		expect(label.querySelector('svg')).not.toBeNull();
+		expect(label.textContent).not.toContain('\uD83C\uDF10');
+	});
+
+	it('should render close buttons in manage view with SVG instead of emoji', () => {
+		const manageBtn = document.querySelector('#manageRolesBtn') as HTMLButtonElement;
+		manageBtn.click();
+		const closeBtn = document.getElementById('closeManageView') as HTMLElement;
+		expect(closeBtn).not.toBeNull();
+		expect(closeBtn.querySelector('svg')).not.toBeNull();
+	});
+
+	it('should render queue item action buttons with SVGs instead of emojis', () => {
+		const promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
+		promptInput.value = 'First message';
+		pressKey(promptInput, 'Enter');
+
+		promptInput.value = 'Queued message';
+		pressKey(promptInput, 'Enter');
+
+		const editBtn = document.querySelector('.queue-item-edit') as HTMLElement;
+		const deleteBtn = document.querySelector('.queue-item-delete') as HTMLElement;
+		const forceBtn = document.querySelector('.queue-item-force') as HTMLElement;
+		expect(editBtn).not.toBeNull();
+		expect(deleteBtn).not.toBeNull();
+		expect(forceBtn).not.toBeNull();
+		expect(editBtn.querySelector('svg')).not.toBeNull();
+		expect(deleteBtn.querySelector('svg')).not.toBeNull();
+		expect(forceBtn.querySelector('svg')).not.toBeNull();
 	});
 });

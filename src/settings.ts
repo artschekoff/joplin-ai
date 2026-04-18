@@ -1,6 +1,83 @@
 import joplin from 'api';
 import { SettingItemType } from 'api/types';
 
+export const PROVIDER_OPTIONS: Record<string, string> = {
+	openai: 'OpenAI',
+	claude: 'Claude (Anthropic)',
+	perplexity: 'Perplexity',
+};
+
+export const OPENAI_MODEL_OPTIONS: Record<string, string> = {
+	'gpt-5.4': 'GPT-5.4 — flagship, 1M context',
+	'gpt-5.4-mini': 'GPT-5.4 Mini — fast, 400K context',
+	'gpt-5.4-nano': 'GPT-5.4 Nano — fastest, 400K context',
+	'gpt-4.1': 'GPT-4.1 — 1M context',
+	'gpt-4.1-mini': 'GPT-4.1 Mini — fast, 1M context',
+	'gpt-4.1-nano': 'GPT-4.1 Nano — fastest, 1M context',
+	o3: 'o3 — reasoning, 200K context',
+	'o4-mini': 'o4-mini — fast reasoning, 200K context',
+	'gpt-4o': 'GPT-4o',
+	'gpt-4o-mini': 'GPT-4o Mini',
+	'gpt-4-turbo': 'GPT-4 Turbo',
+	'gpt-3.5-turbo': 'GPT-3.5 Turbo',
+	'codex-mini-latest': 'Codex Mini',
+};
+
+export const CLAUDE_MODEL_OPTIONS: Record<string, string> = {
+	'claude-opus-4-20250514': 'Claude Opus 4',
+	'claude-sonnet-4-20250514': 'Claude Sonnet 4',
+	'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet',
+	'claude-3-haiku-20240307': 'Claude 3 Haiku',
+};
+
+export const PERPLEXITY_MODEL_OPTIONS: Record<string, string> = {
+	sonar: 'Sonar — native web search',
+	'sonar-pro': 'Sonar Pro — native web search',
+	'sonar-reasoning-pro': 'Sonar Reasoning Pro',
+	'sonar-deep-research': 'Sonar Deep Research',
+	'anthropic/claude-opus-4-6': 'Claude Opus 4.6 (via Perplexity)',
+	'anthropic/claude-sonnet-4-6': 'Claude Sonnet 4.6 (via Perplexity)',
+	'anthropic/claude-haiku-4-5': 'Claude Haiku 4.5 (via Perplexity)',
+	'openai/gpt-5.4': 'GPT-5.4 (via Perplexity)',
+	'openai/gpt-5.2': 'GPT-5.2 (via Perplexity)',
+	'openai/gpt-5.1': 'GPT-5.1 (via Perplexity)',
+	'openai/gpt-5-mini': 'GPT-5 Mini (via Perplexity)',
+	'google/gemini-3.1-pro-preview': 'Gemini 3.1 Pro (via Perplexity)',
+	'google/gemini-3-flash-preview': 'Gemini 3.0 Flash (via Perplexity)',
+	'xai/grok-4-1-fast-non-reasoning': 'Grok 4.1 (via Perplexity)',
+	'nvidia/nemotron-3-super-120b-a12b': 'Nemotron 3 Super (via Perplexity)',
+};
+
+export const WEB_SEARCH_MODEL_OPTIONS: Record<string, string> = {
+	'openai:gpt-4o-search-preview': 'OpenAI — gpt-4o-search-preview',
+	'perplexity:sonar': 'Perplexity — Sonar',
+	'perplexity:sonar-pro': 'Perplexity — Sonar Pro',
+	'perplexity:sonar-reasoning-pro': 'Perplexity — Sonar Reasoning Pro',
+	'perplexity:sonar-deep-research': 'Perplexity — Sonar Deep Research',
+};
+
+export const IMAGE_GEN_MODEL_OPTIONS: Record<string, string> = {
+	'gpt-image/1.5-text-to-image': 'GPT Image 1.5',
+	'gpt4o-image': 'GPT-4o Image',
+	'nano-banana-pro': 'Nano Banana Pro (Gemini)',
+	'nano-banana-2': 'Nano Banana 2 (Gemini 4K)',
+};
+
+export const ALLOWED_SETTING_KEYS = new Set([
+	'aiProvider',
+	'openaiApiKey',
+	'openaiModel',
+	'claudeApiKey',
+	'claudeModel',
+	'perplexityApiKey',
+	'perplexityModel',
+	'webSearchEnabled',
+	'webSearchModel',
+	'kieApiKey',
+	'imageGenModel',
+	'fileMaxSizeMb',
+]);
+
 export const SETTING_KEYS = {
 	provider: 'aiProvider',
 	openaiKey: 'openaiApiKey',
@@ -58,21 +135,21 @@ export const initSettings = async () => {
 			isEnum: true,
 			label: 'OpenAI Model',
 			description:
-				'All OpenAI models support tool calling. Web search requires enabling it separately (uses gpt-4o-search-preview).',
+				'All OpenAI models support tool calling and streaming. Pricing: https://platform.openai.com/docs/pricing',
 			options: {
-				'gpt-5.4': 'GPT-5.4 — flagship, 1M context, tool calling',
-				'gpt-5.4-mini': 'GPT-5.4 Mini — fast, 400K context, tool calling',
-				'gpt-5.4-nano': 'GPT-5.4 Nano — fastest, 400K context, tool calling',
-				'gpt-4.1': 'GPT-4.1 — 1M context, tool calling',
-				'gpt-4.1-mini': 'GPT-4.1 Mini — fast, 1M context, tool calling',
-				'gpt-4.1-nano': 'GPT-4.1 Nano — fastest, 1M context, tool calling',
-				o3: 'o3 — reasoning, 200K context, tool calling',
-				'o4-mini': 'o4-mini — fast reasoning, 200K context, tool calling',
-				'gpt-4o': 'GPT-4o — tool calling',
-				'gpt-4o-mini': 'GPT-4o Mini — tool calling',
-				'gpt-4-turbo': 'GPT-4 Turbo — tool calling',
-				'gpt-3.5-turbo': 'GPT-3.5 Turbo — tool calling',
-				'codex-mini-latest': 'Codex Mini — tool calling',
+				'gpt-5.4': 'GPT-5.4 — $2.50/$10 per 1M tokens',
+				'gpt-5.4-mini': 'GPT-5.4 Mini — $0.75/$3 per 1M tokens',
+				'gpt-5.4-nano': 'GPT-5.4 Nano — $0.20/$0.80 per 1M tokens',
+				'gpt-4.1': 'GPT-4.1 — $2/$8 per 1M tokens',
+				'gpt-4.1-mini': 'GPT-4.1 Mini — $0.40/$1.60 per 1M tokens',
+				'gpt-4.1-nano': 'GPT-4.1 Nano — $0.10/$0.40 per 1M tokens',
+				o3: 'o3 — $2/$8 per 1M tokens (reasoning)',
+				'o4-mini': 'o4-mini — $1.10/$4.40 per 1M tokens (reasoning)',
+				'gpt-4o': 'GPT-4o — $2.50/$10 per 1M tokens',
+				'gpt-4o-mini': 'GPT-4o Mini — $0.15/$0.60 per 1M tokens',
+				'gpt-4-turbo': 'GPT-4 Turbo — $10/$30 per 1M tokens',
+				'gpt-3.5-turbo': 'GPT-3.5 Turbo — $0.50/$1.50 per 1M tokens',
+				'codex-mini-latest': 'Codex Mini — $1.50/$6 per 1M tokens',
 			},
 		},
 
@@ -94,12 +171,12 @@ export const initSettings = async () => {
 			isEnum: true,
 			label: 'Claude Model',
 			description:
-				'All Claude models support tool calling. Web search requires enabling it separately (uses OpenAI gpt-4o-search-preview).',
+				'All Claude models support tool calling and streaming. Pricing: https://docs.anthropic.com/en/about-claude/pricing',
 			options: {
-				'claude-opus-4-20250514': 'Claude Opus 4 — tool calling',
-				'claude-sonnet-4-20250514': 'Claude Sonnet 4 — tool calling',
-				'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet — tool calling',
-				'claude-3-haiku-20240307': 'Claude 3 Haiku — tool calling',
+				'claude-opus-4-20250514': 'Claude Opus 4 — $15/$75 per 1M tokens',
+				'claude-sonnet-4-20250514': 'Claude Sonnet 4 — $3/$15 per 1M tokens',
+				'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet — $3/$15 per 1M tokens',
+				'claude-3-haiku-20240307': 'Claude 3 Haiku — $0.25/$1.25 per 1M tokens',
 			},
 		},
 
@@ -122,12 +199,12 @@ export const initSettings = async () => {
 			isEnum: true,
 			label: 'Perplexity Model',
 			description:
-				'Sonar models have native built-in web search. Third-party models (Claude, GPT, Gemini, etc.) are accessed via the Perplexity Agent API with tool calling support.',
+				'Sonar models have native built-in web search. Pricing: https://docs.perplexity.ai/pricing — Note: Sonar models also have per-request fees ($5-$14/1K requests).',
 			options: {
-				sonar: 'Sonar — native web search + tool calling',
-				'sonar-pro': 'Sonar Pro — native web search',
-				'sonar-reasoning-pro': 'Sonar Reasoning Pro — native web search',
-				'sonar-deep-research': 'Sonar Deep Research — native web search',
+				sonar: 'Sonar — $1/$1 per 1M tokens + web search',
+				'sonar-pro': 'Sonar Pro — $3/$15 per 1M tokens + web search',
+				'sonar-reasoning-pro': 'Sonar Reasoning Pro — $2/$8 per 1M tokens + web search',
+				'sonar-deep-research': 'Sonar Deep Research — $2/$8 per 1M tokens + web search',
 				'anthropic/claude-opus-4-6': 'Claude Opus 4.6 — tool calling (via Perplexity)',
 				'anthropic/claude-sonnet-4-6': 'Claude Sonnet 4.6 — tool calling (via Perplexity)',
 				'anthropic/claude-haiku-4-5': 'Claude Haiku 4.5 — tool calling (via Perplexity)',

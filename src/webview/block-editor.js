@@ -61,12 +61,16 @@
   /**
    * Captures the current editor state and pushes the previous snapshot onto
    * the undo stack.  Returns true when a new snapshot was recorded.
+   *
+   * Only the `blocks` array is compared/stored — EditorJS includes a `time`
+   * field in save() output that changes on every call, which would create
+   * phantom undo entries for unchanged content.
    */
   const captureSnapshot = async () => {
     if (!editor) return false;
     try {
       const out = await editor.save();
-      const snap = JSON.stringify(out);
+      const snap = JSON.stringify(out.blocks);
       if (snap !== currentSnapshot) {
         if (currentSnapshot !== null) {
           undoStack.push(currentSnapshot);
@@ -97,9 +101,7 @@
     const editorEl = document.getElementById('editor-container');
     const savedScroll = editorEl ? editorEl.scrollTop : 0;
     try {
-      await editor.render(JSON.parse(snap));
-      // Restore scroll immediately and on the next animation frame to
-      // cover any async focus/scroll events EditorJS fires after render.
+      await editor.render({ blocks: JSON.parse(snap) });
       if (editorEl) {
         editorEl.scrollTop = savedScroll;
         requestAnimationFrame(() => { editorEl.scrollTop = savedScroll; });
@@ -357,7 +359,7 @@
       // still has a DOM state that the user can edit and may want to undo to.
       try {
         const out = await editor.save();
-        currentSnapshot = JSON.stringify(out);
+        currentSnapshot = JSON.stringify(out.blocks);
       } catch (_) {}
     },
 
@@ -424,14 +426,101 @@
     items[nextIdx].scrollIntoView?.({ block: 'nearest' });
   };
 
+  // ── Popover search state ──────────────────────────────────────────────────
+
+  let popoverSearchQuery = '';
+
+  const SEARCH_INDICATOR_CLASS = 'be-popover-search-indicator';
+
+  /** Single printable character (length-1, no control/meta). */
+  const isPrintableKey = (e) =>
+    e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+
+  /** Get the text label of a popover item. */
+  const getItemLabel = (item) => {
+    const title = item.querySelector('.ce-popover-item__title');
+    return (title ? title.textContent : item.textContent || '').toLowerCase();
+  };
+
+  /** Marker for items hidden by our search (not by Editor.js). */
+  const SEARCH_HIDDEN_ATTR = 'data-be-search-hidden';
+
+  /** Apply the current search query to popover items. */
+  const applyPopoverFilter = (popover) => {
+    const query = popoverSearchQuery.toLowerCase();
+    const items = popover.querySelectorAll('.ce-popover-item');
+    items.forEach(item => {
+      if (!query) {
+        if (item.hasAttribute(SEARCH_HIDDEN_ATTR)) {
+          item.removeAttribute(SEARCH_HIDDEN_ATTR);
+          item.classList.remove('ce-popover-item--hidden');
+        }
+      } else {
+        const label = getItemLabel(item);
+        if (label.includes(query)) {
+          if (item.hasAttribute(SEARCH_HIDDEN_ATTR)) {
+            item.removeAttribute(SEARCH_HIDDEN_ATTR);
+            item.classList.remove('ce-popover-item--hidden');
+          }
+        } else if (!item.hasAttribute(SEARCH_HIDDEN_ATTR)) {
+          item.setAttribute(SEARCH_HIDDEN_ATTR, '1');
+          item.classList.add('ce-popover-item--hidden');
+        }
+      }
+    });
+    updateSearchIndicator(popover);
+    focusFirstPopoverItem(popover);
+  };
+
+  /** Show or remove the search indicator inside the popover. */
+  const updateSearchIndicator = (popover) => {
+    let indicator = popover.querySelector('.' + SEARCH_INDICATOR_CLASS);
+    if (!popoverSearchQuery) {
+      if (indicator) indicator.remove();
+      return;
+    }
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.className = SEARCH_INDICATOR_CLASS;
+      popover.prepend(indicator);
+    }
+    indicator.textContent = popoverSearchQuery;
+  };
+
+  /** Reset search state and un-hide all items. */
+  const resetPopoverSearch = (popover) => {
+    if (!popoverSearchQuery) return;
+    popoverSearchQuery = '';
+    if (popover) applyPopoverFilter(popover);
+  };
+
   const attachPopoverBehavior = () => {
     // MutationObserver: whenever the popover opens or its items change,
     // auto-focus the first visible item.
+    /** Tracks whether we saw an open popover last tick. */
+    let wasPopoverOpen = false;
+
     const observer = new MutationObserver(() => {
       try {
         if (!document.body) return;
         const popover = document.querySelector('.ce-popover--opened');
-        if (!popover) return;
+        if (!popover) {
+          popoverSearchQuery = '';
+          wasPopoverOpen = false;
+          return;
+        }
+        // Popover just (re-)opened — clear stale search state.
+        if (!wasPopoverOpen) {
+          wasPopoverOpen = true;
+          popoverSearchQuery = '';
+          // Un-hide only items hidden by our search, not by Editor.js.
+          popover.querySelectorAll(`[${SEARCH_HIDDEN_ATTR}]`).forEach(el => {
+            el.removeAttribute(SEARCH_HIDDEN_ATTR);
+            el.classList.remove('ce-popover-item--hidden');
+          });
+          const indicator = popover.querySelector('.' + SEARCH_INDICATOR_CLASS);
+          if (indicator) indicator.remove();
+        }
         const focused = popover.querySelector('.ce-popover-item--focused');
         // User navigated manually (no AUTO_FOCUS_ATTR) — respect their choice.
         if (focused && !focused.hasAttribute(AUTO_FOCUS_ATTR)) return;
@@ -450,6 +539,33 @@
       attributes: true,
       attributeFilter: ['class'],
     });
+
+    // Capture-phase search handler: printable keys, Backspace, Escape.
+    document.addEventListener('keydown', (e) => {
+      const popover = document.querySelector('.ce-popover--opened');
+      if (!popover) return;
+
+      if (e.key === 'Escape' && popoverSearchQuery) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        resetPopoverSearch(popover);
+        return;
+      }
+      if (e.key === 'Backspace' && popoverSearchQuery) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        popoverSearchQuery = popoverSearchQuery.slice(0, -1);
+        applyPopoverFilter(popover);
+        return;
+      }
+      if (isPrintableKey(e) && e.key !== ' ') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        popoverSearchQuery += e.key;
+        applyPopoverFilter(popover);
+        return;
+      }
+    }, true);
 
     // Capture-phase Tab / Shift+Tab handler: cycle through popover items.
     document.addEventListener('keydown', (e) => {

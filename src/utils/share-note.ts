@@ -155,6 +155,20 @@ export const exportNoteWithPandoc = async (opts: {
 	const inputPath = path.join(tmpDir, `${safeName}.md`);
 	const outputPath = path.join(tmpDir, `${safeName}.${opts.format}`);
 	await fs.promises.writeFile(inputPath, opts.body, 'utf-8');
-	await execFileAsync('pandoc', [inputPath, '-o', outputPath]);
+	await execFileAsync('pandoc', [inputPath, '--standalone', '-o', outputPath]);
 	return outputPath;
+};
+
+/**
+ * Copies a file into a target directory, preserving the original filename.
+ * Returns the full path of the destination file.
+ */
+export const copyFileToDirectory = async (
+	sourcePath: string,
+	targetDir: string,
+): Promise<string> => {
+	const filename = path.basename(sourcePath);
+	const destPath = path.join(targetDir, filename);
+	await fs.promises.copyFile(sourcePath, destPath);
+	return destPath;
 };

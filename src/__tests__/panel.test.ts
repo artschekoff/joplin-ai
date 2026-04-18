@@ -20,14 +20,18 @@ let capturedOnMessageCallback: (message: any) => Promise<void>;
 const mockShareNoteAsText = jest.fn().mockResolvedValue(undefined);
 const mockOpenUrlInSystem = jest.fn().mockResolvedValue(undefined);
 const mockExportNoteWithPandoc = jest.fn().mockResolvedValue('/tmp/note.docx');
+const mockCopyFileToDirectory = jest.fn().mockResolvedValue('/Users/me/Documents/note.docx');
 jest.mock('../utils/share-note', () => ({
 	shareNoteAsText: (...args: unknown[]) => mockShareNoteAsText(...args),
 	openUrlInSystem: (...args: unknown[]) => mockOpenUrlInSystem(...args),
 	buildPdfMailtoUrl: (title: string) => `mailto:?subject=${encodeURIComponent(title)}&body=PDF`,
 	exportNoteWithPandoc: (...args: unknown[]) => mockExportNoteWithPandoc(...args),
+	copyFileToDirectory: (...args: unknown[]) => mockCopyFileToDirectory(...args),
 }));
 
 const mockCommandsExecute = jest.fn().mockResolvedValue(undefined);
+const mockShowOpenDialog = jest.fn().mockResolvedValue(['/Users/me/Documents']);
+const mockShowToast = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('api', () => ({
 	__esModule: true,
@@ -49,6 +53,11 @@ jest.mock('api', () => ({
 						return Promise.resolve();
 					}),
 				postMessage: (...args: any[]) => mockPostMessage(...args),
+			},
+			dialogs: {
+				showOpenDialog: (...args: any[]) => mockShowOpenDialog(...args),
+				showMessageBox: jest.fn().mockResolvedValue(0),
+				showToast: (...args: any[]) => mockShowToast(...args),
 			},
 		},
 		settings: {
@@ -85,10 +94,35 @@ import { sendToAI } from '../ai/service';
 
 const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
 
+describe('panel creation order', () => {
+	beforeEach(async () => {
+		jest.clearAllMocks();
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: 'sk-test-key',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+		});
+		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
+		mockDataGet.mockResolvedValue({
+			id: 'note-1',
+			title: 'Test Note',
+			body: 'Some existing content.',
+		});
+		await initPanel();
+	});
+
+	it('creates AI chat panel before block editor so AI sidebar appears on the far right', () => {
+		const createCalls = mockCreate.mock.calls.map((call: unknown[]) => call[0]);
+		expect(createCalls[0]).toBe('aiChatPanel');
+		expect(createCalls[1]).toBe('blockEditorPanel');
+	});
+});
+
 describe('panel handleExecute', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -1077,7 +1111,7 @@ describe('panel handleExecute', () => {
 describe('shareCurrentNote', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
 		mockSelectedNote.mockResolvedValue({ id: 'note-42' });
 		mockDataGet.mockResolvedValue({ id: 'note-42', title: 'My Test Note', body: '# Hello' });
 		await initPanel();
@@ -1120,10 +1154,15 @@ describe('shareCurrentNote', () => {
 		});
 	});
 
-	it('opens the exported docx file in the system after doc export', async () => {
+	it('copies the docx file to Desktop and shows a success message', async () => {
 		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.docx');
+		mockCopyFileToDirectory.mockResolvedValue('/Users/me/Desktop/My Test Note.docx');
 		await shareCurrentNote('doc');
-		expect(mockOpenUrlInSystem).toHaveBeenCalledWith('/tmp/My Test Note.docx');
+		expect(mockCopyFileToDirectory).toHaveBeenCalledWith(
+			'/tmp/My Test Note.docx',
+			expect.stringContaining('Desktop'),
+		);
+		expect(mockOpenUrlInSystem).not.toHaveBeenCalled();
 	});
 
 	it('calls exportNoteWithPandoc with rtf format for rtf export', async () => {
@@ -1135,10 +1174,15 @@ describe('shareCurrentNote', () => {
 		});
 	});
 
-	it('opens the exported rtf file in the system after rtf export', async () => {
+	it('copies the rtf file to Desktop and shows a success message', async () => {
 		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.rtf');
+		mockCopyFileToDirectory.mockResolvedValue('/Users/me/Desktop/My Test Note.rtf');
 		await shareCurrentNote('rtf');
-		expect(mockOpenUrlInSystem).toHaveBeenCalledWith('/tmp/My Test Note.rtf');
+		expect(mockCopyFileToDirectory).toHaveBeenCalledWith(
+			'/tmp/My Test Note.rtf',
+			expect.stringContaining('Desktop'),
+		);
+		expect(mockOpenUrlInSystem).not.toHaveBeenCalled();
 	});
 
 	it('does not call pandoc for pdf format', async () => {
@@ -1157,7 +1201,7 @@ describe('saveBlocks message handler', () => {
 
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
 		await initPanel();
 		editorCallback = capturedCallbacks[MOCK_EDITOR_HANDLE];
 	});
@@ -1213,5 +1257,202 @@ describe('saveBlocks message handler', () => {
 				markdown: '# Hello',
 			}),
 		).resolves.not.toThrow();
+	});
+});
+
+describe('settings message handlers', () => {
+	beforeEach(async () => {
+		jest.clearAllMocks();
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: 'sk-test-key',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+		});
+		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
+		mockDataGet.mockResolvedValue({
+			id: 'note-1',
+			title: 'Test Note',
+			body: 'Some existing content.',
+		});
+		await initPanel();
+	});
+
+	it('returns current AI settings when getSettings message is received', async () => {
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: 'sk-test-key',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+			[SETTING_KEYS.claudeKey]: '',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.perplexityKey]: '',
+			[SETTING_KEYS.perplexityModel]: 'sonar',
+			[SETTING_KEYS.webSearchEnabled]: false,
+			[SETTING_KEYS.webSearchModel]: 'openai:gpt-4o-search-preview',
+			[SETTING_KEYS.kieApiKey]: '',
+			[SETTING_KEYS.imageGenModel]: 'gpt-image/1.5-text-to-image',
+			[SETTING_KEYS.fileMaxSizeMb]: 10,
+		});
+
+		await capturedOnMessageCallback({ type: 'getSettings' });
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'settingsData',
+				provider: 'openai',
+				openaiModel: 'gpt-4o',
+				claudeModel: 'claude-sonnet-4-20250514',
+				perplexityModel: 'sonar',
+				webSearchEnabled: false,
+			}),
+		);
+	});
+
+	it('masks API keys — sends keySet booleans instead of actual values', async () => {
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: 'sk-secret-key',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+			[SETTING_KEYS.claudeKey]: 'sk-ant-secret',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.perplexityKey]: '',
+			[SETTING_KEYS.perplexityModel]: 'sonar',
+			[SETTING_KEYS.webSearchEnabled]: true,
+			[SETTING_KEYS.webSearchModel]: 'openai:gpt-4o-search-preview',
+			[SETTING_KEYS.kieApiKey]: 'kie-key-value',
+			[SETTING_KEYS.imageGenModel]: 'gpt-image/1.5-text-to-image',
+			[SETTING_KEYS.fileMaxSizeMb]: 10,
+		});
+
+		await capturedOnMessageCallback({ type: 'getSettings' });
+
+		const settingsCall = mockPostMessage.mock.calls.find(
+			(call: unknown[]) => (call[1] as { type: string }).type === 'settingsData',
+		);
+		expect(settingsCall).toBeDefined();
+		const data = settingsCall![1] as Record<string, unknown>;
+		expect(data.openaiKeySet).toBe(true);
+		expect(data.claudeKeySet).toBe(true);
+		expect(data.perplexityKeySet).toBe(false);
+		expect(data.kieKeySet).toBe(true);
+		expect(data).not.toHaveProperty('openaiKey');
+		expect(data).not.toHaveProperty('claudeKey');
+		expect(data).not.toHaveProperty('perplexityKey');
+		expect(data).not.toHaveProperty('kieApiKey');
+	});
+
+	it('saves settings when saveSettings message is received', async () => {
+		await capturedOnMessageCallback({
+			type: 'saveSettings',
+			settings: {
+				[SETTING_KEYS.provider]: 'claude',
+				[SETTING_KEYS.claudeModel]: 'claude-opus-4-20250514',
+			},
+		});
+
+		expect(mockSettingsSetValue).toHaveBeenCalledWith(SETTING_KEYS.provider, 'claude');
+		expect(mockSettingsSetValue).toHaveBeenCalledWith(
+			SETTING_KEYS.claudeModel,
+			'claude-opus-4-20250514',
+		);
+	});
+
+	it('sends updated settingsData back after saving settings', async () => {
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'claude',
+			[SETTING_KEYS.openaiKey]: '',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+			[SETTING_KEYS.claudeKey]: 'sk-ant-key',
+			[SETTING_KEYS.claudeModel]: 'claude-opus-4-20250514',
+			[SETTING_KEYS.perplexityKey]: '',
+			[SETTING_KEYS.perplexityModel]: 'sonar',
+			[SETTING_KEYS.webSearchEnabled]: false,
+			[SETTING_KEYS.webSearchModel]: 'openai:gpt-4o-search-preview',
+			[SETTING_KEYS.kieApiKey]: '',
+			[SETTING_KEYS.imageGenModel]: 'gpt-image/1.5-text-to-image',
+			[SETTING_KEYS.fileMaxSizeMb]: 10,
+		});
+
+		await capturedOnMessageCallback({
+			type: 'saveSettings',
+			settings: { [SETTING_KEYS.provider]: 'claude' },
+		});
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'settingsData',
+				provider: 'claude',
+			}),
+		);
+	});
+
+	it('includes dropdown options in settingsData response', async () => {
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: '',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+			[SETTING_KEYS.claudeKey]: '',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.perplexityKey]: '',
+			[SETTING_KEYS.perplexityModel]: 'sonar',
+			[SETTING_KEYS.webSearchEnabled]: false,
+			[SETTING_KEYS.webSearchModel]: 'openai:gpt-4o-search-preview',
+			[SETTING_KEYS.kieApiKey]: '',
+			[SETTING_KEYS.imageGenModel]: 'gpt-image/1.5-text-to-image',
+			[SETTING_KEYS.fileMaxSizeMb]: 10,
+		});
+
+		await capturedOnMessageCallback({ type: 'getSettings' });
+
+		const settingsCall = mockPostMessage.mock.calls.find(
+			(call: unknown[]) => (call[1] as { type: string }).type === 'settingsData',
+		);
+		const data = settingsCall![1] as Record<string, unknown>;
+		expect(data.providerOptions).toBeDefined();
+		expect(data.openaiModelOptions).toBeDefined();
+		expect(data.claudeModelOptions).toBeDefined();
+		expect(data.perplexityModelOptions).toBeDefined();
+	});
+
+	it('only saves allowed setting keys — ignores unknown keys', async () => {
+		await capturedOnMessageCallback({
+			type: 'saveSettings',
+			settings: {
+				[SETTING_KEYS.provider]: 'openai',
+				unknownKey: 'should-be-ignored',
+			},
+		});
+
+		expect(mockSettingsSetValue).toHaveBeenCalledWith(SETTING_KEYS.provider, 'openai');
+		expect(mockSettingsSetValue).not.toHaveBeenCalledWith('unknownKey', expect.anything());
+	});
+
+	it('refreshes context size after saving settings', async () => {
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: 'sk-key',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+			[SETTING_KEYS.claudeKey]: '',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.perplexityKey]: '',
+			[SETTING_KEYS.perplexityModel]: 'sonar',
+			[SETTING_KEYS.webSearchEnabled]: false,
+			[SETTING_KEYS.webSearchModel]: 'openai:gpt-4o-search-preview',
+			[SETTING_KEYS.kieApiKey]: '',
+			[SETTING_KEYS.imageGenModel]: 'gpt-image/1.5-text-to-image',
+			[SETTING_KEYS.fileMaxSizeMb]: 10,
+		});
+
+		await capturedOnMessageCallback({
+			type: 'saveSettings',
+			settings: { [SETTING_KEYS.openaiModel]: 'gpt-4o-mini' },
+		});
+
+		const types = mockPostMessage.mock.calls.map(
+			(call: unknown[]) => (call[1] as { type: string }).type,
+		);
+		expect(types).toContain('contextSize');
 	});
 });
