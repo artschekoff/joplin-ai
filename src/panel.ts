@@ -7,14 +7,15 @@ import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
 import { extractPdfTextFromBase64 } from './utils/pdf-extract';
-import { shareNoteAsText, buildPdfMailtoUrl, openUrlInSystem } from './utils/share-note';
+import { shareNoteAsText, openUrlInSystem, buildPdfMailtoUrl } from './utils/share-note';
 
-let panelHandle: ViewHandle | null = null;
-let panelVisible = false;
-let blockEditorEnabled = false;
+let chatPanelHandle: ViewHandle | null = null;
+let editorPanelHandle: ViewHandle | null = null;
+let chatPanelVisible = false;
+let editorPanelVisible = false;
 let editorSelection = '';
 
-const PANEL_HTML = `<!DOCTYPE html>
+const CHAT_PANEL_HTML = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body>
@@ -75,13 +76,19 @@ const PANEL_HTML = `<!DOCTYPE html>
 			</div>
 			<div id="roleManageView" class="role-manage-view" style="display: none;"></div>
 		</div>
-		<div id="editor-resizer" style="display: none;"></div>
-		<div id="editor-pane" style="display: none;">
-			<div id="editor-container" tabindex="-1"></div>
-			<div id="slash-menu"></div>
-			<div id="vim-statusbar" data-mode="insert">
-				<span id="vim-mode-label">INSERT</span>
-			</div>
+	</div>
+</body>
+</html>`;
+
+const EDITOR_PANEL_HTML = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body>
+	<div id="app">
+		<div id="editor-container" tabindex="-1"></div>
+		<div id="slash-menu"></div>
+		<div id="vim-statusbar" data-mode="insert">
+			<span id="vim-mode-label">INSERT</span>
 		</div>
 	</div>
 </body>
@@ -185,13 +192,32 @@ const sendContextSize = async (
 	});
 };
 
+const getNoteById = async (noteId: string): Promise<{ id: string; title: string; body: string } | null> => {
+	try {
+		const note = await joplin.data.get(['notes', noteId], { fields: ['id', 'title', 'body'] });
+		return note ?? null;
+	} catch {
+		return null;
+	}
+};
+
 const sendNoteInfo = async (handle: ViewHandle) => {
 	const note = await getCurrentNote();
 	joplin.views.panels.postMessage(handle, {
 		type: 'noteInfo',
+		noteId: note ? note.id : null,
 		title: note ? note.title : null,
 	});
 	await sendContextSize(handle, note);
+};
+
+const sendNoteLoaded = async (handle: ViewHandle) => {
+	const note = await getCurrentNote();
+	if (!note) return;
+	joplin.views.panels.postMessage(handle, {
+		type: 'noteLoaded',
+		note: { id: note.id, title: note.title, body: note.body },
+	});
 };
 
 const sendAgentRoles = async (handle: ViewHandle) => {
@@ -344,6 +370,7 @@ const handleExecute = async (
 	agentRolePrompt?: string,
 	workMode?: WorkMode,
 	attachedFiles?: AttachedFile[],
+	noteId?: string,
 ) => {
 	try {
 		const config = await loadProviderConfig();
@@ -354,7 +381,7 @@ const handleExecute = async (
 			});
 			return;
 		}
-		const note = await getCurrentNote();
+		const note = noteId ? await getNoteById(noteId) : await getCurrentNote();
 		if (!note) {
 			joplin.views.panels.postMessage(handle, {
 				type: 'error',
@@ -447,34 +474,81 @@ const handleExecute = async (
 };
 
 export const initPanel = async () => {
-	panelHandle = await joplin.views.panels.create('aiAssistantPanel');
-	await joplin.views.panels.setHtml(panelHandle, PANEL_HTML);
-	await joplin.views.panels.addScript(panelHandle, './webview/panel.css');
-	await joplin.views.panels.addScript(panelHandle, './webview/markdown.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/pdf-parser.js');
-	// EditorJS vendor bundles must load before block-editor.js so that the
-	// expected window globals (EditorJS, Header, …) are already defined.
-	await joplin.views.panels.addScript(panelHandle, './webview/vendor/editorjs.umd.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/vendor/header.umd.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/vendor/editorjs-list.umd.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/vendor/checklist.umd.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/vendor/code.umd.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/vendor/quote.umd.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/vendor/delimiter.umd.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/vendor/editorjs-drag-drop.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/markdown-converter.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/panel.js');
-	await joplin.views.panels.addScript(panelHandle, './webview/block-editor.js');
-	await joplin.views.panels.hide(panelHandle);
-	panelVisible = false;
+	chatPanelVisible = false;
+	editorPanelVisible = false;
+	editorSelection = '';
+
+	chatPanelHandle = await joplin.views.panels.create('aiChatPanel');
+	await joplin.views.panels.setHtml(chatPanelHandle, CHAT_PANEL_HTML);
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/panel.css');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/markdown.js');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/pdf-parser.js');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/panel.js');
+	await joplin.views.panels.hide(chatPanelHandle);
+
+	editorPanelHandle = await joplin.views.panels.create('blockEditorPanel');
+	await joplin.views.panels.setHtml(editorPanelHandle, EDITOR_PANEL_HTML);
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/panel.css');
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/editorjs.umd.js');
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/header.umd.js');
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/editorjs-list.umd.js');
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/checklist.umd.js');
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/code.umd.js');
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/quote.umd.js');
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/delimiter.umd.js');
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/editorjs-drag-drop.js');
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/markdown-converter.js');
+	await joplin.views.panels.addScript(editorPanelHandle, './webview/block-editor.js');
+	await joplin.views.panels.hide(editorPanelHandle);
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	await joplin.views.panels.onMessage(panelHandle, async (message: any) => {
-		if (!panelHandle) return;
+	await joplin.views.panels.onMessage(chatPanelHandle, async (message: any) => {
+		if (!chatPanelHandle) return;
 
 		if (message.type === 'abortRequest') {
 			return;
 		}
+
+		if (message.type === 'execute') {
+			await handleExecute(
+				chatPanelHandle,
+				message.prompt,
+				message.history as ChatMessage[],
+				message.agentRolePrompt as string | undefined,
+				message.workMode as WorkMode | undefined,
+				message.attachedFiles as AttachedFile[] | undefined,
+				message.noteId as string | undefined,
+			);
+		}
+
+		if (message.type === 'getNote') {
+			await sendNoteInfo(chatPanelHandle);
+		}
+
+		if (message.type === 'searchNotes') {
+			await searchNotesByQuery(chatPanelHandle, message.query as string);
+		}
+
+		if (message.type === 'getFileSizeLimit') {
+			const sizeMb = ((await joplin.settings.value(SETTING_KEYS.fileMaxSizeMb)) as number) || 10;
+			joplin.views.panels.postMessage(chatPanelHandle, {
+				type: 'fileSizeLimit',
+				limitBytes: sizeMb * 1024 * 1024,
+			});
+		}
+
+		if (message.type === 'getAgentRoles') {
+			await sendAgentRoles(chatPanelHandle);
+		}
+
+		if (message.type === 'saveAgentRoles') {
+			await saveAgentRoles(chatPanelHandle, message.roles as AgentRole[]);
+		}
+	});
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	await joplin.views.panels.onMessage(editorPanelHandle, async (message: any) => {
+		if (!editorPanelHandle) return;
 
 		if (message.type === 'saveBlocks') {
 			const { noteId, markdown } = message as { noteId: unknown; markdown: unknown };
@@ -485,102 +559,62 @@ export const initPanel = async () => {
 			}
 			return;
 		}
-
-		if (message.type === 'execute') {
-			await handleExecute(
-				panelHandle,
-				message.prompt,
-				message.history as ChatMessage[],
-				message.agentRolePrompt as string | undefined,
-				message.workMode as WorkMode | undefined,
-				message.attachedFiles as AttachedFile[] | undefined,
-			);
-		}
-
-		if (message.type === 'getNote') {
-			await sendNoteInfo(panelHandle);
-		}
-
-		if (message.type === 'searchNotes') {
-			await searchNotesByQuery(panelHandle, message.query as string);
-		}
-
-		if (message.type === 'getFileSizeLimit') {
-			const sizeMb = ((await joplin.settings.value(SETTING_KEYS.fileMaxSizeMb)) as number) || 10;
-			joplin.views.panels.postMessage(panelHandle, {
-				type: 'fileSizeLimit',
-				limitBytes: sizeMb * 1024 * 1024,
-			});
-		}
-
-		if (message.type === 'getAgentRoles') {
-			await sendAgentRoles(panelHandle);
-		}
-
-		if (message.type === 'saveAgentRoles') {
-			await saveAgentRoles(panelHandle, message.roles as AgentRole[]);
-		}
 	});
 
 	await joplin.workspace.onNoteSelectionChange(async () => {
-		if (panelHandle && panelVisible) {
-			await sendNoteInfo(panelHandle);
+		if (chatPanelHandle && chatPanelVisible) {
+			await sendNoteInfo(chatPanelHandle);
+		}
+		if (editorPanelHandle && editorPanelVisible) {
+			await sendNoteLoaded(editorPanelHandle);
 		}
 	});
 };
 
-export const togglePanel = async () => {
-	if (!panelHandle) return;
-	panelVisible = !panelVisible;
-	if (panelVisible) {
-		await joplin.views.panels.show(panelHandle);
-		await sendNoteInfo(panelHandle);
+export const togglePanel = async (): Promise<void> => {
+	if (!chatPanelHandle) return;
+	chatPanelVisible = !chatPanelVisible;
+	if (chatPanelVisible) {
+		await joplin.views.panels.show(chatPanelHandle);
+		await sendNoteInfo(chatPanelHandle);
 	} else {
-		await joplin.views.panels.hide(panelHandle);
+		await joplin.views.panels.hide(chatPanelHandle);
 	}
 };
 
-export const getBlockEditorEnabled = (): boolean => blockEditorEnabled;
+export const getBlockEditorEnabled = (): boolean => editorPanelVisible;
 
 export const setEditorSelection = (text: string): void => {
 	editorSelection = text;
 };
 
-/**
- * Toggles the block editor pane and notifies the webview of the new state.
- * Shows the panel if it is currently hidden so the block editor is visible.
- * The editorHider content script polls this state to hide/show the native CM editor.
- */
 export const toggleBlockEditorPane = async (): Promise<void> => {
-	blockEditorEnabled = !blockEditorEnabled;
-	if (!panelHandle) return;
-	if (blockEditorEnabled && !panelVisible) {
-		panelVisible = true;
-		await joplin.views.panels.show(panelHandle);
-		await sendNoteInfo(panelHandle);
+	if (!editorPanelHandle) return;
+	editorPanelVisible = !editorPanelVisible;
+	if (editorPanelVisible) {
+		await joplin.views.panels.show(editorPanelHandle);
+		await sendNoteLoaded(editorPanelHandle);
+	} else {
+		await joplin.views.panels.hide(editorPanelHandle);
 	}
-	joplin.views.panels.postMessage(panelHandle, {
-		type: 'blockEditorState',
-		active: blockEditorEnabled,
-	});
 };
 
 /**
- * Shares the currently selected note via email.
+ * Shares the currently selected note via the default email client.
  *
- * - 'pdf'  → delegates to Joplin's built-in exportPdf command which opens the
- *             native OS save dialog and renders the note via Chromium print-to-PDF,
- *             then opens the default email client with the subject pre-filled.
- * - 'text' → converts the note body to structured plain text and opens the
- *             email client with the full content in the message body.
+ * - 'text' → converts markdown to plain text and opens a mailto: URL.
+ * - 'pdf'  → triggers Joplin's exportPdf, then opens a mailto: URL
+ *             prompting the user to attach the saved file.
  */
 export const shareCurrentNote = async (format: string): Promise<void> => {
 	const note = await getCurrentNote();
 	if (!note) throw new Error('No note selected. Please open a note first.');
-	if (format === 'pdf') {
-		await joplin.commands.execute('exportPdf', [note.id]);
-		await openUrlInSystem(buildPdfMailtoUrl(note.title));
-	} else {
+	if (format === 'text') {
 		await shareNoteAsText({ title: note.title, body: note.body });
+	} else if (format === 'pdf') {
+		await joplin.commands.execute('exportPdf', [note.id]);
+		const url = buildPdfMailtoUrl(note.title);
+		await openUrlInSystem(url);
 	}
 };
+

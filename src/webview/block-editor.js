@@ -511,14 +511,13 @@
       case 'Escape':     e.preventDefault(); hideSlashMenu(); return true;
       case 'Backspace': {
         if (slashQuery.length === 0) {
-          // Backspace removed the '/', close menu (input handler will fire too)
           hideSlashMenu();
         } else {
           slashQuery = slashQuery.slice(0, -1);
           slashSelected = 0;
           renderSlashMenu();
         }
-        return false; // let the char be deleted normally
+        return false;
       }
       default: return false;
     }
@@ -528,9 +527,8 @@
     const container = document.getElementById('editor-container');
     if (!container) return;
 
-    // Detect '/' typed in an empty block
     container.addEventListener('keydown', (e) => {
-      if (slashVisible) return; // handled by capture listener
+      if (slashVisible) return;
       if (e.key !== '/') return;
       setTimeout(() => {
         try {
@@ -544,7 +542,6 @@
       }, 0);
     });
 
-    // Track filter query via input events
     container.addEventListener('input', () => {
       if (!slashVisible) return;
       try {
@@ -645,9 +642,9 @@
       movePopoverFocus(popover, e.shiftKey ? -1 : +1);
     }, true);
 
-    // Capture-phase Enter handler: when the popover is open, click the first
-    // visible item unless the user already navigated to a different item with
-    // arrow keys (in which case Editor.js's own handler handles it).
+    // Capture-phase Enter handler: when the popover is open, click the focused
+    // (or first) item and block propagation so EditorJS does not also insert a
+    // new paragraph via its default Enter behaviour.
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       const popover = document.querySelector('.ce-popover--opened');
@@ -657,134 +654,31 @@
       );
       const first = popover.querySelector(FOCUSABLE_POPOVER_ITEM);
       if (!first) return;
-      // If a non-first item is keyboard-focused by the user (no auto attr),
-      // let Editor.js handle Enter through its own iterator.
-      if (focused && !focused.hasAttribute(AUTO_FOCUS_ATTR)) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      first.click();
+      (focused || first).click();
     }, true);
   };
 
-  // ── Editor pane visibility (owned entirely by block-editor.js) ───────────
+  // ── Message handler (standalone panel — receives messages from backend) ──
 
-  const STORAGE_KEY_EDITOR = 'joplin-ai-editor-visible';
-  const STORAGE_KEY_EDITOR_ONLY = 'joplin-ai-editor-only';
-  let editorVisible = localStorage.getItem(STORAGE_KEY_EDITOR) === 'true';
-  let editorOnlyMode = localStorage.getItem(STORAGE_KEY_EDITOR_ONLY) === 'true';
-
-  const editorPane = () => document.getElementById('editor-pane');
-  const editorResizer = () => document.getElementById('editor-resizer');
-  const toggleEditorBtn = () => document.getElementById('toggleEditorBtn');
-
-  const applyEditorVisibility = () => {
-    const pane = editorPane();
-    const resizer = editorResizer();
-    if (!pane) return;
-    pane.style.display = editorVisible ? '' : 'none';
-    if (resizer) resizer.style.display = editorVisible ? '' : 'none';
-    const btn = toggleEditorBtn();
-    if (btn) {
-      btn.classList.toggle('editor-toggle-active', editorVisible);
-      btn.title = editorVisible ? 'Hide block editor' : 'Show block editor';
-    }
-    const app = document.getElementById('app');
-    if (app) {
-      app.classList.toggle('editor-visible', editorVisible);
-      app.classList.toggle('editor-only', editorVisible && editorOnlyMode);
-    }
-    localStorage.setItem(STORAGE_KEY_EDITOR, String(editorVisible));
-  };
-
-  const requestChatVisible = (visible) => {
-    window.dispatchEvent(new CustomEvent('be:chatVisibilityRequest', { detail: { visible } }));
-  };
-
-  // ── Cross-module event listeners ──────────────────────────────────────────
-
-  window.addEventListener('ai:noteLoaded', (e) => {
-    const { note, blockEditorActive } = e.detail || {};
-    if (window.BlockEditor) window.BlockEditor.loadNote(note || null);
-    if (blockEditorActive) {
-      editorVisible = true;
-      editorOnlyMode = true;
-      applyEditorVisibility();
-      requestChatVisible(false);
-      localStorage.setItem(STORAGE_KEY_EDITOR_ONLY, 'true');
-    }
-  });
-
-  window.addEventListener('ai:enableEditor', (e) => {
-    const { editorOnly } = (e.detail) || {};
-    editorVisible = true;
-    editorOnlyMode = !!editorOnly;
-    applyEditorVisibility();
-    if (editorOnly) {
-      requestChatVisible(false);
-      localStorage.setItem(STORAGE_KEY_EDITOR_ONLY, 'true');
-    } else {
-      localStorage.removeItem(STORAGE_KEY_EDITOR_ONLY);
-    }
-  });
-
-  window.addEventListener('ai:disableEditor', () => {
-    editorVisible = false;
-    editorOnlyMode = false;
-    applyEditorVisibility();
-    localStorage.removeItem(STORAGE_KEY_EDITOR_ONLY);
-    requestChatVisible(true);
-  });
-
-  window.addEventListener('ai:toggleEditor', () => {
-    editorVisible = !editorVisible;
-    applyEditorVisibility();
-  });
-
-  // ── Resizer (lives here since it adjusts the editor pane width) ──────────
-
-  const attachResizer = () => {
-    const resizer = editorResizer();
-    const pane = editorPane();
-    if (!resizer || !pane) return;
-    let isResizing = false;
-    resizer.addEventListener('mousedown', () => {
-      isResizing = true;
-      resizer.classList.add('dragging');
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!isResizing) return;
-      const app = document.getElementById('app');
-      if (!app) return;
-      const appRect = app.getBoundingClientRect();
-      const offset = e.clientX - appRect.left;
-      const editorPct = Math.min(Math.max((offset / appRect.width) * 100, 15), 65);
-      pane.style.flex = `0 0 ${editorPct}%`;
-    });
-    document.addEventListener('mouseup', () => {
-      if (!isResizing) return;
-      isResizing = false;
-      resizer.classList.remove('dragging');
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+  const attachMessageHandler = () => {
+    if (typeof window.webviewApi === 'undefined') return;
+    window.webviewApi.onMessage((event) => {
+      const message = event && event.message && event.message.type ? event.message : event;
+      if (!message) return;
+      if (message.type === 'noteLoaded') {
+        const note = message.note || null;
+        if (window.BlockEditor) window.BlockEditor.loadNote(note);
+      }
     });
   };
 
   // ── Boot ───────────────────────────────────────────────────────────────────
 
   const boot = () => {
-    applyEditorVisibility();
-    attachResizer();
     attachPopoverBehavior();
-
-    // Restore editor-only mode persisted from a previous session
-    if (localStorage.getItem(STORAGE_KEY_EDITOR_ONLY) === 'true') {
-      editorVisible = true;
-      editorOnlyMode = true;
-      applyEditorVisibility();
-      requestChatVisible(false);
-    }
+    attachMessageHandler();
 
     if (!initEditorJs()) {
       setTimeout(() => { if (!initEditorJs()) console.error('[BlockEditor] EditorJS failed to load'); }, 500);

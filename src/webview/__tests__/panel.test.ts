@@ -159,7 +159,7 @@ describe('PANEL_HTML button icons', () => {
 
 	beforeEach(() => {
 		const panelTsSource = fs.readFileSync(path.resolve(__dirname, '..', '..', 'panel.ts'), 'utf-8');
-		const htmlMatch = panelTsSource.match(/const PANEL_HTML = `([\s\S]*?)`;/);
+		const htmlMatch = panelTsSource.match(/const CHAT_PANEL_HTML = `([\s\S]*?)`;/);
 		expect(htmlMatch).not.toBeNull();
 
 		container = document.createElement('div');

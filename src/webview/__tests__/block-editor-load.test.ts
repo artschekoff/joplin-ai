@@ -38,7 +38,6 @@ const buildDOM = (): void => {
       <div id="editor-resizer"></div>
       <div id="editor-pane">
         <div id="editor-container" tabindex="-1"></div>
-        <div id="slash-menu"></div>
         <div id="vim-statusbar"><span id="vim-mode-label">-- INSERT --</span></div>
       </div>
     </div>

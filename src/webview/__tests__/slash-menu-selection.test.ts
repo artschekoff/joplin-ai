@@ -31,7 +31,7 @@ const cssSource = fs.readFileSync(
 
 const buildDOM = (): void => {
   document.body.innerHTML = `
-    <div id="editor-pane">
+    <div id="app">
       <div id="editor-container"></div>
       <div id="slash-menu"></div>
       <div id="vim-statusbar"><span id="vim-mode-label">-- INSERT --</span></div>

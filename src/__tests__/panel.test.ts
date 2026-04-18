@@ -1,9 +1,11 @@
 import { SETTING_KEYS } from '../settings';
 
-const MOCK_PANEL_HANDLE = 'panel-handle-123';
+const MOCK_CHAT_HANDLE = 'chat-panel-handle';
+const MOCK_EDITOR_HANDLE = 'editor-panel-handle';
+const MOCK_PANEL_HANDLE = MOCK_CHAT_HANDLE;
 
 const mockPostMessage = jest.fn();
-const mockCreate = jest.fn().mockResolvedValue(MOCK_PANEL_HANDLE);
+const mockCreate = jest.fn();
 const mockSettingsValues = jest.fn();
 const mockSettingsValue = jest.fn();
 const mockSettingsSetValue = jest.fn().mockResolvedValue(undefined);
@@ -12,6 +14,7 @@ const mockDataGet = jest.fn();
 const mockDataPut = jest.fn().mockResolvedValue(undefined);
 const mockOnNoteSelectionChange = jest.fn().mockResolvedValue(undefined);
 
+const capturedCallbacks: Record<string, (message: any) => Promise<void>> = {};
 let capturedOnMessageCallback: (message: any) => Promise<void>;
 
 const mockShareNoteAsText = jest.fn().mockResolvedValue(undefined);
@@ -36,8 +39,11 @@ jest.mock('api', () => ({
 				show: jest.fn().mockResolvedValue(undefined),
 				onMessage: jest
 					.fn()
-					.mockImplementation((_handle: string, cb: (...args: unknown[]) => void) => {
-						capturedOnMessageCallback = cb as (message: any) => Promise<void>;
+					.mockImplementation((handle: string, cb: (...args: unknown[]) => void) => {
+						capturedCallbacks[handle] = cb as (message: any) => Promise<void>;
+						if (handle === MOCK_CHAT_HANDLE) {
+							capturedOnMessageCallback = cb as (message: any) => Promise<void>;
+						}
 						return Promise.resolve();
 					}),
 				postMessage: (...args: any[]) => mockPostMessage(...args),
@@ -80,7 +86,9 @@ const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
 describe('panel handleExecute', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValue(MOCK_PANEL_HANDLE);
+		mockCreate
+			.mockResolvedValueOnce(MOCK_CHAT_HANDLE)
+			.mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -1069,7 +1077,9 @@ describe('panel handleExecute', () => {
 describe('shareCurrentNote', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValue(MOCK_PANEL_HANDLE);
+		mockCreate
+			.mockResolvedValueOnce(MOCK_CHAT_HANDLE)
+			.mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
 		mockSelectedNote.mockResolvedValue({ id: 'note-42' });
 		mockDataGet.mockResolvedValue({ id: 'note-42', title: 'My Test Note', body: '# Hello' });
 		await initPanel();
@@ -1107,14 +1117,19 @@ describe('shareCurrentNote', () => {
 });
 
 describe('saveBlocks message handler', () => {
+	let editorCallback: (message: any) => Promise<void>;
+
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValue(MOCK_PANEL_HANDLE);
+		mockCreate
+			.mockResolvedValueOnce(MOCK_CHAT_HANDLE)
+			.mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
 		await initPanel();
+		editorCallback = capturedCallbacks[MOCK_EDITOR_HANDLE];
 	});
 
 	it('persists note body to Joplin when valid saveBlocks message is received', async () => {
-		await capturedOnMessageCallback({
+		await editorCallback({
 			type: 'saveBlocks',
 			noteId: 'note-abc',
 			markdown: '# Hello\n\nWorld',
@@ -1126,7 +1141,7 @@ describe('saveBlocks message handler', () => {
 	});
 
 	it('ignores saveBlocks when noteId is an empty string', async () => {
-		await capturedOnMessageCallback({
+		await editorCallback({
 			type: 'saveBlocks',
 			noteId: '',
 			markdown: '# Hello',
@@ -1136,7 +1151,7 @@ describe('saveBlocks message handler', () => {
 	});
 
 	it('ignores saveBlocks when noteId is missing', async () => {
-		await capturedOnMessageCallback({
+		await editorCallback({
 			type: 'saveBlocks',
 			markdown: '# Hello',
 		});
@@ -1145,7 +1160,7 @@ describe('saveBlocks message handler', () => {
 	});
 
 	it('ignores saveBlocks when markdown is not a string', async () => {
-		await capturedOnMessageCallback({
+		await editorCallback({
 			type: 'saveBlocks',
 			noteId: 'note-abc',
 			markdown: null,
@@ -1158,7 +1173,7 @@ describe('saveBlocks message handler', () => {
 		mockDataPut.mockRejectedValueOnce(new Error('Joplin write failed'));
 
 		await expect(
-			capturedOnMessageCallback({
+			editorCallback({
 				type: 'saveBlocks',
 				noteId: 'note-abc',
 				markdown: '# Hello',

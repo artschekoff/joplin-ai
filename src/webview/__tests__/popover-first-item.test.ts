@@ -31,7 +31,6 @@ const buildDOM = (): void => {
   document.body.innerHTML = `
     <div id="editor-pane">
       <div id="editor-container"></div>
-      <div id="slash-menu"></div>
       <div id="vim-statusbar"><span id="vim-mode-label">-- INSERT --</span></div>
     </div>
   `;
@@ -244,22 +243,47 @@ describe('Editor.js native popover — first-item auto-focus', () => {
     });
   });
 
-  describe('Enter key when Editor.js has a focused item', () => {
-    it('should NOT click the first item when a different item is already focused by Editor.js', async () => {
+  describe('Enter key when user navigated to a non-first item', () => {
+    it('should click the focused item (not the first) when Enter is pressed', async () => {
       const popover = buildPopover(3);
       await Promise.resolve();
       jest.runAllTimers();
 
       const items = popover.querySelectorAll('.ce-popover-item');
       items[0].classList.remove('ce-popover-item--focused');
+      items[0].removeAttribute('data-be-auto-focused');
       items[1].classList.add('ce-popover-item--focused');
 
       const firstClickSpy = jest.fn();
       items[0].addEventListener('click', firstClickSpy);
+      const secondClickSpy = jest.fn();
+      items[1].addEventListener('click', secondClickSpy);
 
       fireKeydown(document.body, 'Enter');
 
       expect(firstClickSpy).not.toHaveBeenCalled();
+      expect(secondClickSpy).toHaveBeenCalled();
+    });
+
+    it('should preventDefault and stopImmediatePropagation to prevent EditorJS adding a paragraph', async () => {
+      const popover = buildPopover(3);
+      await Promise.resolve();
+      jest.runAllTimers();
+
+      const items = popover.querySelectorAll('.ce-popover-item');
+      items[0].classList.remove('ce-popover-item--focused');
+      items[0].removeAttribute('data-be-auto-focused');
+      items[1].classList.add('ce-popover-item--focused');
+
+      const bubbleSpy = jest.fn();
+      document.body.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter') bubbleSpy();
+      }, false);
+
+      const event = fireKeydown(document.body, 'Enter');
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(bubbleSpy).not.toHaveBeenCalled();
     });
   });
 
