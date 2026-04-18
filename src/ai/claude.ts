@@ -202,8 +202,7 @@ export const streamClaudeMessages = async (
 							}
 							if (delta?.type === 'input_json_delta' && delta.partial_json) {
 								if (blocks[idx]) {
-									blocks[idx].inputJson =
-										(blocks[idx].inputJson ?? '') + delta.partial_json;
+									blocks[idx].inputJson = (blocks[idx].inputJson ?? '') + delta.partial_json;
 								}
 							}
 						}
@@ -256,9 +255,7 @@ export const streamClaudeMessages = async (
 				}
 			}
 			const usage: TokenUsage | undefined =
-				inputTokens > 0 || outputTokens > 0
-					? { inputTokens, outputTokens }
-					: undefined;
+				inputTokens > 0 || outputTokens > 0 ? { inputTokens, outputTokens } : undefined;
 			resolve({
 				textContent: fullText || null,
 				toolCalls,

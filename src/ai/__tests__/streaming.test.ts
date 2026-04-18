@@ -48,7 +48,10 @@ describe('streamOpenAIMessages', () => {
 		const result = await streamOpenAIMessages(
 			'sk-test',
 			'gpt-4o',
-			[{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }],
+			[
+				{ role: 'system', content: 'sys' },
+				{ role: 'user', content: 'hi' },
+			],
 			(chunk) => chunks.push(chunk),
 		);
 
@@ -72,12 +75,7 @@ describe('streamOpenAIMessages', () => {
 			return mockReq as any;
 		});
 
-		await streamOpenAIMessages(
-			'sk-test',
-			'gpt-4o',
-			[{ role: 'user', content: 'hi' }],
-			() => {},
-		);
+		await streamOpenAIMessages('sk-test', 'gpt-4o', [{ role: 'user', content: 'hi' }], () => {});
 
 		const body = JSON.parse((mockReq as any).write.mock.calls[0][0]);
 		expect(body.stream).toBe(true);
@@ -110,6 +108,57 @@ describe('streamOpenAIMessages', () => {
 		expect(result.toolCalls).toHaveLength(1);
 		expect(result.toolCalls[0].name).toBe('search_notes');
 		expect(result.toolCalls[0].args).toEqual({ query: 'test' });
+	});
+
+	it('includes role:assistant in rawAssistantMessage for text-only responses', async () => {
+		const mockReq = createMockRequest();
+		const sseData = [
+			'data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}\n\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2}}\n\n',
+			'data: [DONE]\n\n',
+		];
+		const mockRes = createSSEResponse(200, sseData);
+
+		mockedRequest.mockImplementation((_opts: any, callback: any) => {
+			callback(mockRes);
+			return mockReq as any;
+		});
+
+		const result = await streamOpenAIMessages(
+			'sk-test',
+			'gpt-4o',
+			[{ role: 'user', content: 'hi' }],
+			() => {},
+		);
+
+		const raw = result.rawAssistantMessage as Record<string, unknown>;
+		expect(raw.role).toBe('assistant');
+	});
+
+	it('includes role:assistant in rawAssistantMessage when tool calls are present', async () => {
+		const mockReq = createMockRequest();
+		const sseData = [
+			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"search_notes","arguments":"{\\"query\\":\\"test\\"}"}}]},"finish_reason":null}]}\n\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":10}}\n\n',
+			'data: [DONE]\n\n',
+		];
+		const mockRes = createSSEResponse(200, sseData);
+
+		mockedRequest.mockImplementation((_opts: any, callback: any) => {
+			callback(mockRes);
+			return mockReq as any;
+		});
+
+		const result = await streamOpenAIMessages(
+			'sk-test',
+			'gpt-4o',
+			[{ role: 'user', content: 'search' }],
+			() => {},
+		);
+
+		const raw = result.rawAssistantMessage as Record<string, unknown>;
+		expect(raw.role).toBe('assistant');
+		expect(raw).toHaveProperty('tool_calls');
 	});
 
 	it('rejects on API error in streaming mode', async () => {

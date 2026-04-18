@@ -137,7 +137,7 @@ export const shareNoteAsText = async (note: { title: string; body: string }): Pr
 };
 
 const sanitizeFilename = (title: string): string => {
-	const cleaned = title.replace(/[^a-zA-Z0-9\-_ ]/g, '').trim();
+	const cleaned = title.replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim();
 	return cleaned || 'note';
 };
 

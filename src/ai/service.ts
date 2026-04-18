@@ -294,25 +294,32 @@ const runToolCalls = async (
 	outcomes: AIActionOutcome[];
 	results: Array<{ toolCallId: string; content: string }>;
 }> => {
-	const outcomes: AIActionOutcome[] = [];
-	const results: Array<{ toolCallId: string; content: string }> = [];
-
 	for (const tc of toolCalls) {
 		context.onThinkingStep?.({
 			step: tc.name,
 			label: TOOL_STEP_LABELS[tc.name] ?? 'Processing...',
 		});
-		const actionResult = await executeAction(tc.name, tc.args, context);
-		outcomes.push({
-			action: tc.name,
-			success: actionResult.success,
-			message: actionResult.message,
-			data: actionResult.data,
-		});
-		results.push({ toolCallId: tc.id, content: JSON.stringify(actionResult) });
 	}
 
-	return { outcomes, results };
+	const settled = await Promise.all(
+		toolCalls.map(async (tc) => {
+			const actionResult = await executeAction(tc.name, tc.args, context);
+			return {
+				outcome: {
+					action: tc.name,
+					success: actionResult.success,
+					message: actionResult.message,
+					data: actionResult.data,
+				} as AIActionOutcome,
+				result: { toolCallId: tc.id, content: JSON.stringify(actionResult) },
+			};
+		}),
+	);
+
+	return {
+		outcomes: settled.map((s) => s.outcome),
+		results: settled.map((s) => s.result),
+	};
 };
 
 const accumulateUsage = (total: TokenUsage, add?: TokenUsage): TokenUsage => {
@@ -350,7 +357,7 @@ const runOpenAILoop = async (
 	const onChunk = context.onStreamChunk;
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		const response = onChunk && round === 0
+		const response = onChunk
 			? await streamOpenAIMessages(apiKey, model, messages, onChunk, tools)
 			: await sendOpenAIMessages(apiKey, model, messages, tools);
 		totalUsage = accumulateUsage(totalUsage, response.usage);
@@ -373,7 +380,11 @@ const runOpenAILoop = async (
 		? await streamOpenAIMessages(apiKey, model, messages, onChunk)
 		: await sendOpenAIMessages(apiKey, model, messages);
 	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
-	return { text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE, outcomes: allOutcomes, usage: totalUsage };
+	return {
+		text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE,
+		outcomes: allOutcomes,
+		usage: totalUsage,
+	};
 };
 
 const runClaudeLoop = async (
@@ -399,7 +410,7 @@ const runClaudeLoop = async (
 	const onChunk = context.onStreamChunk;
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		const response = onChunk && round === 0
+		const response = onChunk
 			? await streamClaudeMessages(apiKey, model, systemPrompt, messages, onChunk, tools)
 			: await sendClaudeMessages(apiKey, model, systemPrompt, messages, tools);
 		totalUsage = accumulateUsage(totalUsage, response.usage);
@@ -425,7 +436,11 @@ const runClaudeLoop = async (
 		? await streamClaudeMessages(apiKey, model, systemPrompt, messages, onChunk)
 		: await sendClaudeMessages(apiKey, model, systemPrompt, messages);
 	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
-	return { text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE, outcomes: allOutcomes, usage: totalUsage };
+	return {
+		text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE,
+		outcomes: allOutcomes,
+		usage: totalUsage,
+	};
 };
 
 const runPerplexityLoop = async (
@@ -473,7 +488,11 @@ const runPerplexityLoop = async (
 
 	const finalResponse = await sendPerplexityRequest(apiKey, model, input, systemPrompt);
 	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
-	return { text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE, outcomes: allOutcomes, usage: totalUsage };
+	return {
+		text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE,
+		outcomes: allOutcomes,
+		usage: totalUsage,
+	};
 };
 
 const runSonarLoop = async (
@@ -527,7 +546,11 @@ const runSonarLoop = async (
 	const finalResponse = await sendSonarChatRequest(apiKey, model, messages);
 	const finalText = finalResponse.textContent || '';
 	const parsed = parseSonarToolCalls(finalText);
-	return { text: (parsed.cleanText || finalText) + TOOL_LIMIT_NOTICE, outcomes: allOutcomes, usage: totalUsage };
+	return {
+		text: (parsed.cleanText || finalText) + TOOL_LIMIT_NOTICE,
+		outcomes: allOutcomes,
+		usage: totalUsage,
+	};
 };
 
 export const sendToAI = async (

@@ -23,6 +23,7 @@ function initPanel() {
 	let isLoading = false;
 	let chatHistory = [];
 	let savedMessages = [];
+	let currentNoteId = null;
 	let lastSentPrompt = null;
 	const MAX_HISTORY_MESSAGES = 50;
 	let agentRoles = [];
@@ -78,6 +79,7 @@ function initPanel() {
 	let streamingMsgDiv = null;
 	let streamingText = '';
 	let sessionTotalCost = 0;
+	let thinkingModelName = '';
 
 	function escapeHtml(text) {
 		const div = document.createElement('div');
@@ -186,15 +188,19 @@ function initPanel() {
 	}
 
 	var THINKING_FILLERS = [
-		'AI is thinking...',
-		'Analyzing your request...',
-		'Processing information...',
-		'Reviewing your notes...',
-		'Preparing response...',
-		'Crafting an answer...',
+		'is thinking...',
+		'is analyzing your request...',
+		'is processing information...',
+		'is reviewing your notes...',
+		'is preparing a response...',
+		'is crafting an answer...',
 	];
 	var thinkingFillerIndex = 0;
 	var thinkingFillerTimer = null;
+
+	function thinkingLabel(text) {
+		return thinkingModelName ? thinkingModelName + ' ' + text : 'AI ' + text;
+	}
 
 	function startThinkingFillers() {
 		thinkingFillerIndex = 0;
@@ -204,7 +210,7 @@ function initPanel() {
 			var el = document.getElementById('loadingIndicator');
 			if (el) {
 				var textNode = el.querySelector('.loading-text');
-				if (textNode) textNode.textContent = THINKING_FILLERS[thinkingFillerIndex];
+				if (textNode) textNode.textContent = thinkingLabel(THINKING_FILLERS[thinkingFillerIndex]);
 			}
 		}, 2000);
 	}
@@ -233,7 +239,7 @@ function initPanel() {
 			const loadingDiv = document.createElement('div');
 			loadingDiv.id = 'loadingIndicator';
 			loadingDiv.className = 'loading';
-			loadingDiv.innerHTML = '<div class="spinner"></div><span class="loading-text">AI is thinking...</span>';
+			loadingDiv.innerHTML = '<div class="spinner"></div><span class="loading-text">' + escapeHtml(thinkingLabel('is thinking...')) + '</span>';
 			messagesEl.appendChild(loadingDiv);
 			messagesEl.scrollTop = messagesEl.scrollHeight;
 			startThinkingFillers();
@@ -731,7 +737,7 @@ function initPanel() {
 		}
 	}
 
-	function addToQueue(prompt, workMode, rolePrompt, files) {
+	function addToQueue(prompt, workMode, rolePrompt, files, noteId) {
 		queueIdCounter++;
 		messageQueue.push({
 			id: queueIdCounter,
@@ -739,6 +745,7 @@ function initPanel() {
 			workMode: workMode,
 			agentRolePrompt: rolePrompt,
 			attachedFiles: files,
+			noteId: noteId,
 		});
 		renderQueue();
 	}
@@ -772,7 +779,7 @@ function initPanel() {
 		webviewApi.postMessage({ type: 'abortRequest' });
 		showLoading(false);
 		responsesToSkip++;
-		dispatchExecute(item.prompt, item.workMode, item.agentRolePrompt, item.attachedFiles);
+		dispatchExecute(item.prompt, item.workMode, item.agentRolePrompt, item.attachedFiles, item.noteId);
 	}
 
 	function processNextInQueue() {
@@ -785,10 +792,10 @@ function initPanel() {
 		}
 		const next = messageQueue.shift();
 		renderQueue();
-		dispatchExecute(next.prompt, next.workMode, next.agentRolePrompt, next.attachedFiles);
+		dispatchExecute(next.prompt, next.workMode, next.agentRolePrompt, next.attachedFiles, next.noteId);
 	}
 
-	function dispatchExecute(prompt, workMode, rolePrompt, files) {
+	function dispatchExecute(prompt, workMode, rolePrompt, files, noteId) {
 		addMessage('user', 'You', prompt, files);
 		showLoading(true);
 		lastSentPrompt = prompt;
@@ -798,6 +805,9 @@ function initPanel() {
 			history: chatHistory.slice(),
 			workMode: workMode || currentMode,
 		};
+		if (noteId) {
+			msg.noteId = noteId;
+		}
 		if (rolePrompt) {
 			msg.agentRolePrompt = rolePrompt;
 		}
@@ -814,12 +824,13 @@ function initPanel() {
 		promptInput.style.height = 'auto';
 		const rolePrompt = appliedRole ? appliedRole.systemPrompt : undefined;
 		const files = attachedFiles.length > 0 ? attachedFiles.slice() : undefined;
+		const pinnedNoteId = currentNoteId;
 		if (files) clearAttachedFiles();
 		if (isLoading) {
-			addToQueue(prompt, currentMode, rolePrompt, files);
+			addToQueue(prompt, currentMode, rolePrompt, files, pinnedNoteId);
 			return;
 		}
-		dispatchExecute(prompt, currentMode, rolePrompt, files);
+		dispatchExecute(prompt, currentMode, rolePrompt, files, pinnedNoteId);
 	}
 
 	const MODE_PLACEHOLDERS = {
@@ -1116,6 +1127,7 @@ function initPanel() {
 		if (!message) return;
 
 		if (message.type === 'noteInfo') {
+			currentNoteId = message.noteId || null;
 			if (message.title) {
 				noteInfoEl.innerHTML = svgIcon('fileText', '12') + ' ' + escapeHtml(message.title);
 			} else {
@@ -1128,6 +1140,15 @@ function initPanel() {
 			populateRoleSelect();
 			if (roleManageView.style.display !== 'none') {
 				renderManageView();
+			}
+		}
+
+		if (message.type === 'thinkingModel') {
+			thinkingModelName = message.modelName || '';
+			var loadEl = document.getElementById('loadingIndicator');
+			if (loadEl) {
+				var txt = loadEl.querySelector('.loading-text');
+				if (txt) txt.textContent = thinkingLabel('is thinking...');
 			}
 		}
 

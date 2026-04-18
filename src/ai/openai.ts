@@ -251,6 +251,7 @@ export const streamOpenAIMessages = async (
 				toolCalls,
 				finishReason,
 				rawAssistantMessage: {
+					role: 'assistant',
 					content: fullText || null,
 					...(rawToolCalls.length > 0 ? { tool_calls: rawToolCalls } : {}),
 				},

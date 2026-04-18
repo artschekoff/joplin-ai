@@ -23,7 +23,16 @@ const blockEditorSource = fs.readFileSync(
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
-const TOOL_NAMES = ['Text', 'Heading', 'Unordered List', 'Ordered List', 'Checklist', 'Code', 'Quote', 'Delimiter'];
+const TOOL_NAMES = [
+	'Text',
+	'Heading',
+	'Unordered List',
+	'Ordered List',
+	'Checklist',
+	'Code',
+	'Quote',
+	'Delimiter',
+];
 
 const buildDOM = (): void => {
 	document.body.innerHTML = `
@@ -34,7 +43,11 @@ const buildDOM = (): void => {
   `;
 };
 
-const fireKeydown = (target: EventTarget, key: string, extra: Partial<KeyboardEventInit> = {}): KeyboardEvent => {
+const fireKeydown = (
+	target: EventTarget,
+	key: string,
+	extra: Partial<KeyboardEventInit> = {},
+): KeyboardEvent => {
 	const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra });
 	target.dispatchEvent(event);
 	return event;
@@ -135,18 +148,16 @@ afterEach(() => {
 
 const visibleItems = (popover: HTMLElement): HTMLElement[] =>
 	Array.from(
-		popover.querySelectorAll<HTMLElement>(
-			'.ce-popover-item:not(.ce-popover-item--hidden)',
-		),
+		popover.querySelectorAll<HTMLElement>('.ce-popover-item:not(.ce-popover-item--hidden)'),
 	);
 
 const hiddenItems = (popover: HTMLElement): HTMLElement[] =>
-	Array.from(
-		popover.querySelectorAll<HTMLElement>('.ce-popover-item--hidden'),
-	);
+	Array.from(popover.querySelectorAll<HTMLElement>('.ce-popover-item--hidden'));
 
 const itemTitles = (items: HTMLElement[]): string[] =>
-	items.map((el) => el.querySelector('.ce-popover-item__title')?.textContent ?? el.textContent ?? '');
+	items.map(
+		(el) => el.querySelector('.ce-popover-item__title')?.textContent ?? el.textContent ?? '',
+	);
 
 const getSearchIndicator = (): HTMLElement | null =>
 	document.querySelector('.be-popover-search-indicator');

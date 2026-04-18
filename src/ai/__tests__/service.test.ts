@@ -10,16 +10,19 @@ import { ChatMessage } from '../types';
 jest.mock('../openai', () => ({
 	callOpenAI: jest.fn(),
 	sendOpenAIMessages: jest.fn(),
+	streamOpenAIMessages: jest.fn(),
 }));
 jest.mock('../claude', () => ({
 	callClaude: jest.fn(),
 	sendClaudeMessages: jest.fn(),
+	streamClaudeMessages: jest.fn(),
 }));
 jest.mock('../perplexity', () => ({
 	callPerplexity: jest.fn(),
 	sendPerplexityRequest: jest.fn(),
 	sendSonarChatRequest: jest.fn(),
 	isSonarApiModel: jest.requireActual('../perplexity').isSonarApiModel,
+	isPerplexityNativeModel: jest.requireActual('../perplexity').isPerplexityNativeModel,
 	parseSonarToolCalls: jest.requireActual('../perplexity').parseSonarToolCalls,
 	buildSonarToolCallPrompt: jest.requireActual('../perplexity').buildSonarToolCallPrompt,
 }));
@@ -41,13 +44,15 @@ jest.mock('../tools', () => ({
 	getPerplexityTools: jest.fn(() => []),
 }));
 
-import { sendOpenAIMessages } from '../openai';
-import { sendClaudeMessages } from '../claude';
+import { sendOpenAIMessages, streamOpenAIMessages } from '../openai';
+import { sendClaudeMessages, streamClaudeMessages } from '../claude';
 import { sendPerplexityRequest, sendSonarChatRequest } from '../perplexity';
 import { executeAction } from '../../actions/registry';
 
 const mockedSendOpenAI = sendOpenAIMessages as jest.MockedFunction<typeof sendOpenAIMessages>;
+const mockedStreamOpenAI = streamOpenAIMessages as jest.MockedFunction<typeof streamOpenAIMessages>;
 const mockedSendClaude = sendClaudeMessages as jest.MockedFunction<typeof sendClaudeMessages>;
+const mockedStreamClaude = streamClaudeMessages as jest.MockedFunction<typeof streamClaudeMessages>;
 const mockedSendPerplexity = sendPerplexityRequest as jest.MockedFunction<
 	typeof sendPerplexityRequest
 >;
@@ -2332,6 +2337,138 @@ describe('sendToAI', () => {
 					m.role === 'user' && typeof m.content === 'string' && m.content.includes('TOOL_RESULT'),
 			);
 			expect(toolResultMsg).toBeTruthy();
+		});
+	});
+
+	describe('streaming on all API rounds', () => {
+		it('uses streaming for follow-up rounds after tool calls with OpenAI', async () => {
+			mockedStreamOpenAI
+				.mockResolvedValueOnce({
+					textContent: null,
+					toolCalls: [{ id: 'call_1', name: 'search_notes', args: { query: 'test' } }],
+					finishReason: 'tool_calls',
+					rawAssistantMessage: {
+						content: null,
+						tool_calls: [
+							{
+								id: 'call_1',
+								type: 'function',
+								function: { name: 'search_notes', arguments: '{"query":"test"}' },
+							},
+						],
+					},
+				})
+				.mockResolvedValueOnce({
+					textContent: 'Found your notes.',
+					toolCalls: [],
+					finishReason: 'stop',
+					rawAssistantMessage: { content: 'Found your notes.' },
+				});
+
+			mockedExecuteAction.mockResolvedValue({ success: true, message: 'Found 2 note(s)' });
+
+			const onChunk = jest.fn();
+			await sendToAI('openai', 'sk-test', 'gpt-4o', 'search notes', 'Title', 'Body', {
+				currentNoteId: 'n1',
+				currentNoteTitle: 'Title',
+				onStreamChunk: onChunk,
+			});
+
+			expect(mockedStreamOpenAI).toHaveBeenCalledTimes(2);
+			expect(mockedSendOpenAI).not.toHaveBeenCalled();
+		});
+
+		it('uses streaming for follow-up rounds after tool calls with Claude', async () => {
+			mockedStreamClaude
+				.mockResolvedValueOnce({
+					textContent: null,
+					toolCalls: [{ id: 'tc_1', name: 'update_note', args: { body: 'new' } }],
+					finishReason: 'tool_use',
+					rawAssistantMessage: {
+						role: 'assistant',
+						content: [
+							{ type: 'tool_use', id: 'tc_1', name: 'update_note', input: { body: 'new' } },
+						],
+					},
+				})
+				.mockResolvedValueOnce({
+					textContent: 'Updated the note.',
+					toolCalls: [],
+					finishReason: 'end_turn',
+					rawAssistantMessage: { role: 'assistant', content: [] },
+				});
+
+			mockedExecuteAction.mockResolvedValue({ success: true, message: 'Note updated' });
+
+			const onChunk = jest.fn();
+			await sendToAI(
+				'claude',
+				'sk-ant-test',
+				'claude-sonnet-4-20250514',
+				'update note',
+				'Title',
+				'Body',
+				{
+					currentNoteId: 'n1',
+					currentNoteTitle: 'Title',
+					onStreamChunk: onChunk,
+				},
+			);
+
+			expect(mockedStreamClaude).toHaveBeenCalledTimes(2);
+			expect(mockedSendClaude).not.toHaveBeenCalled();
+		});
+
+		it('falls back to non-streaming when onStreamChunk is not provided', async () => {
+			mockedSendOpenAI.mockResolvedValue({
+				textContent: 'Plain answer',
+				toolCalls: [],
+				finishReason: 'stop',
+				rawAssistantMessage: { content: 'Plain answer' },
+			});
+
+			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'Title', 'Body');
+
+			expect(mockedSendOpenAI).toHaveBeenCalledTimes(1);
+			expect(mockedStreamOpenAI).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('parallel tool execution', () => {
+		it('executes independent tool calls concurrently', async () => {
+			const executionOrder: string[] = [];
+
+			mockedSendOpenAI
+				.mockResolvedValueOnce({
+					textContent: null,
+					toolCalls: [
+						{ id: 'tc_a', name: 'search_notes', args: { query: 'meeting' } },
+						{ id: 'tc_b', name: 'list_notebooks', args: {} },
+					],
+					finishReason: 'tool_calls',
+					rawAssistantMessage: { content: null, tool_calls: [] },
+				})
+				.mockResolvedValueOnce({
+					textContent: 'Done',
+					toolCalls: [],
+					finishReason: 'stop',
+					rawAssistantMessage: { content: 'Done' },
+				});
+
+			mockedExecuteAction.mockImplementation(async (name: string) => {
+				executionOrder.push(`start:${name}`);
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				executionOrder.push(`end:${name}`);
+				return { success: true, message: 'ok' };
+			});
+
+			await sendToAI('openai', 'sk-test', 'gpt-4o', 'search and list', 'Title', 'Body', {
+				currentNoteId: 'n1',
+				currentNoteTitle: 'Title',
+			});
+
+			expect(executionOrder[0]).toBe('start:search_notes');
+			expect(executionOrder[1]).toBe('start:list_notebooks');
 		});
 	});
 });

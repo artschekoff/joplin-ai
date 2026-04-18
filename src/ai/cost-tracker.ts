@@ -62,10 +62,7 @@ export interface CostTracker {
 let nextId = 0;
 const generateId = (): string => `gen-${Date.now()}-${++nextId}`;
 
-const inferCost = (
-	usage: UsageDetails,
-	pricing: ModelPricing,
-): CostDetails => {
+const inferCost = (usage: UsageDetails, pricing: ModelPricing): CostDetails => {
 	const inputCost = (usage.input / 1_000_000) * pricing.inputPer1M;
 	const outputCost = (usage.output / 1_000_000) * pricing.outputPer1M;
 	return { input: inputCost, output: outputCost, total: inputCost + outputCost };
@@ -116,9 +113,7 @@ export class LocalCostTracker implements CostTracker {
 		generation.output = params.output;
 		generation.usageDetails = {
 			...params.usageDetails,
-			total:
-				params.usageDetails.total ??
-				params.usageDetails.input + params.usageDetails.output,
+			total: params.usageDetails.total ?? params.usageDetails.input + params.usageDetails.output,
 		};
 
 		if (params.costDetails) {

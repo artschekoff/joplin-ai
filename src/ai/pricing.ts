@@ -146,8 +146,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
 	},
 };
 
-export const getModelPricing = (model: string): ModelPricing | null =>
-	MODEL_PRICING[model] ?? null;
+export const getModelPricing = (model: string): ModelPricing | null => MODEL_PRICING[model] ?? null;
 
 export const calculateRequestCost = (
 	model: string,

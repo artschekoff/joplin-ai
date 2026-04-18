@@ -572,6 +572,92 @@ describe('panel.js conversation history tracking', () => {
 	});
 });
 
+describe('panel.js noteId pinning in execute messages', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+	let promptInput: HTMLTextAreaElement;
+
+	beforeEach(() => {
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+		promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+	});
+
+	it('includes noteId from last noteInfo message in execute payload', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'noteInfo', noteId: 'note-abc', title: 'My Note' });
+
+		promptInput.value = 'Summarize this';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+
+		const executeCall = mockApi.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'execute',
+		);
+		expect(executeCall).toBeDefined();
+		expect(executeCall![0].noteId).toBe('note-abc');
+	});
+
+	it('updates noteId when user switches notes and sends new execute', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'noteInfo', noteId: 'note-1', title: 'First Note' });
+
+		promptInput.value = 'First question';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+
+		messageHandler({ type: 'result', content: 'Response 1', isEdit: false, actions: [] });
+		messageHandler({ type: 'noteInfo', noteId: 'note-2', title: 'Second Note' });
+
+		promptInput.value = 'Second question';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+
+		const secondCall = mockApi.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'execute' && call[0]?.prompt === 'Second question',
+		);
+		expect(secondCall).toBeDefined();
+		expect(secondCall![0].noteId).toBe('note-2');
+	});
+
+	it('pins noteId at dispatch time so queued messages keep the original note', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'noteInfo', noteId: 'note-A', title: 'Note A' });
+
+		promptInput.value = 'First';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+
+		messageHandler({ type: 'noteInfo', noteId: 'note-B', title: 'Note B' });
+
+		promptInput.value = 'Second (queued)';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+
+		const firstCall = mockApi.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'execute' && call[0]?.prompt === 'First',
+		);
+		expect(firstCall![0].noteId).toBe('note-A');
+
+		messageHandler({ type: 'result', content: 'Done', isEdit: false, actions: [] });
+
+		const queuedCall = mockApi.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'execute' && call[0]?.prompt === 'Second (queued)',
+		);
+		expect(queuedCall).toBeDefined();
+		expect(queuedCall![0].noteId).toBe('note-B');
+	});
+});
+
 describe('panel.js keyboard handling', () => {
 	let mockApi: ReturnType<typeof createMockWebviewApi>;
 	let promptInput: HTMLTextAreaElement;
@@ -3427,7 +3513,15 @@ describe('SVG icon replacement — HTML template', () => {
 		const panelTsSource = fs.readFileSync(path.resolve(__dirname, '..', '..', 'panel.ts'), 'utf-8');
 		const htmlMatch = panelTsSource.match(/const CHAT_PANEL_HTML = `([\s\S]*?)`;/);
 		const html = htmlMatch![1];
-		const emojiEntities = ['&#x1F916;', '&#x1F4AC;', '&#x1F4CE;', '&#x1F9F9;', '&#x27A4;', '&#x2699;', '&#x270F;'];
+		const emojiEntities = [
+			'&#x1F916;',
+			'&#x1F4AC;',
+			'&#x1F4CE;',
+			'&#x1F9F9;',
+			'&#x27A4;',
+			'&#x2699;',
+			'&#x270F;',
+		];
 		for (const entity of emojiEntities) {
 			expect(html).not.toContain(entity);
 		}
@@ -3492,7 +3586,11 @@ describe('SVG icon replacement — dynamic content', () => {
 		const fileInput = document.getElementById('fileInput') as HTMLInputElement;
 		const promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
 		const file = new File(['data'], 'test.csv', { type: 'text/csv' });
-		Object.defineProperty(fileInput, 'files', { value: [file], writable: true, configurable: true });
+		Object.defineProperty(fileInput, 'files', {
+			value: [file],
+			writable: true,
+			configurable: true,
+		});
 		fileInput.dispatchEvent(new Event('change'));
 
 		setTimeout(() => {
@@ -3528,7 +3626,14 @@ describe('SVG icon replacement — dynamic content', () => {
 			type: 'result',
 			isEdit: false,
 			content: 'Search result',
-			actions: [{ action: 'web_search', success: true, message: 'Found info', data: { searchProvider: 'google', searchModel: 'test' } }],
+			actions: [
+				{
+					action: 'web_search',
+					success: true,
+					message: 'Found info',
+					data: { searchProvider: 'google', searchModel: 'test' },
+				},
+			],
 		});
 
 		const searchMsg = document.querySelector('.message-action-search');

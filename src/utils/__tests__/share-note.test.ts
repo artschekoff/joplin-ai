@@ -314,8 +314,8 @@ describe('copyFileToDirectory', () => {
 
 	it('rejects when fs.copyFile fails', async () => {
 		mockCopyFile.mockRejectedValueOnce(new Error('EACCES: permission denied'));
-		await expect(
-			copyFileToDirectory('/tmp/Note.docx', '/Users/me/Documents'),
-		).rejects.toThrow('EACCES');
+		await expect(copyFileToDirectory('/tmp/Note.docx', '/Users/me/Documents')).rejects.toThrow(
+			'EACCES',
+		);
 	});
 });

@@ -16,11 +16,7 @@ import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
 import { extractPdfTextFromBase64 } from './utils/pdf-extract';
-import {
-	shareNoteAsText,
-	exportNoteWithPandoc,
-	copyFileToDirectory,
-} from './utils/share-note';
+import { shareNoteAsText, exportNoteWithPandoc, copyFileToDirectory } from './utils/share-note';
 
 let chatPanelHandle: ViewHandle | null = null;
 let editorPanelHandle: ViewHandle | null = null;
@@ -291,10 +287,7 @@ const sendSettings = async (handle: ViewHandle) => {
 	});
 };
 
-const handleSaveSettings = async (
-	handle: ViewHandle,
-	settings: Record<string, unknown>,
-) => {
+const handleSaveSettings = async (handle: ViewHandle, settings: Record<string, unknown>) => {
 	const entries = Object.entries(settings).filter(([key]) => ALLOWED_SETTING_KEYS.has(key));
 	await Promise.all(entries.map(([key, value]) => joplin.settings.setValue(key, value)));
 	await sendSettings(handle);
@@ -357,7 +350,7 @@ const fetchNotebooks = async (): Promise<Notebook[]> => {
 	const foldersResult = await joplin.data.get(['folders'], {
 		fields: ['id', 'title'],
 	});
-	return ((foldersResult.items || []) as Array<{ id: string; title: string }>).map((f) => ({
+	return ((foldersResult?.items || []) as Array<{ id: string; title: string }>).map((f) => ({
 		id: f.id,
 		title: f.title,
 	}));
@@ -371,7 +364,13 @@ const formatCostUsd = (cost?: number): string | null => {
 
 const sendResult = (
 	handle: ViewHandle,
-	response: { isEdit: boolean; content: string; actions: AIActionOutcome[]; usage?: { inputTokens: number; outputTokens: number }; costUsd?: number },
+	response: {
+		isEdit: boolean;
+		content: string;
+		actions: AIActionOutcome[];
+		usage?: { inputTokens: number; outputTokens: number };
+		costUsd?: number;
+	},
 	model: string,
 ) => {
 	joplin.views.panels.postMessage(handle, {
@@ -447,7 +446,11 @@ const handleExecute = async (
 	noteId?: string,
 ) => {
 	try {
-		const config = await loadProviderConfig();
+		const [config, note, promptContext] = await Promise.all([
+			loadProviderConfig(),
+			noteId ? getNoteById(noteId) : getCurrentNote(),
+			resolvePromptContext(prompt),
+		]);
 		if (!config.apiKey?.trim()) {
 			joplin.views.panels.postMessage(handle, {
 				type: 'alert',
@@ -455,7 +458,6 @@ const handleExecute = async (
 			});
 			return;
 		}
-		const note = noteId ? await getNoteById(noteId) : await getCurrentNote();
 		if (!note) {
 			joplin.views.panels.postMessage(handle, {
 				type: 'error',
@@ -463,7 +465,11 @@ const handleExecute = async (
 			});
 			return;
 		}
-		const { notebooks, referencedNotes, cleanPrompt } = await resolvePromptContext(prompt);
+		const { notebooks, referencedNotes, cleanPrompt } = promptContext;
+		joplin.views.panels.postMessage(handle, {
+			type: 'thinkingModel',
+			modelName: getModelDisplayName(config.model),
+		});
 		const onImageProgress = (info: { progress: number; state: string }) => {
 			joplin.views.panels.postMessage(handle, {
 				type: 'imageProgress',
@@ -698,13 +704,15 @@ export const toggleBlockEditorPane = async (): Promise<void> => {
 };
 
 /**
- * Copies the exported file to ~/Desktop and shows a success notification.
+ * Prompts the user to pick a destination folder, then copies the exported file there.
+ * Does nothing if the user cancels the dialog.
  */
 const saveExportedFile = async (tempPath: string): Promise<void> => {
-	const desktopDir = require('path').join(require('os').homedir(), 'Desktop');
-	const dest = await copyFileToDirectory(tempPath, desktopDir);
-	const filename = require('path').basename(dest);
-	await joplin.views.dialogs.showMessageBox(`Exported to Desktop: ${filename}`);
+	const paths: string[] = await joplin.views.dialogs.showOpenDialog({
+		properties: ['openDirectory', 'createDirectory'],
+	});
+	if (!paths || !paths.length) return;
+	await copyFileToDirectory(tempPath, paths[0]);
 };
 
 /**

@@ -309,14 +309,17 @@ describe('panel handleExecute', () => {
 	});
 
 	it('fetches notebooks and passes them in action context', async () => {
-		mockDataGet
-			.mockResolvedValueOnce({ id: 'note-1', title: 'Test Note', body: 'Some existing content.' })
-			.mockResolvedValueOnce({
-				items: [
-					{ id: 'f1', title: 'Work', parent_id: '' },
-					{ id: 'f2', title: 'Personal', parent_id: '' },
-				],
-			});
+		mockDataGet.mockImplementation((args: string[]) => {
+			if (Array.isArray(args) && args[0] === 'folders') {
+				return Promise.resolve({
+					items: [
+						{ id: 'f1', title: 'Work', parent_id: '' },
+						{ id: 'f2', title: 'Personal', parent_id: '' },
+					],
+				});
+			}
+			return Promise.resolve({ id: 'note-1', title: 'Test Note', body: 'Some existing content.' });
+		});
 
 		mockedSendToAI.mockResolvedValue({
 			content: 'ok',
@@ -347,9 +350,12 @@ describe('panel handleExecute', () => {
 	});
 
 	it('passes empty notebooks array when no notebooks exist', async () => {
-		mockDataGet
-			.mockResolvedValueOnce({ id: 'note-1', title: 'Test Note', body: 'Some existing content.' })
-			.mockResolvedValueOnce({ items: [] });
+		mockDataGet.mockImplementation((args: string[]) => {
+			if (Array.isArray(args) && args[0] === 'folders') {
+				return Promise.resolve({ items: [] });
+			}
+			return Promise.resolve({ id: 'note-1', title: 'Test Note', body: 'Some existing content.' });
+		});
 
 		mockedSendToAI.mockResolvedValue({
 			content: 'ok',
@@ -563,17 +569,24 @@ describe('panel handleExecute', () => {
 	});
 
 	it('resolves @[Title] note references and passes referenced notes to sendToAI', async () => {
-		mockDataGet
-			.mockResolvedValueOnce({ id: 'note-1', title: 'Test Note', body: 'Some existing content.' })
-			.mockResolvedValueOnce({ items: [] })
-			.mockResolvedValueOnce({
-				items: [{ id: 'ref-1', title: 'Design Doc', parent_id: 'f1' }],
-			})
-			.mockResolvedValueOnce({
-				id: 'ref-1',
-				title: 'Design Doc',
-				body: 'Design document content here.',
-			});
+		mockDataGet.mockImplementation((args: string[], opts?: Record<string, unknown>) => {
+			if (Array.isArray(args) && args[0] === 'folders') {
+				return Promise.resolve({ items: [] });
+			}
+			if (Array.isArray(args) && args[0] === 'search') {
+				return Promise.resolve({
+					items: [{ id: 'ref-1', title: 'Design Doc', parent_id: 'f1' }],
+				});
+			}
+			if (Array.isArray(args) && args[0] === 'notes' && args[1] === 'ref-1') {
+				return Promise.resolve({
+					id: 'ref-1',
+					title: 'Design Doc',
+					body: 'Design document content here.',
+				});
+			}
+			return Promise.resolve({ id: 'note-1', title: 'Test Note', body: 'Some existing content.' });
+		});
 
 		mockedSendToAI.mockResolvedValue({
 			content: 'ok',
@@ -1106,6 +1119,87 @@ describe('panel handleExecute', () => {
 
 		expect(mockExtractPdf).not.toHaveBeenCalled();
 	});
+
+	it('uses noteId from execute message to fetch note instead of getCurrentNote', async () => {
+		mockDataGet.mockImplementation((args: string[]) => {
+			if (Array.isArray(args) && args[0] === 'folders') {
+				return Promise.resolve({ items: [] });
+			}
+			if (Array.isArray(args) && args[0] === 'notes' && args[1] === 'note-original') {
+				return Promise.resolve({
+					id: 'note-original',
+					title: 'Original Note',
+					body: 'Original content.',
+				});
+			}
+			return Promise.resolve({
+				id: 'note-1',
+				title: 'Test Note',
+				body: 'Some existing content.',
+			});
+		});
+		mockSelectedNote.mockResolvedValue({ id: 'note-switched' });
+
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({
+			type: 'execute',
+			prompt: 'summarize',
+			noteId: 'note-original',
+		});
+
+		expect(mockedSendToAI).toHaveBeenCalledWith(
+			'openai',
+			'sk-test-key',
+			'gpt-4o',
+			'summarize',
+			'Original Note',
+			'Original content.',
+			expect.objectContaining({
+				currentNoteId: 'note-original',
+				currentNoteTitle: 'Original Note',
+			}),
+			undefined,
+		);
+	});
+
+	it('does not call selectedNote when noteId is provided in execute message', async () => {
+		mockDataGet.mockImplementation((args: string[]) => {
+			if (Array.isArray(args) && args[0] === 'folders') {
+				return Promise.resolve({ items: [] });
+			}
+			if (Array.isArray(args) && args[0] === 'notes' && args[1] === 'note-pinned') {
+				return Promise.resolve({
+					id: 'note-pinned',
+					title: 'Pinned Note',
+					body: 'Pinned body.',
+				});
+			}
+			return Promise.resolve({ id: 'note-1', title: 'Test Note', body: 'Some existing content.' });
+		});
+
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		mockSelectedNote.mockClear();
+
+		await capturedOnMessageCallback({
+			type: 'execute',
+			prompt: 'hello',
+			noteId: 'note-pinned',
+		});
+
+		expect(mockSelectedNote).not.toHaveBeenCalled();
+	});
 });
 
 describe('shareCurrentNote', () => {
@@ -1154,15 +1248,24 @@ describe('shareCurrentNote', () => {
 		});
 	});
 
-	it('copies the docx file to Desktop and shows a success message', async () => {
+	it('shows a folder picker and copies the docx file to the chosen folder', async () => {
 		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.docx');
-		mockCopyFileToDirectory.mockResolvedValue('/Users/me/Desktop/My Test Note.docx');
+		mockShowOpenDialog.mockResolvedValue(['/Users/me/Documents']);
 		await shareCurrentNote('doc');
+		expect(mockShowOpenDialog).toHaveBeenCalled();
 		expect(mockCopyFileToDirectory).toHaveBeenCalledWith(
 			'/tmp/My Test Note.docx',
-			expect.stringContaining('Desktop'),
+			'/Users/me/Documents',
 		);
 		expect(mockOpenUrlInSystem).not.toHaveBeenCalled();
+	});
+
+	it('does not copy file when user cancels the directory picker for doc export', async () => {
+		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.docx');
+		mockShowOpenDialog.mockResolvedValue([]);
+		await shareCurrentNote('doc');
+		expect(mockShowOpenDialog).toHaveBeenCalled();
+		expect(mockCopyFileToDirectory).not.toHaveBeenCalled();
 	});
 
 	it('calls exportNoteWithPandoc with rtf format for rtf export', async () => {
@@ -1174,15 +1277,24 @@ describe('shareCurrentNote', () => {
 		});
 	});
 
-	it('copies the rtf file to Desktop and shows a success message', async () => {
+	it('shows a folder picker and copies the rtf file to the chosen folder', async () => {
 		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.rtf');
-		mockCopyFileToDirectory.mockResolvedValue('/Users/me/Desktop/My Test Note.rtf');
+		mockShowOpenDialog.mockResolvedValue(['/Users/me/Desktop']);
 		await shareCurrentNote('rtf');
+		expect(mockShowOpenDialog).toHaveBeenCalled();
 		expect(mockCopyFileToDirectory).toHaveBeenCalledWith(
 			'/tmp/My Test Note.rtf',
-			expect.stringContaining('Desktop'),
+			'/Users/me/Desktop',
 		);
 		expect(mockOpenUrlInSystem).not.toHaveBeenCalled();
+	});
+
+	it('does not copy file when user cancels the directory picker for rtf export', async () => {
+		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.rtf');
+		mockShowOpenDialog.mockResolvedValue([]);
+		await shareCurrentNote('rtf');
+		expect(mockShowOpenDialog).toHaveBeenCalled();
+		expect(mockCopyFileToDirectory).not.toHaveBeenCalled();
 	});
 
 	it('does not call pandoc for pdf format', async () => {
