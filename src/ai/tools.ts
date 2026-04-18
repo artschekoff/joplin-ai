@@ -47,9 +47,12 @@ export const getClaudeTools = (workMode?: WorkMode): ClaudeTool[] =>
 		input_schema: h.parameters,
 	}));
 
-export const getPerplexityTools = (workMode?: WorkMode): PerplexityTool[] =>
+export const getPerplexityTools = (
+	workMode?: WorkMode,
+	nativeWebSearch = true,
+): PerplexityTool[] =>
 	filterHandlers(getActionHandlers(), workMode)
-		.filter((h) => h.name !== 'web_search')
+		.filter((h) => nativeWebSearch ? h.name !== 'web_search' : true)
 		.map((h) => ({
 			type: 'function' as const,
 			name: h.name,

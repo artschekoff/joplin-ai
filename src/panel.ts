@@ -11,6 +11,7 @@ import {
 	ALLOWED_SETTING_KEYS,
 } from './settings';
 import { sendToAI, buildSystemPrompt } from './ai/service';
+import { isPerplexityNativeModel } from './ai/perplexity';
 import { AIProvider, AgentRole, AIActionOutcome, ChatMessage, WorkMode } from './ai/types';
 import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
@@ -507,7 +508,10 @@ const handleExecute = async (
 					}),
 			);
 		}
-		const isPerplexityPrimary = config.provider === 'perplexity';
+		const hasSelection = editorSelection.trim().length > 0;
+		const noteBodyForAI = hasSelection ? editorSelection : note.body;
+		const isNativePerplexitySearch =
+			config.provider === 'perplexity' && isPerplexityNativeModel(config.model);
 		const context: ActionContext = {
 			currentNoteId: note.id,
 			currentNoteTitle: note.title,
@@ -516,7 +520,7 @@ const handleExecute = async (
 			attachedFiles: attachedFiles?.length ? attachedFiles : undefined,
 			agentRolePrompt: agentRolePrompt || undefined,
 			workMode: workMode || ('agent' as WorkMode),
-			webSearchEnabled: config.webSearchEnabled && !isPerplexityPrimary,
+			webSearchEnabled: config.webSearchEnabled && !isNativePerplexitySearch,
 			webSearchModel: config.webSearchModel,
 			openaiApiKey: config.openaiApiKey,
 			perplexityApiKey: config.perplexityApiKey,
@@ -525,6 +529,7 @@ const handleExecute = async (
 			onImageProgress,
 			onThinkingStep,
 			onStreamChunk,
+			isSelection: hasSelection || undefined,
 		};
 		const response = await sendToAI(
 			config.provider,
@@ -532,7 +537,7 @@ const handleExecute = async (
 			config.model,
 			cleanPrompt,
 			note.title,
-			note.body,
+			noteBodyForAI,
 			context,
 			history,
 		);

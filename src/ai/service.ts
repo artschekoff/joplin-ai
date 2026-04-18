@@ -185,6 +185,8 @@ export interface BuildSystemPromptOptions {
 	attachedFiles?: AttachedFile[];
 	/** When true, the selected model has native built-in web search (e.g. Perplexity). Replaces the web_search tool description with a native search note. */
 	nativeWebSearch?: boolean;
+	/** When true, noteBody contains only the user-selected fragment, not the full note. */
+	isSelection?: boolean;
 }
 
 const buildWebSearchToolLine = (nativeWebSearch?: boolean): string => {
@@ -204,6 +206,7 @@ export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => 
 		referencedNotes,
 		attachedFiles,
 		nativeWebSearch,
+		isSelection,
 	} = options;
 	const cleanBody = sanitizeContent(noteBody);
 	const truncated =
@@ -221,6 +224,9 @@ export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => 
 	const modeSection = buildWorkModeSection(workMode, noteTitle);
 
 	const webSearchLine = buildWebSearchToolLine(nativeWebSearch);
+	const contentLabel = isSelection
+		? 'Selected fragment from the current note (the user highlighted this portion — focus your answer on it):'
+		: 'Current note content:';
 
 	if (workMode === 'edit') {
 		return `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
@@ -243,7 +249,7 @@ EDIT MODE RULES:
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
 ${referencedSection}${attachedSection}
 Current note title: ${noteTitle}
-Current note content:
+${contentLabel}
 ${truncated}`;
 	}
 
@@ -275,7 +281,7 @@ TOOL USAGE RULES:
 - If the user asks a question that does not require any action, answer normally in Markdown without using tools.
 ${notebookSection}${referencedSection}${attachedSection}
 Current note title: ${noteTitle}
-Current note content:
+${contentLabel}
 ${truncated}`;
 };
 
@@ -450,8 +456,9 @@ const runPerplexityLoop = async (
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
+	nativeWebSearch = true,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
-	const tools = getPerplexityTools(context.workMode);
+	const tools = getPerplexityTools(context.workMode, nativeWebSearch);
 	const historyItems: PerplexityInputItem[] = (history ?? []).map((m) => ({
 		role: m.role,
 		content: m.content,
@@ -502,8 +509,9 @@ const runSonarLoop = async (
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
+	nativeWebSearch = true,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
-	const tools = getPerplexityTools(context.workMode);
+	const tools = getPerplexityTools(context.workMode, nativeWebSearch);
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
 	const messages: SonarChatMessage[] = [
@@ -578,19 +586,21 @@ export const sendToAI = async (
 		referencedNotes: actionContext.referencedNotes,
 		attachedFiles: actionContext.attachedFiles,
 		nativeWebSearch: provider === 'perplexity' && isPerplexityNativeModel(model),
+		isSelection: actionContext.isSelection,
 	});
 
 	const ct = tracker ?? defaultCostTracker;
 	const traceId = `trace-${Date.now()}`;
 	const gen = ct.startGeneration(traceId, { name: `${provider}-chat`, model });
+	const isNativeSearch = isPerplexityNativeModel(model);
 
 	const runLoop = () => {
 		if (provider === 'openai')
 			return runOpenAILoop(apiKey, model, systemPrompt, userPrompt, actionContext, history);
 		if (provider === 'perplexity') {
 			if (isSonarApiModel(model))
-				return runSonarLoop(apiKey, model, systemPrompt, userPrompt, actionContext, history);
-			return runPerplexityLoop(apiKey, model, systemPrompt, userPrompt, actionContext, history);
+				return runSonarLoop(apiKey, model, systemPrompt, userPrompt, actionContext, history, isNativeSearch);
+			return runPerplexityLoop(apiKey, model, systemPrompt, userPrompt, actionContext, history, isNativeSearch);
 		}
 		return runClaudeLoop(apiKey, model, systemPrompt, userPrompt, actionContext, history);
 	};

@@ -778,6 +778,48 @@ describe('buildSystemPrompt', () => {
 			}
 		});
 	});
+
+	describe('with isSelection flag', () => {
+		it('labels content as selected fragment when isSelection is true', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Some selected text here',
+				isSelection: true,
+			});
+			expect(prompt).toMatch(/selected (fragment|text|portion)/i);
+			expect(prompt).toContain('Some selected text here');
+		});
+
+		it('labels content as full note when isSelection is false', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Full note content',
+				isSelection: false,
+			});
+			expect(prompt).toContain('Current note content');
+			expect(prompt).not.toMatch(/selected (fragment|text|portion)/i);
+		});
+
+		it('labels content as full note when isSelection is undefined', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Full note content',
+			});
+			expect(prompt).toContain('Current note content');
+			expect(prompt).not.toMatch(/selected (fragment|text|portion)/i);
+		});
+
+		it('includes selection label in edit mode too', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Some selected text',
+				isSelection: true,
+				workMode: 'edit',
+			});
+			expect(prompt).toMatch(/selected (fragment|text|portion)/i);
+			expect(prompt).toContain('Some selected text');
+		});
+	});
 });
 
 describe('validateApiKey', () => {
@@ -1662,6 +1704,27 @@ describe('sendToAI', () => {
 			const instructions = mockedSendPerplexity.mock.calls[0][3] as string;
 			expect(instructions).not.toMatch(/^- web_search:/m);
 			expect(instructions).toMatch(/native.*web search|built-in.*search/i);
+		});
+
+		it('includes web_search bullet in system prompt for non-native Perplexity models', async () => {
+			mockedSendPerplexity.mockResolvedValue({
+				textContent: 'ok',
+				toolCalls: [],
+				finishReason: 'stop',
+				rawAssistantMessage: [],
+			});
+
+			await sendToAI(
+				'perplexity',
+				'pplx-test-key',
+				'openai/gpt-5.4',
+				'hello',
+				'My Title',
+				'My Body',
+			);
+
+			const instructions = mockedSendPerplexity.mock.calls[0][3] as string;
+			expect(instructions).toMatch(/^- web_search:/m);
 		});
 
 		it('passes web_search bullet in system prompt for OpenAI (not native)', async () => {

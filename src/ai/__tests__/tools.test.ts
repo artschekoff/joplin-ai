@@ -113,7 +113,7 @@ describe('getPerplexityTools with work mode', () => {
 		});
 	});
 
-	describe('native web search — web_search tool excluded', () => {
+	describe('native web search (default) — web_search tool excluded', () => {
 		it('excludes web_search in agent mode (Perplexity searches natively)', () => {
 			const tools = getPerplexityTools('agent');
 			const names = tools.map((t) => t.name);
@@ -135,6 +135,31 @@ describe('getPerplexityTools with work mode', () => {
 		it('returns 12 tools in agent mode (all tools minus web_search)', () => {
 			const tools = getPerplexityTools('agent');
 			expect(tools).toHaveLength(12);
+		});
+	});
+
+	describe('non-native model (nativeWebSearch=false) — web_search tool included', () => {
+		it('includes web_search in agent mode for third-party models', () => {
+			const tools = getPerplexityTools('agent', false);
+			const names = tools.map((t) => t.name);
+			expect(names).toContain('web_search');
+		});
+
+		it('includes web_search in ask mode for third-party models', () => {
+			const tools = getPerplexityTools('ask', false);
+			const names = tools.map((t) => t.name);
+			expect(names).toContain('web_search');
+		});
+
+		it('includes web_search in edit mode for third-party models', () => {
+			const tools = getPerplexityTools('edit', false);
+			const names = tools.map((t) => t.name);
+			expect(names).toContain('web_search');
+		});
+
+		it('returns 13 tools in agent mode (all tools including web_search)', () => {
+			const tools = getPerplexityTools('agent', false);
+			expect(tools).toHaveLength(13);
 		});
 	});
 

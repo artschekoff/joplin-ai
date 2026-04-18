@@ -1043,6 +1043,7 @@ function initPanel() {
 			var maxSize = parseInt(document.getElementById('settingsFileMaxSize').value, 10);
 			if (maxSize > 0) settings.fileMaxSizeMb = maxSize;
 			webviewApi.postMessage({ type: 'saveSettings', settings: settings });
+			settingsManageView.style.display = 'none';
 		});
 	}
 

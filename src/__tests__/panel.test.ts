@@ -89,7 +89,7 @@ jest.mock('../utils/pdf-extract', () => ({
 	extractPdfTextFromBase64: (...args: unknown[]) => mockExtractPdf(...args),
 }));
 
-import { initPanel, shareCurrentNote } from '../panel';
+import { initPanel, shareCurrentNote, setEditorSelection } from '../panel';
 import { sendToAI } from '../ai/service';
 
 const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
@@ -1199,6 +1199,128 @@ describe('panel handleExecute', () => {
 		});
 
 		expect(mockSelectedNote).not.toHaveBeenCalled();
+	});
+});
+
+describe('editor selection as AI context', () => {
+	beforeEach(async () => {
+		jest.clearAllMocks();
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: 'sk-test-key',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+		});
+		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
+		mockDataGet.mockResolvedValue({
+			id: 'note-1',
+			title: 'Test Note',
+			body: 'Full note body with lots of content.',
+		});
+		await initPanel();
+	});
+
+	afterEach(() => {
+		setEditorSelection('');
+	});
+
+	it('sends selected text instead of full body when editor has a selection', async () => {
+		setEditorSelection('selected fragment');
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'explain this' });
+
+		expect(mockedSendToAI).toHaveBeenCalledWith(
+			'openai',
+			'sk-test-key',
+			'gpt-4o',
+			'explain this',
+			'Test Note',
+			'selected fragment',
+			expect.objectContaining({ currentNoteId: 'note-1' }),
+			undefined,
+		);
+	});
+
+	it('sends full note body when editor selection is empty', async () => {
+		setEditorSelection('');
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'explain this' });
+
+		expect(mockedSendToAI).toHaveBeenCalledWith(
+			'openai',
+			'sk-test-key',
+			'gpt-4o',
+			'explain this',
+			'Test Note',
+			'Full note body with lots of content.',
+			expect.objectContaining({ currentNoteId: 'note-1' }),
+			undefined,
+		);
+	});
+
+	it('sends full note body when editor selection is only whitespace', async () => {
+		setEditorSelection('   \n  ');
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'explain' });
+
+		expect(mockedSendToAI).toHaveBeenCalledWith(
+			'openai',
+			'sk-test-key',
+			'gpt-4o',
+			'explain',
+			'Test Note',
+			'Full note body with lots of content.',
+			expect.objectContaining({ currentNoteId: 'note-1' }),
+			undefined,
+		);
+	});
+
+	it('passes isSelection flag in context when selection is active', async () => {
+		setEditorSelection('selected fragment');
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'explain' });
+
+		const context = mockedSendToAI.mock.calls[0][6];
+		expect(context).toHaveProperty('isSelection', true);
+	});
+
+	it('does not pass isSelection flag when no selection', async () => {
+		setEditorSelection('');
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'explain' });
+
+		const context = mockedSendToAI.mock.calls[0][6];
+		expect(context?.isSelection).toBeFalsy();
 	});
 });
 

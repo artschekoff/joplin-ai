@@ -52,6 +52,8 @@ export interface ActionContext {
 	onImageProgress?: (info: ImageProgressInfo) => void;
 	onThinkingStep?: (info: ThinkingStepInfo) => void;
 	onStreamChunk?: (text: string) => void;
+	/** When true, the note body passed to the AI is a user-selected fragment, not the full note. */
+	isSelection?: boolean;
 }
 
 export interface ActionHandler {

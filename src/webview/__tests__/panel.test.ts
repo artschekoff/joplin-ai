@@ -3570,6 +3570,42 @@ describe('settings panel gear icon', () => {
 		);
 	});
 
+	it('hides settings overlay after save button is clicked', () => {
+		const btn = document.getElementById('settingsBtn') as HTMLButtonElement;
+		btn.click();
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'settingsData',
+			provider: 'openai',
+			openaiModel: 'gpt-4o',
+			claudeModel: 'claude-sonnet-4-20250514',
+			perplexityModel: 'sonar',
+			webSearchEnabled: false,
+			webSearchModel: 'openai:gpt-4o-search-preview',
+			imageGenModel: 'gpt-image/1.5-text-to-image',
+			fileMaxSizeMb: 10,
+			openaiKeySet: false,
+			claudeKeySet: false,
+			perplexityKeySet: false,
+			kieKeySet: false,
+			providerOptions: { openai: 'OpenAI', claude: 'Claude' },
+			openaiModelOptions: { 'gpt-4o': 'GPT-4o' },
+			claudeModelOptions: {},
+			perplexityModelOptions: {},
+			webSearchModelOptions: {},
+			imageGenModelOptions: {},
+		});
+
+		const settingsView = document.getElementById('settingsManageView') as HTMLElement;
+		expect(settingsView.style.display).not.toBe('none');
+
+		const saveBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
+		saveBtn.click();
+
+		expect(settingsView.style.display).toBe('none');
+	});
+
 	it('shows API key status indicator when key is configured', () => {
 		const btn = document.getElementById('settingsBtn') as HTMLButtonElement;
 		btn.click();
