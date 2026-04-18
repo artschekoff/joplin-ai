@@ -855,6 +855,7 @@ function initPanel() {
 
 	let autocompleteDropdown = null;
 	let autocompleteActive = false;
+	let autocompleteFocusIndex = -1;
 
 	function getActiveNoteQuery() {
 		const text = promptInput.value;
@@ -878,6 +879,21 @@ function initPanel() {
 			autocompleteDropdown = null;
 		}
 		autocompleteActive = false;
+		autocompleteFocusIndex = -1;
+	}
+
+	function setAutocompleteFocus(index) {
+		if (!autocompleteDropdown) return;
+		const items = autocompleteDropdown.querySelectorAll('.note-autocomplete-item');
+		if (!items.length) return;
+		for (let i = 0; i < items.length; i++) {
+			items[i].classList.remove('note-autocomplete-item--focused');
+		}
+		autocompleteFocusIndex = ((index % items.length) + items.length) % items.length;
+		items[autocompleteFocusIndex].classList.add('note-autocomplete-item--focused');
+		if (items[autocompleteFocusIndex].scrollIntoView) {
+			items[autocompleteFocusIndex].scrollIntoView({ block: 'nearest' });
+		}
 	}
 
 	function insertNoteReference(title) {
@@ -921,13 +937,14 @@ function initPanel() {
 			});
 			autocompleteDropdown.appendChild(item);
 		}
-		const wrap = promptInput.parentElement;
-		if (wrap) {
-			wrap.appendChild(autocompleteDropdown);
+		const inputArea = promptInput.closest('.input-area');
+		if (inputArea) {
+			inputArea.appendChild(autocompleteDropdown);
 		} else {
 			document.body.appendChild(autocompleteDropdown);
 		}
 		autocompleteActive = true;
+		setAutocompleteFocus(0);
 	}
 
 	promptInput.addEventListener('input', function () {
@@ -1079,10 +1096,34 @@ function initPanel() {
 	});
 
 	promptInput.addEventListener('keydown', function (e) {
-		if (e.key === 'Escape' && autocompleteActive) {
-			removeAutocompleteDropdown();
-			e.preventDefault();
-			return;
+		if (autocompleteActive) {
+			if (e.key === 'Escape') {
+				removeAutocompleteDropdown();
+				e.preventDefault();
+				return;
+			}
+			if (e.key === 'ArrowDown') {
+				setAutocompleteFocus(autocompleteFocusIndex + 1);
+				e.preventDefault();
+				return;
+			}
+			if (e.key === 'ArrowUp') {
+				setAutocompleteFocus(autocompleteFocusIndex - 1);
+				e.preventDefault();
+				return;
+			}
+			if (e.key === 'Enter' && !e.shiftKey) {
+				e.preventDefault();
+				if (autocompleteDropdown && autocompleteFocusIndex >= 0) {
+					const focused = autocompleteDropdown.querySelectorAll('.note-autocomplete-item')[autocompleteFocusIndex];
+					if (focused) {
+						insertNoteReference(focused.getAttribute('data-note-title'));
+						return;
+					}
+				}
+				removeAutocompleteDropdown();
+				return;
+			}
 		}
 		if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
 			e.stopPropagation();

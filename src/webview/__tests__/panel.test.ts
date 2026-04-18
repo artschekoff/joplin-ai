@@ -1387,6 +1387,153 @@ describe('panel.js @note reference autocomplete', () => {
 		expect(document.querySelector('.note-autocomplete-dropdown')).toBeNull();
 	});
 
+	it('appends autocomplete dropdown outside input-container to avoid overflow clipping', () => {
+		promptInput.value = 'Check @[Des';
+		promptInput.selectionStart = promptInput.value.length;
+		promptInput.selectionEnd = promptInput.value.length;
+		promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteSearchResults',
+			notes: [{ id: 's1', title: 'Design Doc' }],
+		});
+
+		const dropdown = document.querySelector('.note-autocomplete-dropdown') as HTMLElement;
+		expect(dropdown).not.toBeNull();
+		const inputContainer = document.querySelector('.input-container') as HTMLElement;
+		expect(inputContainer.contains(dropdown)).toBe(false);
+	});
+
+	it('auto-focuses the first item in the autocomplete dropdown', () => {
+		promptInput.value = 'Check @[Des';
+		promptInput.selectionStart = promptInput.value.length;
+		promptInput.selectionEnd = promptInput.value.length;
+		promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteSearchResults',
+			notes: [
+				{ id: 's1', title: 'Design Doc' },
+				{ id: 's2', title: 'Design Spec' },
+			],
+		});
+
+		const items = document.querySelectorAll('.note-autocomplete-item');
+		expect(items[0].classList.contains('note-autocomplete-item--focused')).toBe(true);
+		expect(items[1].classList.contains('note-autocomplete-item--focused')).toBe(false);
+	});
+
+	it('moves focus down with ArrowDown key', () => {
+		promptInput.value = 'Check @[Des';
+		promptInput.selectionStart = promptInput.value.length;
+		promptInput.selectionEnd = promptInput.value.length;
+		promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteSearchResults',
+			notes: [
+				{ id: 's1', title: 'Design Doc' },
+				{ id: 's2', title: 'Design Spec' },
+			],
+		});
+
+		pressKey(promptInput, 'ArrowDown');
+
+		const items = document.querySelectorAll('.note-autocomplete-item');
+		expect(items[0].classList.contains('note-autocomplete-item--focused')).toBe(false);
+		expect(items[1].classList.contains('note-autocomplete-item--focused')).toBe(true);
+	});
+
+	it('moves focus up with ArrowUp key', () => {
+		promptInput.value = 'Check @[Des';
+		promptInput.selectionStart = promptInput.value.length;
+		promptInput.selectionEnd = promptInput.value.length;
+		promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteSearchResults',
+			notes: [
+				{ id: 's1', title: 'Design Doc' },
+				{ id: 's2', title: 'Design Spec' },
+			],
+		});
+
+		pressKey(promptInput, 'ArrowDown');
+		pressKey(promptInput, 'ArrowUp');
+
+		const items = document.querySelectorAll('.note-autocomplete-item');
+		expect(items[0].classList.contains('note-autocomplete-item--focused')).toBe(true);
+		expect(items[1].classList.contains('note-autocomplete-item--focused')).toBe(false);
+	});
+
+	it('wraps focus from last to first item on ArrowDown', () => {
+		promptInput.value = 'Check @[Des';
+		promptInput.selectionStart = promptInput.value.length;
+		promptInput.selectionEnd = promptInput.value.length;
+		promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteSearchResults',
+			notes: [
+				{ id: 's1', title: 'Design Doc' },
+				{ id: 's2', title: 'Design Spec' },
+			],
+		});
+
+		pressKey(promptInput, 'ArrowDown');
+		pressKey(promptInput, 'ArrowDown');
+
+		const items = document.querySelectorAll('.note-autocomplete-item');
+		expect(items[0].classList.contains('note-autocomplete-item--focused')).toBe(true);
+	});
+
+	it('inserts focused item on Enter when autocomplete is active', () => {
+		promptInput.value = 'Check @[Des';
+		promptInput.selectionStart = promptInput.value.length;
+		promptInput.selectionEnd = promptInput.value.length;
+		promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteSearchResults',
+			notes: [
+				{ id: 's1', title: 'Design Doc' },
+				{ id: 's2', title: 'Design Spec' },
+			],
+		});
+
+		pressKey(promptInput, 'Enter');
+
+		expect(promptInput.value).toBe('Check @[Design Doc] ');
+		expect(document.querySelector('.note-autocomplete-dropdown')).toBeNull();
+	});
+
+	it('does not send execute when Enter selects an autocomplete item', () => {
+		promptInput.value = 'Check @[Des';
+		promptInput.selectionStart = promptInput.value.length;
+		promptInput.selectionEnd = promptInput.value.length;
+		promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteSearchResults',
+			notes: [{ id: 's1', title: 'Design Doc' }],
+		});
+
+		mockApi.postMessage.mockClear();
+		pressKey(promptInput, 'Enter');
+
+		const executeCalls = mockApi.postMessage.mock.calls.filter(
+			(call: any[]) => call[0]?.type === 'execute',
+		);
+		expect(executeCalls).toHaveLength(0);
+	});
+
 	it('does not send searchNotes when query after @[ is empty', () => {
 		promptInput.value = 'Check @[';
 		promptInput.selectionStart = promptInput.value.length;

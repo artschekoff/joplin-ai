@@ -240,6 +240,7 @@ body {
 
 /* Input area */
 .input-area {
+	position: relative;
 	border-top: 1px solid var(--border-color);
 	padding: 8px 10px;
 	background: var(--bg-secondary);
@@ -856,7 +857,8 @@ body {
 	text-overflow: ellipsis;
 }
 
-.note-autocomplete-item:hover {
+.note-autocomplete-item:hover,
+.note-autocomplete-item--focused {
 	background: var(--bg-button);
 	color: var(--text-button);
 }
