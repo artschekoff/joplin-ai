@@ -583,7 +583,9 @@ function initPanel() {
 	}
 
 	function renderFileChips() {
+		var contextEl = document.getElementById('contextCharsChip');
 		fileChipsEl.innerHTML = '';
+		if (contextEl) fileChipsEl.appendChild(contextEl);
 		for (let i = 0; i < attachedFiles.length; i++) {
 			const chip = document.createElement('span');
 			chip.className = 'file-chip';

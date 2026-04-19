@@ -1942,7 +1942,7 @@ describe('panel.js context chars chip', () => {
 		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 50 });
 
 		const chip = document.getElementById('contextCharsChip');
-		expect(chip!.classList.contains('context-chars-chip--selection')).toBe(true);
+		expect(chip!.classList.contains('context-chip--selection')).toBe(true);
 	});
 
 	it('does not apply selection CSS modifier when showing note body', () => {
@@ -1950,7 +1950,7 @@ describe('panel.js context chars chip', () => {
 		messageHandler({ type: 'noteInfo', noteId: 'n1', title: 'T', bodyLength: 100 });
 
 		const chip = document.getElementById('contextCharsChip');
-		expect(chip!.classList.contains('context-chars-chip--selection')).toBe(false);
+		expect(chip!.classList.contains('context-chip--selection')).toBe(false);
 	});
 });
 

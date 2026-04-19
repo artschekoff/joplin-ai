@@ -669,6 +669,12 @@ export const initPanel = async () => {
 			}
 			return;
 		}
+
+		if (message.type === 'askAI') {
+			const text = typeof message.text === 'string' ? message.text : '';
+			await triggerAskAI(text);
+			return;
+		}
 	});
 
 	await joplin.workspace.onNoteSelectionChange(async () => {

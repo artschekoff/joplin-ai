@@ -312,12 +312,15 @@
     for (const [name, def] of Object.entries(toolDefs)) {
       if (def.class) tools[name] = def;
     }
+    tools.askAI = { class: AskAIInlineTool };
+    tools.askAITune = { class: AskAIBlockTune };
 
     editor = new window.EditorJS({
       holder: 'editor-container',
       autofocus: false,
       placeholder: 'Start writing…  (press Escape for Vim Normal mode)',
-      inlineToolbar: ['bold', 'italic', 'link'],
+      inlineToolbar: ['bold', 'italic', 'link', 'askAI'],
+      tunes: ['askAITune'],
       tools,
       onReady: () => {
         if (typeof window.DragDrop === 'function') {
@@ -600,6 +603,81 @@
       (focused || first).click();
     }, true);
   };
+
+  // ── "Ask AI" Editor.js inline tool ──────────────────────────────────────
+
+  const ROBOT_SVG =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" ' +
+    'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/>' +
+    '<line x1="12" y1="7" x2="12" y2="11"/>' +
+    '<line x1="8" y1="16" x2="8" y2="16.01"/>' +
+    '<line x1="16" y1="16" x2="16" y2="16.01"/></svg>';
+
+  /**
+   * Custom Editor.js inline tool that sends the selected text to the AI
+   * chat panel.  Appears in the same toolbar as Bold / Italic / Link.
+   */
+  class AskAIInlineTool {
+    static get isInline() { return true; }
+    static get title() { return 'Ask AI'; }
+    static get sanitize() { return {}; }
+
+    render() {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.innerHTML = ROBOT_SVG;
+      btn.classList.add('ce-inline-tool');
+      btn.title = 'Ask AI';
+      this._button = btn;
+      return btn;
+    }
+
+    surround(range) {
+      if (!range) return;
+      const text = range.toString().trim();
+      if (text && typeof window.webviewApi !== 'undefined') {
+        window.webviewApi.postMessage({ type: 'askAI', text });
+      }
+    }
+
+    checkState() { return false; }
+  }
+
+  /**
+   * Editor.js block tune — adds "Ask AI" to every block's settings popover
+   * (the ⋮⋮ menu).  Sends the block's text content to the AI chat panel.
+   */
+  class AskAIBlockTune {
+    static get isTune() { return true; }
+
+    constructor({ api, block }) {
+      this._api = api;
+      this._block = block;
+    }
+
+    render() {
+      const wrapper = document.createElement('div');
+      wrapper.classList.add('ce-popover-item');
+      wrapper.innerHTML =
+        '<div class="ce-popover-item__icon">' + ROBOT_SVG + '</div>' +
+        '<div class="ce-popover-item__title">Ask AI</div>';
+      wrapper.addEventListener('click', () => {
+        const blockIndex = this._api.blocks.getCurrentBlockIndex();
+        const blockEl = document.querySelectorAll('#editor-container .ce-block')[blockIndex];
+        const content = blockEl
+          ? (blockEl.querySelector('.ce-block__content') || blockEl).textContent.trim()
+          : '';
+        if (content && typeof window.webviewApi !== 'undefined') {
+          window.webviewApi.postMessage({ type: 'askAI', text: content });
+        }
+        this._api.toolbar.close();
+      });
+      return wrapper;
+    }
+
+    save() { return undefined; }
+  }
 
   // ── Message handler (standalone panel — receives messages from backend) ──
 

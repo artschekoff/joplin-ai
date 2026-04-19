@@ -1555,6 +1555,58 @@ describe('triggerAskAI', () => {
 	});
 });
 
+describe('block editor askAI message handler', () => {
+	let editorCallback: (message: any) => Promise<void>;
+
+	beforeEach(async () => {
+		jest.clearAllMocks();
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: 'sk-test-key',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+		});
+		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
+		mockDataGet.mockResolvedValue({
+			id: 'note-1',
+			title: 'Test Note',
+			body: 'Content.',
+		});
+		await initPanel();
+		editorCallback = capturedCallbacks[MOCK_EDITOR_HANDLE];
+	});
+
+	it('triggers ask AI flow when block editor sends askAI message', async () => {
+		await editorCallback({ type: 'askAI', text: 'block selection' });
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_CHAT_HANDLE,
+			expect.objectContaining({
+				type: 'triggerAskAI',
+				text: 'block selection',
+			}),
+		);
+	});
+
+	it('opens the chat panel when receiving askAI from block editor', async () => {
+		const showSpy = jest.spyOn(
+			(await import('api')).default.views.panels,
+			'show',
+		);
+		await editorCallback({ type: 'askAI', text: 'some text' });
+		expect(showSpy).toHaveBeenCalledWith(MOCK_CHAT_HANDLE);
+	});
+
+	it('ignores askAI with empty text from block editor', async () => {
+		mockPostMessage.mockClear();
+		await editorCallback({ type: 'askAI', text: '' });
+		const triggerCalls = mockPostMessage.mock.calls.filter(
+			(call: unknown[]) => (call[1] as { type: string }).type === 'triggerAskAI',
+		);
+		expect(triggerCalls).toHaveLength(0);
+	});
+});
+
 describe('saveBlocks message handler', () => {
 	let editorCallback: (message: any) => Promise<void>;
 

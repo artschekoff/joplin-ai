@@ -69,12 +69,36 @@ const TOOL_GLOBALS = [
 const registerAllGlobals = (mockEditorJsCtor: jest.Mock): void => {
 	(window as any).EditorJS = mockEditorJsCtor;
 	(window as any).DragDrop = jest.fn();
-	(window as any).Header = class MockHeader { static get toolbox() { return { title: 'H' }; } };
-	(window as any).EditorjsList = class MockList { static get toolbox() { return { title: 'L' }; } };
-	(window as any).Checklist = class MockChecklist { static get toolbox() { return { title: 'C' }; } };
-	(window as any).CodeTool = class MockCode { static get toolbox() { return { title: 'Co' }; } };
-	(window as any).Quote = class MockQuote { static get toolbox() { return { title: 'Q' }; } };
-	(window as any).Delimiter = class MockDelimiter { static get toolbox() { return { title: 'D' }; } };
+	(window as any).Header = class MockHeader {
+		static get toolbox() {
+			return { title: 'H' };
+		}
+	};
+	(window as any).EditorjsList = class MockList {
+		static get toolbox() {
+			return { title: 'L' };
+		}
+	};
+	(window as any).Checklist = class MockChecklist {
+		static get toolbox() {
+			return { title: 'C' };
+		}
+	};
+	(window as any).CodeTool = class MockCode {
+		static get toolbox() {
+			return { title: 'Co' };
+		}
+	};
+	(window as any).Quote = class MockQuote {
+		static get toolbox() {
+			return { title: 'Q' };
+		}
+	};
+	(window as any).Delimiter = class MockDelimiter {
+		static get toolbox() {
+			return { title: 'D' };
+		}
+	};
 	(window as any).MarkdownConverter = {
 		markdownToBlocks: jest.fn().mockReturnValue([]),
 		blocksToMarkdown: jest.fn().mockReturnValue(''),
@@ -232,7 +256,8 @@ describe('EditorJS init with ALL tool globals undefined', () => {
 
 		expect(mockCtor).toHaveBeenCalledTimes(1);
 		const config = mockCtor.mock.calls[0][0];
-		expect(Object.keys(config.tools)).toHaveLength(0);
+		const toolNames = Object.keys(config.tools);
+		expect(toolNames).toEqual(['askAI', 'askAITune']);
 		expect(errorSpy).not.toHaveBeenCalledWith(
 			expect.stringContaining('[BlockEditor] EditorJS failed to load'),
 		);
