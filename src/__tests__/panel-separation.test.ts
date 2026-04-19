@@ -8,8 +8,8 @@ let createCallCount = 0;
 const mockCreate = jest.fn().mockImplementation(() => {
 	createCallCount++;
 	return createCallCount === 1
-		? Promise.resolve(MOCK_CHAT_HANDLE)
-		: Promise.resolve(MOCK_EDITOR_HANDLE);
+		? Promise.resolve(MOCK_EDITOR_HANDLE)
+		: Promise.resolve(MOCK_CHAT_HANDLE);
 });
 const mockShow = jest.fn().mockResolvedValue(undefined);
 const mockHide = jest.fn().mockResolvedValue(undefined);
@@ -79,7 +79,7 @@ describe('panel separation — two independent panels', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
 		createCallCount = 0;
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
 		mockDataGet.mockResolvedValue({
 			id: 'note-1',
@@ -98,12 +98,12 @@ describe('panel separation — two independent panels', () => {
 		expect(mockCreate).toHaveBeenCalledTimes(2);
 	});
 
-	it('creates chat panel first (far-right position)', () => {
-		expect(mockCreate.mock.calls[0][0]).toBe('aiChatPanel');
+	it('creates block editor panel first (left of AI sidebar)', () => {
+		expect(mockCreate.mock.calls[0][0]).toBe('blockEditorPanel');
 	});
 
-	it('creates block editor panel second (closer to editor)', () => {
-		expect(mockCreate.mock.calls[1][0]).toBe('blockEditorPanel');
+	it('creates chat panel second (far-right position)', () => {
+		expect(mockCreate.mock.calls[1][0]).toBe('aiChatPanel');
 	});
 
 	it('creates a chat panel with a distinct ID', () => {
@@ -129,7 +129,7 @@ describe('togglePanel — chat panel only', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
 		createCallCount = 0;
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
 		mockDataGet.mockResolvedValue({
 			id: 'note-1',
@@ -178,7 +178,7 @@ describe('toggleBlockEditorPane — editor panel only', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
 		createCallCount = 0;
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
 		mockDataGet.mockResolvedValue({
 			id: 'note-1',
@@ -253,7 +253,7 @@ describe('independent toggle — no cross-panel interference', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
 		createCallCount = 0;
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
 		mockDataGet.mockResolvedValue({
 			id: 'note-1',

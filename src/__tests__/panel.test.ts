@@ -103,7 +103,7 @@ const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
 describe('panel creation order', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -118,17 +118,17 @@ describe('panel creation order', () => {
 		await initPanel();
 	});
 
-	it('creates AI chat panel before block editor so AI sidebar appears on the far right', () => {
+	it('creates block editor before AI chat so block editor appears to the left of AI sidebar', () => {
 		const createCalls = mockCreate.mock.calls.map((call: unknown[]) => call[0]);
-		expect(createCalls[0]).toBe('aiChatPanel');
-		expect(createCalls[1]).toBe('blockEditorPanel');
+		expect(createCalls[0]).toBe('blockEditorPanel');
+		expect(createCalls[1]).toBe('aiChatPanel');
 	});
 });
 
 describe('panel handleExecute', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -1211,7 +1211,7 @@ describe('panel handleExecute', () => {
 describe('editor selection as AI context', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -1376,7 +1376,7 @@ describe('editor selection as AI context', () => {
 describe('shareCurrentNote', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSelectedNote.mockResolvedValue({ id: 'note-42' });
 		mockDataGet.mockResolvedValue({ id: 'note-42', title: 'My Test Note', body: '# Hello' });
 		await initPanel();
@@ -1482,7 +1482,7 @@ describe('shareCurrentNote', () => {
 describe('triggerAskAI', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -1560,7 +1560,7 @@ describe('block editor askAI message handler', () => {
 
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -1609,7 +1609,7 @@ describe('saveBlocks message handler', () => {
 
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		await initPanel();
 		editorCallback = capturedCallbacks[MOCK_EDITOR_HANDLE];
 	});
@@ -1671,7 +1671,7 @@ describe('saveBlocks message handler', () => {
 describe('settings message handlers', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',

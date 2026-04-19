@@ -571,15 +571,6 @@ export const initPanel = async () => {
 	editorPanelVisible = false;
 	editorSelection = '';
 
-	chatPanelHandle = await joplin.views.panels.create('aiChatPanel');
-	await joplin.views.panels.setHtml(chatPanelHandle, CHAT_PANEL_HTML);
-	await joplin.views.panels.addScript(chatPanelHandle, './webview/panel.css');
-	await joplin.views.panels.addScript(chatPanelHandle, './webview/icons.js');
-	await joplin.views.panels.addScript(chatPanelHandle, './webview/markdown.js');
-	await joplin.views.panels.addScript(chatPanelHandle, './webview/pdf-parser.js');
-	await joplin.views.panels.addScript(chatPanelHandle, './webview/panel.js');
-	await joplin.views.panels.hide(chatPanelHandle);
-
 	editorPanelHandle = await joplin.views.panels.create('blockEditorPanel');
 	await joplin.views.panels.setHtml(editorPanelHandle, EDITOR_PANEL_HTML);
 	await joplin.views.panels.addScript(editorPanelHandle, './webview/panel.css');
@@ -594,6 +585,15 @@ export const initPanel = async () => {
 	await joplin.views.panels.addScript(editorPanelHandle, './webview/markdown-converter.js');
 	await joplin.views.panels.addScript(editorPanelHandle, './webview/block-editor.js');
 	await joplin.views.panels.hide(editorPanelHandle);
+
+	chatPanelHandle = await joplin.views.panels.create('aiChatPanel');
+	await joplin.views.panels.setHtml(chatPanelHandle, CHAT_PANEL_HTML);
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/panel.css');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/icons.js');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/markdown.js');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/pdf-parser.js');
+	await joplin.views.panels.addScript(chatPanelHandle, './webview/panel.js');
+	await joplin.views.panels.hide(chatPanelHandle);
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	await joplin.views.panels.onMessage(chatPanelHandle, async (message: any) => {
