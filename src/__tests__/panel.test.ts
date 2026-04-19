@@ -1555,7 +1555,7 @@ describe('triggerAskAI', () => {
 		expect(triggerCalls).toHaveLength(0);
 	});
 
-	it('re-shows editor panel to keep it left when chat is opened via triggerAskAI while editor is visible', async () => {
+	it('does not re-show editor when chat is opened via triggerAskAI while editor is visible', async () => {
 		const joplinApi = (await import('api')).default;
 		await toggleBlockEditorPane();
 		const showSpy = jest.spyOn(joplinApi.views.panels, 'show');
@@ -1563,8 +1563,7 @@ describe('triggerAskAI', () => {
 		await triggerAskAI('some text');
 		const showCalls = showSpy.mock.calls.map((c: unknown[]) => c[0]);
 		expect(showCalls).toContain(MOCK_CHAT_HANDLE);
-		expect(showCalls).toContain(MOCK_EDITOR_HANDLE);
-		expect(showCalls.indexOf(MOCK_CHAT_HANDLE)).toBeLessThan(showCalls.indexOf(MOCK_EDITOR_HANDLE));
+		expect(showCalls).not.toContain(MOCK_EDITOR_HANDLE);
 	});
 });
 

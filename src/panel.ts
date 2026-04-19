@@ -24,6 +24,7 @@ let editorPanelHandle: ViewHandle | null = null;
 let chatPanelVisible = false;
 let editorPanelVisible = false;
 let editorSelection = '';
+let reanchorInProgress = false;
 
 const CHAT_PANEL_HTML = `<!DOCTYPE html>
 <html>
@@ -662,10 +663,19 @@ export const initPanel = async () => {
 
 		if (message.type === 'saveBlocks') {
 			const { noteId, markdown } = message as { noteId: unknown; markdown: unknown };
-			if (noteId && typeof markdown === 'string') {
+			if (typeof noteId === 'string' && noteId && typeof markdown === 'string') {
 				try {
-					await joplin.data.put(['notes', noteId as string], null, { body: markdown });
-				} catch (_) {}
+					await joplin.data.put(['notes', noteId], null, { body: markdown });
+				} catch (saveErr) {
+					const errMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+					console.error('saveBlocks failed:', errMsg);
+					if (editorPanelHandle) {
+						joplin.views.panels.postMessage(editorPanelHandle, {
+							type: 'error',
+							message: 'Failed to save note. Please try again.',
+						});
+					}
+				}
 			}
 			return;
 		}
@@ -688,13 +698,20 @@ export const initPanel = async () => {
 };
 
 /**
- * Joplin inserts a newly-shown panel to the LEFT of already-visible panels.
- * Call this after showing the chat panel to keep the editor on the left.
+ * Joplin appends a newly-shown panel to the RIGHT of already-visible panels.
+ * When the block editor is shown while the chat panel is already visible,
+ * call this to push the chat back to the rightmost position.
  */
-const reanchorEditorLeft = async (): Promise<void> => {
-	if (!editorPanelHandle || !editorPanelVisible) return;
-	await joplin.views.panels.hide(editorPanelHandle);
-	await joplin.views.panels.show(editorPanelHandle);
+const reanchorChatRight = async (): Promise<void> => {
+	if (!chatPanelHandle || !chatPanelVisible) return;
+	if (reanchorInProgress) return;
+	reanchorInProgress = true;
+	try {
+		await joplin.views.panels.hide(chatPanelHandle);
+		await joplin.views.panels.show(chatPanelHandle);
+	} finally {
+		reanchorInProgress = false;
+	}
 };
 
 export const togglePanel = async (): Promise<void> => {
@@ -702,7 +719,6 @@ export const togglePanel = async (): Promise<void> => {
 	chatPanelVisible = !chatPanelVisible;
 	if (chatPanelVisible) {
 		await joplin.views.panels.show(chatPanelHandle);
-		await reanchorEditorLeft();
 		await sendNoteInfo(chatPanelHandle);
 	} else {
 		await joplin.views.panels.hide(chatPanelHandle);
@@ -733,7 +749,6 @@ export const triggerAskAI = async (text: string): Promise<void> => {
 	if (!chatPanelVisible) {
 		chatPanelVisible = true;
 		await joplin.views.panels.show(chatPanelHandle);
-		await reanchorEditorLeft();
 		await sendNoteInfo(chatPanelHandle);
 	}
 	setEditorSelection(text);
@@ -748,6 +763,9 @@ export const toggleBlockEditorPane = async (): Promise<void> => {
 	editorPanelVisible = !editorPanelVisible;
 	if (editorPanelVisible) {
 		await joplin.views.panels.show(editorPanelHandle);
+		if (chatPanelVisible) {
+			await reanchorChatRight();
+		}
 		await sendNoteLoaded(editorPanelHandle);
 	} else {
 		await joplin.views.panels.hide(editorPanelHandle);

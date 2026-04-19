@@ -295,7 +295,7 @@ describe('independent toggle — no cross-panel interference', () => {
 	});
 });
 
-describe('panel ordering — editor stays left of chat', () => {
+describe('panel ordering — chat stays rightmost', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
 		createCallCount = 0;
@@ -315,14 +315,12 @@ describe('panel ordering — editor stays left of chat', () => {
 		jest.clearAllMocks();
 	});
 
-	it('re-shows editor panel after showing chat when editor is already visible', async () => {
+	it('does NOT re-show editor when showing chat while editor is already visible', async () => {
 		await toggleBlockEditorPane();
 		jest.clearAllMocks();
 		await togglePanel();
-		const showCalls = mockShow.mock.calls.map((c: any[]) => c[0]);
-		expect(showCalls).toContain(MOCK_CHAT_HANDLE);
-		expect(showCalls).toContain(MOCK_EDITOR_HANDLE);
-		expect(showCalls.indexOf(MOCK_CHAT_HANDLE)).toBeLessThan(showCalls.indexOf(MOCK_EDITOR_HANDLE));
+		expect(mockShow).toHaveBeenCalledWith(MOCK_CHAT_HANDLE);
+		expect(mockShow).not.toHaveBeenCalledWith(MOCK_EDITOR_HANDLE);
 	});
 
 	it('does NOT re-show editor when showing chat and editor is hidden', async () => {
@@ -337,5 +335,37 @@ describe('panel ordering — editor stays left of chat', () => {
 		jest.clearAllMocks();
 		await togglePanel();
 		expect(mockShow).not.toHaveBeenCalledWith(MOCK_EDITOR_HANDLE);
+	});
+
+	it('re-anchors chat right when block editor is toggled on while chat is visible', async () => {
+		await togglePanel();
+		jest.clearAllMocks();
+		await toggleBlockEditorPane();
+		const showCalls = mockShow.mock.calls.map((c: any[]) => c[0]);
+		const hideCalls = mockHide.mock.calls.map((c: any[]) => c[0]);
+		expect(showCalls).toContain(MOCK_EDITOR_HANDLE);
+		expect(showCalls).toContain(MOCK_CHAT_HANDLE);
+		expect(hideCalls).toContain(MOCK_CHAT_HANDLE);
+		expect(showCalls.indexOf(MOCK_EDITOR_HANDLE)).toBeLessThan(
+			showCalls.indexOf(MOCK_CHAT_HANDLE),
+		);
+	});
+
+	it('does NOT re-anchor chat when block editor is toggled on without chat visible', async () => {
+		await toggleBlockEditorPane();
+		const hideCalls = mockHide.mock.calls.map((c: any[]) => c[0]);
+		expect(hideCalls).not.toContain(MOCK_CHAT_HANDLE);
+	});
+
+	it('maintains editor-left/chat-right order when block editor is toggled off and on', async () => {
+		await togglePanel();
+		await toggleBlockEditorPane();
+		jest.clearAllMocks();
+		await toggleBlockEditorPane();
+		await toggleBlockEditorPane();
+		const showCalls = mockShow.mock.calls.map((c: any[]) => c[0]);
+		expect(
+			showCalls.filter((h: string) => h === MOCK_CHAT_HANDLE).length,
+		).toBeGreaterThanOrEqual(1);
 	});
 });
