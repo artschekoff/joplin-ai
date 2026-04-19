@@ -13,32 +13,45 @@ import {
 
 joplin.plugins.register({
 	onStart: async function () {
-		await initSettings();
-		await initPanel();
+		try {
+			await initSettings();
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.error('AI Assistant: settings registration failed:', msg);
+		}
 
-		// Register the content script that hides/shows the native CodeMirror
-		// editor depending on whether the block editor is currently active,
-		// and tracks text selection changes in the editor.
-		await joplin.contentScripts.register(
-			ContentScriptType.CodeMirrorPlugin,
-			'editorHider',
-			'./contentScripts/editorHider.js',
-		);
+		try {
+			await initPanel();
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.error('AI Assistant: panel initialization failed:', msg);
+		}
 
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		await joplin.contentScripts.onMessage('editorHider', (message: any) => {
-			if (message?.type === 'getBlockEditorState') {
-				return { active: getBlockEditorEnabled() };
-			}
-			if (message?.type === 'selectionChange') {
-				const text = typeof message.text === 'string' ? message.text : '';
-				setEditorSelection(text);
-			}
-			if (message?.type === 'askAI') {
-				const text = typeof message.text === 'string' ? message.text : '';
-				triggerAskAI(text);
-			}
-		});
+		try {
+			await joplin.contentScripts.register(
+				ContentScriptType.CodeMirrorPlugin,
+				'editorHider',
+				'./contentScripts/editorHider.js',
+			);
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			await joplin.contentScripts.onMessage('editorHider', (message: any) => {
+				if (message?.type === 'getBlockEditorState') {
+					return { active: getBlockEditorEnabled() };
+				}
+				if (message?.type === 'selectionChange') {
+					const text = typeof message.text === 'string' ? message.text : '';
+					setEditorSelection(text);
+				}
+				if (message?.type === 'askAI') {
+					const text = typeof message.text === 'string' ? message.text : '';
+					triggerAskAI(text);
+				}
+			});
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.error('AI Assistant: content script registration failed:', msg);
+		}
 
 		await joplin.commands.register({
 			name: 'editWithAI',
@@ -75,13 +88,13 @@ joplin.plugins.register({
 		await joplin.views.toolbarButtons.create(
 			'editWithAIBtn',
 			'editWithAI',
-			ToolbarButtonLocation.EditorToolbar,
+			ToolbarButtonLocation.NoteToolbar,
 		);
 
 		await joplin.views.toolbarButtons.create(
 			'enableBlockEditorBtn',
 			'enableBlockEditor',
-			ToolbarButtonLocation.EditorToolbar,
+			ToolbarButtonLocation.NoteToolbar,
 		);
 
 		await joplin.commands.register({
@@ -167,25 +180,25 @@ joplin.plugins.register({
 		await joplin.views.toolbarButtons.create(
 			'shareNoteAsTextBtn',
 			'shareNoteAsText',
-			ToolbarButtonLocation.EditorToolbar,
+			ToolbarButtonLocation.NoteToolbar,
 		);
 
 		await joplin.views.toolbarButtons.create(
 			'shareNoteAsPdfBtn',
 			'shareNoteAsPdf',
-			ToolbarButtonLocation.EditorToolbar,
+			ToolbarButtonLocation.NoteToolbar,
 		);
 
 		await joplin.views.toolbarButtons.create(
 			'exportNoteAsDocBtn',
 			'exportNoteAsDoc',
-			ToolbarButtonLocation.EditorToolbar,
+			ToolbarButtonLocation.NoteToolbar,
 		);
 
 		await joplin.views.toolbarButtons.create(
 			'exportNoteAsRtfBtn',
 			'exportNoteAsRtf',
-			ToolbarButtonLocation.EditorToolbar,
+			ToolbarButtonLocation.NoteToolbar,
 		);
 	},
 });

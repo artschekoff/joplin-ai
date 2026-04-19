@@ -1270,6 +1270,18 @@ function initPanel() {
 					updateRoleIndicator();
 					persistAppliedRole();
 				}
+			} else if (appliedRole) {
+				var stillExists = false;
+				for (var si = 0; si < agentRoles.length; si++) {
+					if (agentRoles[si].id === appliedRole.id) { stillExists = true; break; }
+				}
+				if (stillExists) {
+					webviewApi.postMessage({ type: 'saveAppliedRoleId', roleId: appliedRole.id });
+				} else {
+					appliedRole = null;
+					updateRoleIndicator();
+					persistAppliedRole();
+				}
 			}
 			populateRoleSelect();
 			if (roleManageView.style.display !== 'none') {

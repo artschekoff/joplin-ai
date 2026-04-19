@@ -3157,6 +3157,52 @@ describe('panel.js role persistence via backend settings', () => {
 		expect(saveCall![0].roleId).toBeNull();
 	});
 
+	it('migrates localStorage role to backend when appliedRoleId is absent from agentRoles', () => {
+		localStorage.setItem(
+			'joplin-ai-applied-role',
+			JSON.stringify({ id: 'r1', name: 'Coder', systemPrompt: 'You code' }),
+		);
+
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const messageHandler = mockApi2.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You code' }],
+		});
+
+		const saveCall = mockApi2.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'saveAppliedRoleId',
+		);
+		expect(saveCall).toBeDefined();
+		expect(saveCall![0].roleId).toBe('r1');
+	});
+
+	it('clears stale localStorage role when it no longer exists in agentRoles', () => {
+		localStorage.setItem(
+			'joplin-ai-applied-role',
+			JSON.stringify({ id: 'deleted', name: 'Gone', systemPrompt: 'old' }),
+		);
+
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const messageHandler = mockApi2.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You code' }],
+		});
+
+		const indicator = document.querySelector('.role-active-indicator');
+		expect(indicator).toBeNull();
+		expect(localStorage.getItem('joplin-ai-applied-role')).toBeNull();
+	});
+
 	it('does not restore role from localStorage when backend provides appliedRoleId', () => {
 		localStorage.setItem(
 			'joplin-ai-applied-role',

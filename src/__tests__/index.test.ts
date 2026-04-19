@@ -99,11 +99,11 @@ describe('index onStart registration', () => {
 	});
 
 	describe('editWithAI toolbar button', () => {
-		it('should create a toolbar button for editWithAI in the EditorToolbar', () => {
+		it('should create a toolbar button for editWithAI in the NoteToolbar', () => {
 			// Arrange
 			const expectedButtonId = 'editWithAIBtn';
 			const expectedCommandName = 'editWithAI';
-			const expectedLocation = ToolbarButtonLocation.EditorToolbar;
+			const expectedLocation = ToolbarButtonLocation.NoteToolbar;
 
 			// Act — already executed in beforeEach
 
@@ -145,6 +145,94 @@ describe('index onStart registration', () => {
 		});
 	});
 
+	describe('toolbar button resilience when initSettings fails', () => {
+		it('should register all toolbar buttons even when registerSettings throws SQLITE_CONSTRAINT', async () => {
+			jest.clearAllMocks();
+			mockPanelsCreate.mockResolvedValue('panel-handle-test');
+
+			const joplinApi = require('api').default;
+			(joplinApi.settings.registerSettings as jest.Mock).mockRejectedValueOnce(
+				new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: settings.key'),
+			);
+
+			await capturedOnStart!();
+
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'editWithAIBtn',
+				'editWithAI',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'enableBlockEditorBtn',
+				'enableBlockEditor',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'exportNoteAsDocBtn',
+				'exportNoteAsDoc',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'exportNoteAsRtfBtn',
+				'exportNoteAsRtf',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'shareNoteAsPdfBtn',
+				'shareNoteAsPdf',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'shareNoteAsTextBtn',
+				'shareNoteAsText',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+		});
+
+		it('should register all commands even when registerSettings throws', async () => {
+			jest.clearAllMocks();
+			mockPanelsCreate.mockResolvedValue('panel-handle-test');
+
+			const joplinApi = require('api').default;
+			(joplinApi.settings.registerSettings as jest.Mock).mockRejectedValueOnce(
+				new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: settings.key'),
+			);
+
+			await capturedOnStart!();
+
+			expect(mockCommandsRegister).toHaveBeenCalledWith(
+				expect.objectContaining({ name: 'editWithAI' }),
+			);
+			expect(mockCommandsRegister).toHaveBeenCalledWith(
+				expect.objectContaining({ name: 'enableBlockEditor' }),
+			);
+			expect(mockCommandsRegister).toHaveBeenCalledWith(
+				expect.objectContaining({ name: 'exportNoteAsDoc' }),
+			);
+			expect(mockCommandsRegister).toHaveBeenCalledWith(
+				expect.objectContaining({ name: 'exportNoteAsRtf' }),
+			);
+		});
+
+		it('should register toolbar buttons even when panel creation fails', async () => {
+			jest.clearAllMocks();
+			mockPanelsCreate.mockRejectedValue(new Error('Panel creation failed'));
+
+			await capturedOnStart!();
+
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'editWithAIBtn',
+				'editWithAI',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'enableBlockEditorBtn',
+				'enableBlockEditor',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+		});
+	});
+
 	describe('export toolbar buttons', () => {
 		it('should register an exportNoteAsDoc command with Word icon', () => {
 			expect(mockCommandsRegister).toHaveBeenCalledWith(
@@ -168,7 +256,7 @@ describe('index onStart registration', () => {
 			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
 				'exportNoteAsDocBtn',
 				'exportNoteAsDoc',
-				ToolbarButtonLocation.EditorToolbar,
+				ToolbarButtonLocation.NoteToolbar,
 			);
 		});
 
@@ -176,7 +264,7 @@ describe('index onStart registration', () => {
 			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
 				'exportNoteAsRtfBtn',
 				'exportNoteAsRtf',
-				ToolbarButtonLocation.EditorToolbar,
+				ToolbarButtonLocation.NoteToolbar,
 			);
 		});
 
