@@ -1589,10 +1589,7 @@ describe('block editor askAI message handler', () => {
 	});
 
 	it('opens the chat panel when receiving askAI from block editor', async () => {
-		const showSpy = jest.spyOn(
-			(await import('api')).default.views.panels,
-			'show',
-		);
+		const showSpy = jest.spyOn((await import('api')).default.views.panels, 'show');
 		await editorCallback({ type: 'askAI', text: 'some text' });
 		expect(showSpy).toHaveBeenCalledWith(MOCK_CHAT_HANDLE);
 	});
