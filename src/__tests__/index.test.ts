@@ -98,47 +98,59 @@ describe('index onStart registration', () => {
 		}
 	});
 
+	describe('Joplin view toggle toolbar buttons', () => {
+		it('should create a toolbar button for toggleSideBar in the NoteToolbar', () => {
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'toggleSideBarBtn',
+				'toggleSideBar',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+		});
+
+		it('should create a toolbar button for toggleNoteList in the NoteToolbar', () => {
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'toggleNoteListBtn',
+				'toggleNoteList',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+		});
+
+		it('should place sidebar and note list buttons before AI and block editor buttons', () => {
+			const allCalls = mockToolbarButtonsCreate.mock.calls;
+			const sideBarIdx = allCalls.findIndex((call) => call[1] === 'toggleSideBar');
+			const noteListIdx = allCalls.findIndex((call) => call[1] === 'toggleNoteList');
+			const aiButtonIdx = allCalls.findIndex((call) => call[1] === 'editWithAI');
+
+			expect(sideBarIdx).toBeGreaterThanOrEqual(0);
+			expect(noteListIdx).toBeGreaterThanOrEqual(0);
+			expect(sideBarIdx).toBeLessThan(aiButtonIdx);
+			expect(noteListIdx).toBeLessThan(aiButtonIdx);
+		});
+	});
+
 	describe('editWithAI toolbar button', () => {
 		it('should create a toolbar button for editWithAI in the NoteToolbar', () => {
-			// Arrange
-			const expectedButtonId = 'editWithAIBtn';
-			const expectedCommandName = 'editWithAI';
-			const expectedLocation = ToolbarButtonLocation.NoteToolbar;
-
-			// Act — already executed in beforeEach
-
-			// Assert
 			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
-				expectedButtonId,
-				expectedCommandName,
-				expectedLocation,
+				'editWithAIBtn',
+				'editWithAI',
+				ToolbarButtonLocation.NoteToolbar,
 			);
 		});
 
 		it('should register the editWithAI command with the AI icon', () => {
-			// Arrange
-			const expectedCommandName = 'editWithAI';
-
-			// Act — already executed in beforeEach
-
-			// Assert
 			expect(mockCommandsRegister).toHaveBeenCalledWith(
 				expect.objectContaining({
-					name: expectedCommandName,
+					name: 'editWithAI',
 					iconName: 'fas fa-robot',
 				}),
 			);
 		});
 
 		it('should place the editWithAI toolbar button before the block editor button', () => {
-			// Arrange
 			const allCalls = mockToolbarButtonsCreate.mock.calls;
 			const aiButtonIdx = allCalls.findIndex((call) => call[1] === 'editWithAI');
 			const blockEditorButtonIdx = allCalls.findIndex((call) => call[1] === 'enableBlockEditor');
 
-			// Act — already executed in beforeEach
-
-			// Assert
 			expect(aiButtonIdx).toBeGreaterThanOrEqual(0);
 			expect(blockEditorButtonIdx).toBeGreaterThanOrEqual(0);
 			expect(aiButtonIdx).toBeLessThan(blockEditorButtonIdx);
@@ -220,6 +232,16 @@ describe('index onStart registration', () => {
 
 			await capturedOnStart!();
 
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'toggleSideBarBtn',
+				'toggleSideBar',
+				ToolbarButtonLocation.NoteToolbar,
+			);
+			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
+				'toggleNoteListBtn',
+				'toggleNoteList',
+				ToolbarButtonLocation.NoteToolbar,
+			);
 			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
 				'editWithAIBtn',
 				'editWithAI',

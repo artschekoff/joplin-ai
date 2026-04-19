@@ -86,6 +86,18 @@ joplin.plugins.register({
 		);
 
 		await joplin.views.toolbarButtons.create(
+			'toggleSideBarBtn',
+			'toggleSideBar',
+			ToolbarButtonLocation.NoteToolbar,
+		);
+
+		await joplin.views.toolbarButtons.create(
+			'toggleNoteListBtn',
+			'toggleNoteList',
+			ToolbarButtonLocation.NoteToolbar,
+		);
+
+		await joplin.views.toolbarButtons.create(
 			'editWithAIBtn',
 			'editWithAI',
 			ToolbarButtonLocation.NoteToolbar,
