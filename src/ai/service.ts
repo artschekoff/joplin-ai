@@ -230,6 +230,18 @@ export interface BuildSystemPromptOptions {
 	noteBodyOmitted?: boolean;
 }
 
+/**
+ * System prompt split into cacheable and dynamic parts.
+ * - `staticInstructions`: role, mode, tool descriptions, rules — stable across requests
+ * - `dynamicContext`: note body, notebooks, referenced notes, attachments — changes per request
+ *
+ * Concatenating `staticInstructions + dynamicContext` yields the full system prompt.
+ */
+export interface SystemPromptParts {
+	staticInstructions: string;
+	dynamicContext: string;
+}
+
 const buildWebSearchToolLine = (nativeWebSearch?: boolean): string => {
 	if (nativeWebSearch) {
 		return '(This model has native built-in web search — answer questions about recent events and current data directly without using any tool.)';
@@ -254,7 +266,7 @@ const embedSelectionMarkers = (fullBody: string, selectionText: string): string 
 	);
 };
 
-export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => {
+export const buildSystemPromptParts = (options: BuildSystemPromptOptions): SystemPromptParts => {
 	const {
 		noteTitle,
 		noteBody,
@@ -286,15 +298,22 @@ export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => 
 		? `[Agent Role]\n${agentRolePrompt}\n[End Agent Role]\n\n`
 		: '';
 	const modeSection = buildWorkModeSection(workMode, noteTitle);
-
 	const webSearchLine = buildWebSearchToolLine(nativeWebSearch);
 	const bodyContent = noteBodyOmitted
 		? '[Note body omitted to save context. Use get_note without arguments to read the current note if needed.]'
 		: truncated;
 	const contentLabel = noteBodyOmitted ? 'Current note body: (omitted)' : 'Current note content:';
+	const selectionRulesBlock = hasSelectionMarkers
+		? `\nSELECTION RULES:
+The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.
+- Modify ONLY the text between the markers. Keep all other content unchanged.
+- When calling update_note, provide the COMPLETE note body (all content) with only the selected section modified.
+- Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in the output — they are for your reference only.
+`
+		: '';
 
 	if (workMode === 'edit') {
-		return `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
+		const staticInstructions = `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
 The user's current note is provided below. The note is in Markdown format.
 
 You have tools to interact with Joplin:
@@ -304,7 +323,7 @@ You have tools to interact with Joplin:
 - search_notes: Search notes using Joplin query syntax.
 - list_notebooks: List all notebooks and their IDs.
 - list_tags: List tags globally or for a specific note.
-${buildWebSearchToolLine(nativeWebSearch)}
+${webSearchLine}
 
 EDIT MODE RULES:
 - Use update_note to modify ONLY the current note. Never pass a noteId to update_note — it must always target the current note.
@@ -312,22 +331,15 @@ EDIT MODE RULES:
 - Apply the exact change the user requests — nothing else. Do not make additional edits beyond what was asked.
 - Apply changes immediately without asking for confirmation or clarifying questions. Make your best judgment and act.
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
-${
-	hasSelectionMarkers
-		? `\nSELECTION RULES:
-The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.
-- Modify ONLY the text between the markers. Keep all other content unchanged.
-- When calling update_note, provide the COMPLETE note body (all content) with only the selected section modified.
-- Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in the output — they are for your reference only.
-`
-		: ''
-}${referencedSection}${attachedSection}
+${selectionRulesBlock}`;
+		const dynamicContext = `${referencedSection}${attachedSection}
 Current note title: ${noteTitle}
 ${contentLabel}
 ${bodyContent}`;
+		return { staticInstructions, dynamicContext };
 	}
 
-	return `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
+	const staticInstructions = `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
 The user's current note is provided below. The note is in Markdown format.
 
 You have tools to interact with Joplin:
@@ -353,19 +365,17 @@ TOOL USAGE RULES:
 - If the user provides enough information (e.g. title and content for a new note), call the tool right away.
 - When creating or moving a note, automatically select the most appropriate notebook based on the note's title and content. Do not ask the user which notebook to use unless ambiguous.
 - If the user asks a question that does not require any action, answer normally in Markdown without using tools.
-${
-	hasSelectionMarkers
-		? `\nSELECTION RULES:
-The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.
-- Modify ONLY the text between the markers. Keep all other content unchanged.
-- When calling update_note, provide the COMPLETE note body (all content) with only the selected section modified.
-- Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in the output — they are for your reference only.
-`
-		: ''
-}${notebookSection}${referencedSection}${attachedSection}
+${selectionRulesBlock}`;
+	const dynamicContext = `${notebookSection}${referencedSection}${attachedSection}
 Current note title: ${noteTitle}
 ${contentLabel}
 ${bodyContent}`;
+	return { staticInstructions, dynamicContext };
+};
+
+export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => {
+	const parts = buildSystemPromptParts(options);
+	return parts.staticInstructions + parts.dynamicContext;
 };
 
 export const validateApiKey = (provider: AIProvider, apiKey: string): void => {
@@ -427,7 +437,7 @@ const accumulateUsage = (total: TokenUsage, add?: TokenUsage): TokenUsage => {
 const runOpenAILoop = async (
 	apiKey: string,
 	model: string,
-	systemPrompt: string,
+	promptParts: SystemPromptParts,
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
@@ -442,7 +452,8 @@ const runOpenAILoop = async (
 			: { role: 'user', content: userPrompt };
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const messages: any[] = [
-		{ role: 'system', content: systemPrompt },
+		{ role: 'system', content: promptParts.staticInstructions },
+		{ role: 'system', content: promptParts.dynamicContext },
 		...historyMessages,
 		userMessage,
 	];
@@ -484,7 +495,7 @@ const runOpenAILoop = async (
 const runClaudeLoop = async (
 	apiKey: string,
 	model: string,
-	systemPrompt: string,
+	promptParts: SystemPromptParts,
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
@@ -499,14 +510,18 @@ const runClaudeLoop = async (
 			: { role: 'user', content: userPrompt };
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const messages: any[] = [...historyMessages, userMessage];
+	const systemBlocks: import('./claude').ClaudeSystemBlock[] = [
+		{ type: 'text', text: promptParts.staticInstructions, cache_control: { type: 'ephemeral' } },
+		{ type: 'text', text: promptParts.dynamicContext },
+	];
 	const allOutcomes: AIActionOutcome[] = [];
 	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 	const onChunk = context.onStreamChunk;
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
 		const response = onChunk
-			? await streamClaudeMessages(apiKey, model, systemPrompt, messages, onChunk, tools)
-			: await sendClaudeMessages(apiKey, model, systemPrompt, messages, tools);
+			? await streamClaudeMessages(apiKey, model, systemBlocks, messages, onChunk, tools)
+			: await sendClaudeMessages(apiKey, model, systemBlocks, messages, tools);
 		totalUsage = accumulateUsage(totalUsage, response.usage);
 
 		if (response.toolCalls.length === 0) {
@@ -527,8 +542,8 @@ const runClaudeLoop = async (
 	}
 
 	const finalResponse = onChunk
-		? await streamClaudeMessages(apiKey, model, systemPrompt, messages, onChunk)
-		: await sendClaudeMessages(apiKey, model, systemPrompt, messages);
+		? await streamClaudeMessages(apiKey, model, systemBlocks, messages, onChunk)
+		: await sendClaudeMessages(apiKey, model, systemBlocks, messages);
 	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
 	return {
 		text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE,
@@ -540,12 +555,13 @@ const runClaudeLoop = async (
 const runPerplexityLoop = async (
 	apiKey: string,
 	model: string,
-	systemPrompt: string,
+	promptParts: SystemPromptParts,
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
 	nativeWebSearch = true,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
+	const systemPrompt = promptParts.staticInstructions + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch);
 	const historyItems: PerplexityInputItem[] = (history ?? []).map((m) => ({
 		role: m.role,
@@ -593,12 +609,13 @@ const runPerplexityLoop = async (
 const runSonarLoop = async (
 	apiKey: string,
 	model: string,
-	systemPrompt: string,
+	promptParts: SystemPromptParts,
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
 	nativeWebSearch = true,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
+	const systemPrompt = promptParts.staticInstructions + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch);
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
@@ -675,7 +692,7 @@ export const sendToAI = async (
 		hasReferencedNotes: (actionContext.referencedNotes?.length ?? 0) > 0,
 		historyLength: history?.length ?? 0,
 	});
-	const systemPrompt = buildSystemPrompt({
+	const promptParts = buildSystemPromptParts({
 		noteTitle,
 		noteBody: includeBody ? noteBody : '',
 		notebooks: actionContext.notebooks,
@@ -696,13 +713,13 @@ export const sendToAI = async (
 
 	const runLoop = () => {
 		if (provider === 'openai')
-			return runOpenAILoop(apiKey, model, systemPrompt, userPrompt, actionContext, history);
+			return runOpenAILoop(apiKey, model, promptParts, userPrompt, actionContext, history);
 		if (provider === 'perplexity') {
 			if (isSonarApiModel(model))
 				return runSonarLoop(
 					apiKey,
 					model,
-					systemPrompt,
+					promptParts,
 					userPrompt,
 					actionContext,
 					history,
@@ -711,14 +728,14 @@ export const sendToAI = async (
 			return runPerplexityLoop(
 				apiKey,
 				model,
-				systemPrompt,
+				promptParts,
 				userPrompt,
 				actionContext,
 				history,
 				isNativeSearch,
 			);
 		}
-		return runClaudeLoop(apiKey, model, systemPrompt, userPrompt, actionContext, history);
+		return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history);
 	};
 	const { text, outcomes, usage } = await runLoop();
 

@@ -981,11 +981,12 @@ describe('sendToAI', () => {
 		await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'My Title', 'My Body');
 
 		const messages = mockedSendOpenAI.mock.calls[0][2];
-		const systemMessage = messages.find((m: { role: string }) => m.role === 'system') as {
-			content: string;
-		};
-		expect(systemMessage.content).toContain('Current note title: My Title');
-		expect(systemMessage.content).toContain('My Body');
+		const fullSystem = messages
+			.filter((m: { role: string }) => m.role === 'system')
+			.map((m: { content?: string | null }) => m.content ?? '')
+			.join('');
+		expect(fullSystem).toContain('Current note title: My Title');
+		expect(fullSystem).toContain('My Body');
 	});
 
 	it('executes tool calls and returns action outcomes', async () => {
@@ -1272,13 +1273,14 @@ describe('sendToAI', () => {
 			);
 
 			const messages = mockedSendOpenAI.mock.calls[0][2];
-			const systemMessage = messages.find((m: { role: string }) => m.role === 'system') as {
-				content: string;
-			};
-			expect(systemMessage.content).toContain('Work');
-			expect(systemMessage.content).toContain('f1');
-			expect(systemMessage.content).toContain('Personal');
-			expect(systemMessage.content).toContain('f2');
+			const fullSystem = messages
+				.filter((m: { role: string }) => m.role === 'system')
+				.map((m: { content?: string | null }) => m.content ?? '')
+				.join('');
+			expect(fullSystem).toContain('Work');
+			expect(fullSystem).toContain('f1');
+			expect(fullSystem).toContain('Personal');
+			expect(fullSystem).toContain('f2');
 		});
 
 		it('includes notebooks in the system prompt passed to Claude', async () => {
@@ -1299,11 +1301,14 @@ describe('sendToAI', () => {
 				notebookContext,
 			);
 
-			const systemPrompt = mockedSendClaude.mock.calls[0][2] as string;
-			expect(systemPrompt).toContain('Work');
-			expect(systemPrompt).toContain('f1');
-			expect(systemPrompt).toContain('Personal');
-			expect(systemPrompt).toContain('f2');
+			const systemParam = mockedSendClaude.mock.calls[0][2];
+			const systemText = Array.isArray(systemParam)
+				? systemParam.map((b: { text: string }) => b.text).join('')
+				: (systemParam as string);
+			expect(systemText).toContain('Work');
+			expect(systemText).toContain('f1');
+			expect(systemText).toContain('Personal');
+			expect(systemText).toContain('f2');
 		});
 
 		it('does not include notebook section when context has no notebooks', async () => {
@@ -1371,8 +1376,11 @@ describe('sendToAI', () => {
 				},
 			);
 
-			const systemPrompt = mockedSendClaude.mock.calls[0][2] as string;
-			expect(systemPrompt).toContain('You are a creative writer');
+			const systemParam = mockedSendClaude.mock.calls[0][2];
+			const systemText = Array.isArray(systemParam)
+				? systemParam.map((b: { text: string }) => b.text).join('')
+				: (systemParam as string);
+			expect(systemText).toContain('You are a creative writer');
 		});
 
 		it('does not include agent role section when context has no agentRolePrompt', async () => {
@@ -1529,9 +1537,10 @@ describe('sendToAI', () => {
 
 			const messages = mockedSendOpenAI.mock.calls[0][2];
 			expect(messages[0].role).toBe('system');
-			expect(messages[1]).toEqual({ role: 'user', content: 'Hello' });
-			expect(messages[2]).toEqual({ role: 'assistant', content: 'Hi there!' });
-			expect(messages[3]).toEqual({ role: 'user', content: 'What did I say earlier?' });
+			expect(messages[1].role).toBe('system');
+			expect(messages[2]).toEqual({ role: 'user', content: 'Hello' });
+			expect(messages[3]).toEqual({ role: 'assistant', content: 'Hi there!' });
+			expect(messages[4]).toEqual({ role: 'user', content: 'What did I say earlier?' });
 		});
 
 		it('prepends history messages before user prompt for Claude', async () => {
@@ -1570,9 +1579,10 @@ describe('sendToAI', () => {
 			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'Title', 'Body');
 
 			const messages = mockedSendOpenAI.mock.calls[0][2];
-			expect(messages).toHaveLength(2);
+			expect(messages).toHaveLength(3);
 			expect(messages[0].role).toBe('system');
-			expect(messages[1]).toEqual({ role: 'user', content: 'hello' });
+			expect(messages[1].role).toBe('system');
+			expect(messages[2]).toEqual({ role: 'user', content: 'hello' });
 		});
 
 		it('works with empty history array', async () => {
@@ -1586,9 +1596,10 @@ describe('sendToAI', () => {
 			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'Title', 'Body', undefined, []);
 
 			const messages = mockedSendOpenAI.mock.calls[0][2];
-			expect(messages).toHaveLength(2);
+			expect(messages).toHaveLength(3);
 			expect(messages[0].role).toBe('system');
-			expect(messages[1]).toEqual({ role: 'user', content: 'hello' });
+			expect(messages[1].role).toBe('system');
+			expect(messages[2]).toEqual({ role: 'user', content: 'hello' });
 		});
 	});
 

@@ -3,6 +3,18 @@ import { StringDecoder } from 'string_decoder';
 import { AIProviderResponse, AIToolCall, TokenUsage } from './types';
 import { ClaudeTool } from './tools';
 
+export interface ClaudeSystemBlock {
+	type: 'text';
+	text: string;
+	cache_control?: { type: 'ephemeral' };
+}
+
+const ANTHROPIC_HEADERS = {
+	'Content-Type': 'application/json',
+	'anthropic-version': '2023-06-01',
+	'anthropic-beta': 'prompt-caching-2024-07-31',
+};
+
 const makeRequest = (apiKey: string, body: string): Promise<Record<string, unknown>> =>
 	new Promise((resolve, reject) => {
 		const req = https.request(
@@ -11,9 +23,8 @@ const makeRequest = (apiKey: string, body: string): Promise<Record<string, unkno
 				path: '/v1/messages',
 				method: 'POST',
 				headers: {
-					'Content-Type': 'application/json',
+					...ANTHROPIC_HEADERS,
 					'x-api-key': apiKey,
-					'anthropic-version': '2023-06-01',
 				},
 			},
 			(res) => {
@@ -46,7 +57,7 @@ const makeRequest = (apiKey: string, body: string): Promise<Record<string, unkno
 export const sendClaudeMessages = async (
 	apiKey: string,
 	model: string,
-	system: string,
+	system: string | ClaudeSystemBlock[],
 	messages: Array<{ role: string; content: unknown }>,
 	tools?: ClaudeTool[],
 ): Promise<AIProviderResponse> => {
@@ -136,9 +147,8 @@ const makeClaudeStreamRequest = (apiKey: string, body: string): Promise<NodeJS.R
 				path: '/v1/messages',
 				method: 'POST',
 				headers: {
-					'Content-Type': 'application/json',
+					...ANTHROPIC_HEADERS,
 					'x-api-key': apiKey,
-					'anthropic-version': '2023-06-01',
 				},
 			},
 			(res) => {
@@ -153,7 +163,7 @@ const makeClaudeStreamRequest = (apiKey: string, body: string): Promise<NodeJS.R
 export const streamClaudeMessages = async (
 	apiKey: string,
 	model: string,
-	system: string,
+	system: string | ClaudeSystemBlock[],
 	messages: Array<{ role: string; content: unknown }>,
 	onChunk: (text: string) => void,
 	tools?: ClaudeTool[],

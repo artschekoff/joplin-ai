@@ -42,6 +42,14 @@
   /** True after the first change; once true Cmd+Z is always intercepted. */
   let hasEverChanged = false;
 
+  // ── TOC state ──────────────────────────────────────────────────────────────
+
+  const TOC_STORAGE_KEY = 'be-toc-visible';
+  let tocBuildTimer = null;
+  const TOC_DEBOUNCE_MS = 300;
+  /** @type {IntersectionObserver|null} */
+  let tocObserver = null;
+
   // ── Save helpers ───────────────────────────────────────────────────────────
 
   const scheduleSave = () => {
@@ -337,6 +345,7 @@
         hasEverChanged = true;
         onEditorChange();
         scheduleSave();
+        scheduleTocBuild();
       },
     });
 
@@ -372,6 +381,7 @@
         const out = await editor.save();
         currentSnapshot = JSON.stringify(out.blocks);
       } catch (_) {}
+      buildTOC();
     },
 
     getMarkdown: async () => {
@@ -389,6 +399,9 @@
       vimMode = mode;
       updateVimUI();
     },
+
+    /** Toggle the TOC panel programmatically */
+    toggleTOC: () => toggleTOC(),
   };
 
   // ── Native Editor.js popover — first-item auto-focus ─────────────────────
@@ -760,9 +773,173 @@
     });
   };
 
+  // ── TOC helpers ────────────────────────────────────────────────────────────
+
+  /**
+   * Strips HTML tags from a string, returning plain text suitable for display.
+   * @param {string} html
+   * @returns {string}
+   */
+  const stripHtml = (html) => {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html || '';
+    return tmp.textContent || tmp.innerText || '';
+  };
+
+  /**
+   * Rebuilds the TOC list from the current editor blocks.
+   * Attaches IntersectionObserver on heading DOM elements for scroll-spy.
+   */
+  const buildTOC = async () => {
+    const tocList = document.getElementById('toc-list');
+    if (!tocList || !editor) return;
+
+    let blocks = [];
+    try {
+      const out = await editor.save();
+      blocks = out.blocks || [];
+    } catch (_) { return; }
+
+    const headings = blocks
+      .map((block, index) => ({ block, index }))
+      .filter(({ block }) => block.type === 'header');
+
+    tocList.innerHTML = '';
+
+    if (headings.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'toc-empty';
+      empty.textContent = 'No headings';
+      tocList.appendChild(empty);
+      if (tocObserver) { tocObserver.disconnect(); tocObserver = null; }
+      return;
+    }
+
+    headings.forEach(({ block, index }) => {
+      const level = block.data.level || 2;
+      const text = stripHtml(block.data.text);
+      const item = document.createElement('div');
+      item.className = 'toc-item';
+      item.dataset.level = String(level);
+      item.dataset.blockIndex = String(index);
+      item.textContent = text || '(untitled)';
+      item.title = text;
+      item.addEventListener('click', () => scrollToHeading(index, item));
+      tocList.appendChild(item);
+    });
+
+    attachScrollSpy(headings.map(({ index }) => index));
+  };
+
+  /**
+   * Smooth-scrolls to the heading block at the given Editor.js block index.
+   * @param {number} blockIndex
+   * @param {HTMLElement} [tocItem]
+   */
+  const scrollToHeading = (blockIndex, tocItem) => {
+    const editorEl = document.getElementById('editor-container');
+    if (!editorEl) return;
+    const blocks = editorEl.querySelectorAll('.ce-block');
+    const target = blocks[blockIndex];
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    const tocList = document.getElementById('toc-list');
+    if (tocList) {
+      tocList.querySelectorAll('.toc-item--active').forEach((el) => el.classList.remove('toc-item--active'));
+    }
+    if (tocItem) tocItem.classList.add('toc-item--active');
+  };
+
+  /**
+   * Watches heading blocks with IntersectionObserver and updates the active
+   * TOC item as the user scrolls through the document.
+   * @param {number[]} blockIndices
+   */
+  const attachScrollSpy = (blockIndices) => {
+    if (tocObserver) tocObserver.disconnect();
+    const editorEl = document.getElementById('editor-container');
+    const tocList = document.getElementById('toc-list');
+    if (!editorEl || !tocList || blockIndices.length === 0) return;
+
+    const allBlocks = editorEl.querySelectorAll('.ce-block');
+    const targets = blockIndices
+      .map((i) => allBlocks[i])
+      .filter(Boolean);
+
+    if (targets.length === 0) return;
+
+    tocObserver = new IntersectionObserver(
+      (entries) => {
+        let topmost = null;
+        let topmostTop = Infinity;
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const rect = entry.boundingClientRect;
+            if (rect.top < topmostTop) {
+              topmostTop = rect.top;
+              topmost = entry.target;
+            }
+          }
+        });
+        if (!topmost) return;
+        const idx = Array.from(allBlocks).indexOf(topmost);
+        const tocItems = tocList.querySelectorAll('.toc-item');
+        tocItems.forEach((item) => {
+          const matches = Number(item.dataset.blockIndex) === idx;
+          item.classList.toggle('toc-item--active', matches);
+        });
+      },
+      { root: editorEl, threshold: 0.1 },
+    );
+
+    targets.forEach((el) => tocObserver.observe(el));
+  };
+
+  /**
+   * Schedules a debounced TOC rebuild (called from onChange).
+   */
+  const scheduleTocBuild = () => {
+    clearTimeout(tocBuildTimer);
+    tocBuildTimer = setTimeout(() => buildTOC(), TOC_DEBOUNCE_MS);
+  };
+
+  /**
+   * Toggles the TOC panel visibility and persists the preference.
+   */
+  const toggleTOC = () => {
+    const panel = document.getElementById('toc-panel');
+    const btn = document.getElementById('toc-toggle-btn');
+    if (!panel) return;
+    const isVisible = !panel.classList.contains('toc-hidden');
+    panel.classList.toggle('toc-hidden', isVisible);
+    if (btn) btn.classList.toggle('toc-active', !isVisible);
+    try { localStorage.setItem(TOC_STORAGE_KEY, String(!isVisible)); } catch (_) {}
+    if (!isVisible) buildTOC();
+  };
+
+  /**
+   * Restores the TOC visibility preference from localStorage and wires the
+   * toggle button click handler.
+   */
+  const initTOC = () => {
+    const btn = document.getElementById('toc-toggle-btn');
+    if (btn) btn.addEventListener('click', toggleTOC);
+
+    let savedVisible = false;
+    try { savedVisible = localStorage.getItem(TOC_STORAGE_KEY) === 'true'; } catch (_) {}
+    if (savedVisible) {
+      const panel = document.getElementById('toc-panel');
+      if (panel) panel.classList.remove('toc-hidden');
+      if (btn) btn.classList.add('toc-active');
+    }
+  };
+
   // ── Boot ───────────────────────────────────────────────────────────────────
 
   const boot = () => {
+    initTOC();
     attachPopoverBehavior();
     attachMessageHandler();
 
