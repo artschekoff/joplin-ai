@@ -1564,9 +1564,7 @@ describe('triggerAskAI', () => {
 		const showCalls = showSpy.mock.calls.map((c: unknown[]) => c[0]);
 		expect(showCalls).toContain(MOCK_CHAT_HANDLE);
 		expect(showCalls).toContain(MOCK_EDITOR_HANDLE);
-		expect(showCalls.indexOf(MOCK_CHAT_HANDLE)).toBeLessThan(
-			showCalls.indexOf(MOCK_EDITOR_HANDLE),
-		);
+		expect(showCalls.indexOf(MOCK_CHAT_HANDLE)).toBeLessThan(showCalls.indexOf(MOCK_EDITOR_HANDLE));
 	});
 });
 

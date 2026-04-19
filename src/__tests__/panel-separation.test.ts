@@ -322,9 +322,7 @@ describe('panel ordering — editor stays left of chat', () => {
 		const showCalls = mockShow.mock.calls.map((c: any[]) => c[0]);
 		expect(showCalls).toContain(MOCK_CHAT_HANDLE);
 		expect(showCalls).toContain(MOCK_EDITOR_HANDLE);
-		expect(showCalls.indexOf(MOCK_CHAT_HANDLE)).toBeLessThan(
-			showCalls.indexOf(MOCK_EDITOR_HANDLE),
-		);
+		expect(showCalls.indexOf(MOCK_CHAT_HANDLE)).toBeLessThan(showCalls.indexOf(MOCK_EDITOR_HANDLE));
 	});
 
 	it('does NOT re-show editor when showing chat and editor is hidden', async () => {
