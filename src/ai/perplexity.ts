@@ -117,11 +117,18 @@ export const sendPerplexityRequest = async (
 		}
 	}
 
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const rawUsage = parsed.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+
 	return {
 		textContent,
 		toolCalls,
 		finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
 		rawAssistantMessage: output,
+		usage: {
+			inputTokens: rawUsage?.prompt_tokens ?? 0,
+			outputTokens: rawUsage?.completion_tokens ?? 0,
+		},
 	};
 };
 
@@ -144,11 +151,17 @@ export const sendSonarChatRequest = async (
 		throw new Error('Empty response from Perplexity Sonar');
 	}
 	const content = choices[0].message?.content ?? null;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const rawUsage = parsed.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
 	return {
 		textContent: content || null,
 		toolCalls: [],
 		finishReason: choices[0].finish_reason ?? 'stop',
 		rawAssistantMessage: choices[0].message,
+		usage: {
+			inputTokens: rawUsage?.prompt_tokens ?? 0,
+			outputTokens: rawUsage?.completion_tokens ?? 0,
+		},
 	};
 };
 

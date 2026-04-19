@@ -381,6 +381,48 @@ describe('sendPerplexityRequest', () => {
 		expect(writtenBody.model).toBe('perplexity/sonar');
 	});
 
+	it('returns token usage from Agent API response', async () => {
+		const mockReq = createMockRequest();
+		const mockRes = createMockResponse(
+			200,
+			JSON.stringify({
+				output: [
+					{
+						type: 'message',
+						id: 'msg_1',
+						role: 'assistant',
+						status: 'completed',
+						content: [{ type: 'output_text', text: 'Hello' }],
+					},
+				],
+				usage: { prompt_tokens: 200, completion_tokens: 50 },
+			}),
+		);
+
+		mockedRequest.mockImplementation((_opts: any, callback: any) => {
+			callback(mockRes);
+			return mockReq as any;
+		});
+
+		const result = await sendPerplexityRequest('pplx-key', 'perplexity/sonar', 'test');
+
+		expect(result.usage).toEqual({ inputTokens: 200, outputTokens: 50 });
+	});
+
+	it('returns zero usage when Agent API response has no usage field', async () => {
+		const mockReq = createMockRequest();
+		const mockRes = createMockResponse(200, agentTextResponse('Hello'));
+
+		mockedRequest.mockImplementation((_opts: any, callback: any) => {
+			callback(mockRes);
+			return mockReq as any;
+		});
+
+		const result = await sendPerplexityRequest('pplx-key', 'perplexity/sonar', 'test');
+
+		expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+	});
+
 	it('handles response with both text and function calls', async () => {
 		const mockReq = createMockRequest();
 		const mockRes = createMockResponse(
@@ -590,6 +632,52 @@ describe('sendSonarChatRequest', () => {
 		expect(result.textContent).toBe('Sonar answer');
 		expect(result.toolCalls).toEqual([]);
 		expect(result.finishReason).toBe('stop');
+	});
+
+	it('returns token usage from API response', async () => {
+		const mockReq = createMockRequest();
+		const mockRes = createMockResponse(
+			200,
+			JSON.stringify({
+				id: 'chat_1',
+				model: 'sonar-pro',
+				choices: [
+					{
+						index: 0,
+						message: { role: 'assistant', content: 'Hello' },
+						finish_reason: 'stop',
+					},
+				],
+				usage: { prompt_tokens: 150, completion_tokens: 42 },
+			}),
+		);
+
+		mockedRequest.mockImplementation((_opts: any, callback: any) => {
+			callback(mockRes);
+			return mockReq as any;
+		});
+
+		const result = await sendSonarChatRequest('pplx-key', 'sonar-pro', [
+			{ role: 'user', content: 'hello' },
+		]);
+
+		expect(result.usage).toEqual({ inputTokens: 150, outputTokens: 42 });
+	});
+
+	it('returns zero usage when API response has no usage field', async () => {
+		const mockReq = createMockRequest();
+		const mockRes = createMockResponse(200, sonarChatResponse('Hello'));
+
+		mockedRequest.mockImplementation((_opts: any, callback: any) => {
+			callback(mockRes);
+			return mockReq as any;
+		});
+
+		const result = await sendSonarChatRequest('pplx-key', 'sonar-pro', [
+			{ role: 'user', content: 'hello' },
+		]);
+
+		expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
 	});
 
 	it('rejects when response has empty choices', async () => {

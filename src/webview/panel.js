@@ -547,6 +547,22 @@ function initPanel() {
 			'</svg>';
 	}
 
+	function updateSelectionIndicator(hasSelection, charCount) {
+		var existing = document.getElementById('selectionIndicator');
+		if (!hasSelection) {
+			if (existing) existing.remove();
+			return;
+		}
+		if (!existing) {
+			existing = document.createElement('div');
+			existing.id = 'selectionIndicator';
+			existing.className = 'selection-indicator';
+			noteInfoEl.parentElement.insertBefore(existing, noteInfoEl.nextSibling);
+		}
+		var label = charCount > 999 ? Math.round(charCount / 1000) + 'k' : String(charCount);
+		existing.innerHTML = svgIcon('textSelect', '11') + ' Selected text (' + label + ' chars)';
+	}
+
 	function renderFileChips() {
 		fileChipsEl.innerHTML = '';
 		for (let i = 0; i < attachedFiles.length; i++) {
@@ -1174,6 +1190,21 @@ function initPanel() {
 				noteInfoEl.innerHTML = svgIcon('fileText', '12') + ' ' + escapeHtml(message.title);
 			} else {
 				noteInfoEl.textContent = 'No note selected';
+			}
+		}
+
+		if (message.type === 'selectionInfo') {
+			updateSelectionIndicator(message.hasSelection, message.length);
+		}
+
+		if (message.type === 'triggerAskAI') {
+			if (message.text && message.text.trim()) {
+				promptInput.focus();
+				if (!promptInput.value.trim()) {
+					promptInput.value = '';
+				}
+				promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+				updateSelectionIndicator(true, message.text.trim().length);
 			}
 		}
 

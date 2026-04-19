@@ -7,6 +7,7 @@ import {
 	toggleBlockEditorPane,
 	getBlockEditorEnabled,
 	setEditorSelection,
+	triggerAskAI,
 	shareCurrentNote,
 } from './panel';
 
@@ -32,6 +33,10 @@ joplin.plugins.register({
 			if (message?.type === 'selectionChange') {
 				const text = typeof message.text === 'string' ? message.text : '';
 				setEditorSelection(text);
+			}
+			if (message?.type === 'askAI') {
+				const text = typeof message.text === 'string' ? message.text : '';
+				triggerAskAI(text);
 			}
 		});
 

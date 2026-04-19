@@ -1864,6 +1864,58 @@ describe('panel.js file attachments shown under user message', () => {
 	});
 });
 
+describe('panel.js selection indicator', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+
+	beforeEach(() => {
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+	});
+
+	it('shows selection indicator when selectionInfo message has selection', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 42 });
+
+		const indicator = document.getElementById('selectionIndicator');
+		expect(indicator).not.toBeNull();
+		expect(indicator!.textContent).toContain('Selected text');
+		expect(indicator!.textContent).toContain('42');
+	});
+
+	it('removes selection indicator when selection is cleared', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 10 });
+		expect(document.getElementById('selectionIndicator')).not.toBeNull();
+
+		messageHandler({ type: 'selectionInfo', hasSelection: false, length: 0 });
+		expect(document.getElementById('selectionIndicator')).toBeNull();
+	});
+
+	it('shows abbreviated count for large selections', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 5200 });
+
+		const indicator = document.getElementById('selectionIndicator');
+		expect(indicator).not.toBeNull();
+		expect(indicator!.textContent).toContain('5k');
+	});
+
+	it('updates existing indicator when selection changes', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 10 });
+		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 200 });
+
+		const indicators = document.querySelectorAll('#selectionIndicator');
+		expect(indicators.length).toBe(1);
+		expect(indicators[0].textContent).toContain('200');
+	});
+});
+
 describe('panel.js context size circle', () => {
 	let mockApi: ReturnType<typeof createMockWebviewApi>;
 

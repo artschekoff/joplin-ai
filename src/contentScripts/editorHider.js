@@ -32,6 +32,16 @@ module.exports = {
 					'}',
 				].join('\n');
 
+				var tooltipStyle = document.createElement('style');
+				tooltipStyle.id = 'ask-ai-tooltip-style';
+				tooltipStyle.textContent = [
+					'.ask-ai-tooltip:hover {',
+					'  background: var(--joplin-selected-color, #e8f0fe) !important;',
+					'}',
+					'.ask-ai-tooltip svg { flex-shrink: 0; }',
+				].join('\n');
+				document.head.appendChild(tooltipStyle);
+
 				var currentActive = false;
 
 				function applyToolbarVisibility(hide) {
@@ -80,15 +90,81 @@ module.exports = {
 					return !!(el && (el.closest('.cm-editor') || el.closest('.CodeMirror')));
 				}
 
+				// ── "Ask AI" floating tooltip ──
+				var askAITooltip = document.createElement('button');
+				askAITooltip.id = 'askAITooltip';
+				askAITooltip.className = 'ask-ai-tooltip';
+				askAITooltip.innerHTML =
+					'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" ' +
+					'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+					'<rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/>' +
+					'<line x1="12" y1="7" x2="12" y2="11"/>' +
+					'<line x1="8" y1="16" x2="8" y2="16.01"/>' +
+					'<line x1="16" y1="16" x2="16" y2="16.01"/></svg>' +
+					'<span>Ask AI</span>';
+				askAITooltip.style.cssText =
+					'display:none;position:absolute;z-index:99999;' +
+					'padding:4px 10px;border-radius:6px;border:1px solid var(--joplin-divider-color,#ccc);' +
+					'background:var(--joplin-background-color,#fff);color:var(--joplin-color,#333);' +
+					'font-size:12px;font-family:inherit;cursor:pointer;' +
+					'box-shadow:0 2px 8px rgba(0,0,0,.15);' +
+					'align-items:center;gap:5px;line-height:1;white-space:nowrap;';
+				document.body.appendChild(askAITooltip);
+
+				var lastSelectedText = '';
+
+				askAITooltip.addEventListener('mousedown', function (e) {
+					e.preventDefault();
+					e.stopPropagation();
+					if (lastSelectedText) {
+						context.postMessage({ type: 'askAI', text: lastSelectedText }).catch(function () {});
+					}
+					askAITooltip.style.display = 'none';
+				});
+
+				function positionTooltip(sel) {
+					try {
+						var range = sel.getRangeAt(0);
+						var rect = range.getBoundingClientRect();
+						if (!rect || (rect.width === 0 && rect.height === 0)) {
+							askAITooltip.style.display = 'none';
+							return;
+						}
+						var top = rect.top + window.scrollY - askAITooltip.offsetHeight - 6;
+						if (top < window.scrollY) {
+							top = rect.bottom + window.scrollY + 6;
+						}
+						var left = rect.left + window.scrollX + rect.width / 2;
+						askAITooltip.style.display = 'flex';
+						var tooltipWidth = askAITooltip.offsetWidth;
+						askAITooltip.style.top = top + 'px';
+						askAITooltip.style.left = Math.max(4, left - tooltipWidth / 2) + 'px';
+					} catch (_e) {
+						askAITooltip.style.display = 'none';
+					}
+				}
+
 				function reportSelection() {
 					var sel = document.getSelection();
 					if (!sel || sel.isCollapsed) {
+						lastSelectedText = '';
+						askAITooltip.style.display = 'none';
 						context.postMessage({ type: 'selectionChange', text: '' }).catch(function () {});
 						return;
 					}
-					if (!isNodeInEditor(sel.anchorNode)) return;
+					if (!isNodeInEditor(sel.anchorNode)) {
+						lastSelectedText = '';
+						askAITooltip.style.display = 'none';
+						return;
+					}
 					var selectedText = sel.toString();
+					lastSelectedText = selectedText;
 					context.postMessage({ type: 'selectionChange', text: selectedText }).catch(function () {});
+					if (selectedText.trim().length > 0 && !currentActive) {
+						positionTooltip(sel);
+					} else {
+						askAITooltip.style.display = 'none';
+					}
 				}
 
 				document.addEventListener('selectionchange', function () {

@@ -89,7 +89,7 @@ jest.mock('../utils/pdf-extract', () => ({
 	extractPdfTextFromBase64: (...args: unknown[]) => mockExtractPdf(...args),
 }));
 
-import { initPanel, shareCurrentNote, setEditorSelection } from '../panel';
+import { initPanel, shareCurrentNote, setEditorSelection, togglePanel, triggerAskAI } from '../panel';
 import { sendToAI } from '../ai/service';
 
 const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
@@ -1322,6 +1322,49 @@ describe('editor selection as AI context', () => {
 		const context = mockedSendToAI.mock.calls[0][6];
 		expect(context?.isSelection).toBeFalsy();
 	});
+
+	it('sends selectionInfo to chat panel when selection changes and panel is visible', async () => {
+		await togglePanel();
+		mockPostMessage.mockClear();
+
+		setEditorSelection('some highlighted text');
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'selectionInfo',
+				hasSelection: true,
+				length: 21,
+			}),
+		);
+	});
+
+	it('sends selectionInfo with hasSelection false when selection is cleared', async () => {
+		await togglePanel();
+		mockPostMessage.mockClear();
+
+		setEditorSelection('');
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'selectionInfo',
+				hasSelection: false,
+				length: 0,
+			}),
+		);
+	});
+
+	it('does not send selectionInfo when chat panel is not visible', async () => {
+		mockPostMessage.mockClear();
+
+		setEditorSelection('text');
+
+		const selectionCalls = mockPostMessage.mock.calls.filter(
+			(call: unknown[]) => (call[1] as { type: string }).type === 'selectionInfo',
+		);
+		expect(selectionCalls).toHaveLength(0);
+	});
 });
 
 describe('shareCurrentNote', () => {
@@ -1427,6 +1470,88 @@ describe('shareCurrentNote', () => {
 	it('does not call pandoc for text format', async () => {
 		await shareCurrentNote('text');
 		expect(mockExportNoteWithPandoc).not.toHaveBeenCalled();
+	});
+});
+
+describe('triggerAskAI', () => {
+	beforeEach(async () => {
+		jest.clearAllMocks();
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE).mockResolvedValueOnce(MOCK_EDITOR_HANDLE);
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: 'sk-test-key',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+		});
+		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
+		mockDataGet.mockResolvedValue({
+			id: 'note-1',
+			title: 'Test Note',
+			body: 'Some existing content.',
+		});
+		await initPanel();
+	});
+
+	it('opens the AI chat panel if it is not visible', async () => {
+		const showSpy = jest.spyOn(
+			(await import('api')).default.views.panels,
+			'show',
+		);
+		await triggerAskAI('selected text');
+		expect(showSpy).toHaveBeenCalledWith(MOCK_CHAT_HANDLE);
+	});
+
+	it('does not hide and re-show the panel if it is already visible', async () => {
+		await togglePanel();
+		const showSpy = jest.spyOn(
+			(await import('api')).default.views.panels,
+			'show',
+		);
+		showSpy.mockClear();
+		await triggerAskAI('selected text');
+		expect(showSpy).not.toHaveBeenCalled();
+	});
+
+	it('sends triggerAskAI message with selected text to the chat panel', async () => {
+		await triggerAskAI('my selected text');
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_CHAT_HANDLE,
+			expect.objectContaining({
+				type: 'triggerAskAI',
+				text: 'my selected text',
+			}),
+		);
+	});
+
+	it('sets the editor selection to the provided text', async () => {
+		await triggerAskAI('hello world');
+		const selectionInfoCalls = mockPostMessage.mock.calls.filter(
+			(call: unknown[]) => (call[1] as { type: string }).type === 'selectionInfo',
+		);
+		const lastSelectionCall = selectionInfoCalls[selectionInfoCalls.length - 1];
+		expect(lastSelectionCall).toBeDefined();
+		expect(lastSelectionCall[1]).toMatchObject({
+			type: 'selectionInfo',
+			hasSelection: true,
+			length: 11,
+		});
+	});
+
+	it('does nothing when called with empty text', async () => {
+		mockPostMessage.mockClear();
+		await triggerAskAI('');
+		const triggerCalls = mockPostMessage.mock.calls.filter(
+			(call: unknown[]) => (call[1] as { type: string }).type === 'triggerAskAI',
+		);
+		expect(triggerCalls).toHaveLength(0);
+	});
+
+	it('does nothing when called with whitespace-only text', async () => {
+		mockPostMessage.mockClear();
+		await triggerAskAI('   \n  ');
+		const triggerCalls = mockPostMessage.mock.calls.filter(
+			(call: unknown[]) => (call[1] as { type: string }).type === 'triggerAskAI',
+		);
+		expect(triggerCalls).toHaveLength(0);
 	});
 });
 

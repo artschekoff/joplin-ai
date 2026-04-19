@@ -1665,6 +1665,27 @@ describe('sendToAI', () => {
 			expect(result.content).toBe('Found your meeting notes.');
 		});
 
+		it('returns accumulated token usage for sonar (Agent API)', async () => {
+			mockedSendPerplexity.mockResolvedValue({
+				textContent: 'Answer from Perplexity',
+				toolCalls: [],
+				finishReason: 'stop',
+				rawAssistantMessage: [],
+				usage: { inputTokens: 250, outputTokens: 75 },
+			});
+
+			const result = await sendToAI(
+				'perplexity',
+				'pplx-test-key',
+				'sonar',
+				'What is this?',
+				'Title',
+				'Body',
+			);
+
+			expect(result.usage).toEqual({ inputTokens: 250, outputTokens: 75 });
+		});
+
 		it('validates API key for Perplexity', async () => {
 			await expect(sendToAI('perplexity', '', 'sonar', 'hello', 'Title', 'Body')).rejects.toThrow(
 				'API key for perplexity is not configured',
@@ -2327,6 +2348,67 @@ describe('sendToAI', () => {
 					}),
 				).resolves.not.toThrow();
 			});
+		});
+
+		it('returns accumulated token usage for sonar-pro simple response', async () => {
+			mockedSendSonarChat.mockResolvedValue({
+				textContent: 'Answer from Sonar Pro',
+				toolCalls: [],
+				finishReason: 'stop',
+				rawAssistantMessage: { role: 'assistant', content: 'Answer from Sonar Pro' },
+				usage: { inputTokens: 100, outputTokens: 30 },
+			});
+
+			const result = await sendToAI(
+				'perplexity',
+				'pplx-test-key',
+				'sonar-pro',
+				'What is this?',
+				'Title',
+				'Body',
+			);
+
+			expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 30 });
+		});
+
+		it('accumulates token usage across multiple tool rounds for sonar-pro', async () => {
+			mockedSendSonarChat
+				.mockResolvedValueOnce({
+					textContent:
+						'[TOOL_CALL]{"name":"search_notes","args":{"query":"test"}}[/TOOL_CALL]',
+					toolCalls: [],
+					finishReason: 'stop',
+					rawAssistantMessage: {
+						role: 'assistant',
+						content: '[TOOL_CALL]{"name":"search_notes","args":{"query":"test"}}[/TOOL_CALL]',
+					},
+					usage: { inputTokens: 80, outputTokens: 20 },
+				})
+				.mockResolvedValueOnce({
+					textContent: 'Found your notes.',
+					toolCalls: [],
+					finishReason: 'stop',
+					rawAssistantMessage: { role: 'assistant', content: 'Found your notes.' },
+					usage: { inputTokens: 120, outputTokens: 40 },
+				});
+
+			mockedExecuteAction.mockResolvedValue({
+				success: true,
+				message: 'Found 2 note(s)',
+				data: { notes: [] },
+			});
+
+			const result = await sendToAI(
+				'perplexity',
+				'pplx-test-key',
+				'sonar-pro',
+				'search notes',
+				'Title',
+				'Body',
+				{ currentNoteId: 'n1', currentNoteTitle: 'Title' },
+			);
+
+			expect(result.usage).toEqual({ inputTokens: 200, outputTokens: 60 });
 		});
 
 		it('does not block read-only tool calls that fail to parse in Ask mode', async () => {

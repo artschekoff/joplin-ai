@@ -695,6 +695,33 @@ export const getBlockEditorEnabled = (): boolean => editorPanelVisible;
 
 export const setEditorSelection = (text: string): void => {
 	editorSelection = text;
+	if (chatPanelHandle && chatPanelVisible) {
+		const trimmed = text.trim();
+		joplin.views.panels.postMessage(chatPanelHandle, {
+			type: 'selectionInfo',
+			hasSelection: trimmed.length > 0,
+			length: trimmed.length,
+		});
+	}
+};
+
+/**
+ * Opens the AI chat panel (if hidden), sets the editor selection, and sends
+ * a `triggerAskAI` message so the chat webview focuses on the selected text.
+ * Ignores empty / whitespace-only input.
+ */
+export const triggerAskAI = async (text: string): Promise<void> => {
+	if (!chatPanelHandle || !text.trim()) return;
+	if (!chatPanelVisible) {
+		chatPanelVisible = true;
+		await joplin.views.panels.show(chatPanelHandle);
+		await sendNoteInfo(chatPanelHandle);
+	}
+	setEditorSelection(text);
+	joplin.views.panels.postMessage(chatPanelHandle, {
+		type: 'triggerAskAI',
+		text,
+	});
 };
 
 export const toggleBlockEditorPane = async (): Promise<void> => {

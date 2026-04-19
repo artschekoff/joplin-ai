@@ -77,6 +77,10 @@
     eraser: function (size) {
       return '<svg ' + attrs(size) + '><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.2 2a2 2 0 0 1 2.8 0L21.8 6.8a2 2 0 0 1 0 2.8L11 20"/><path d="m6.5 12.5 5 5"/></svg>';
     },
+
+    textSelect: function (size) {
+      return '<svg ' + attrs(size) + '><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/></svg>';
+    },
   };
 
   window.SVGIcons = icons;

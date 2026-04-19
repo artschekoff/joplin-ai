@@ -520,9 +520,10 @@ const runSonarLoop = async (
 		{ role: 'user', content: userPrompt },
 	];
 	const allOutcomes: AIActionOutcome[] = [];
-	const totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
 		const response = await sendSonarChatRequest(apiKey, model, messages);
+		totalUsage = accumulateUsage(totalUsage, response.usage);
 		const responseText = response.textContent || '';
 		const { toolCalls, cleanText } = parseSonarToolCalls(responseText);
 		if (toolCalls.length === 0) {
@@ -552,6 +553,7 @@ const runSonarLoop = async (
 		messages.push({ role: 'user', content: `[TOOL_RESULT]\n${resultSummary}\n[/TOOL_RESULT]` });
 	}
 	const finalResponse = await sendSonarChatRequest(apiKey, model, messages);
+	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
 	const finalText = finalResponse.textContent || '';
 	const parsed = parseSonarToolCalls(finalText);
 	return {
@@ -599,8 +601,24 @@ export const sendToAI = async (
 			return runOpenAILoop(apiKey, model, systemPrompt, userPrompt, actionContext, history);
 		if (provider === 'perplexity') {
 			if (isSonarApiModel(model))
-				return runSonarLoop(apiKey, model, systemPrompt, userPrompt, actionContext, history, isNativeSearch);
-			return runPerplexityLoop(apiKey, model, systemPrompt, userPrompt, actionContext, history, isNativeSearch);
+				return runSonarLoop(
+					apiKey,
+					model,
+					systemPrompt,
+					userPrompt,
+					actionContext,
+					history,
+					isNativeSearch,
+				);
+			return runPerplexityLoop(
+				apiKey,
+				model,
+				systemPrompt,
+				userPrompt,
+				actionContext,
+				history,
+				isNativeSearch,
+			);
 		}
 		return runClaudeLoop(apiKey, model, systemPrompt, userPrompt, actionContext, history);
 	};
