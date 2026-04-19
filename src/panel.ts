@@ -10,7 +10,7 @@ import {
 	IMAGE_GEN_MODEL_OPTIONS,
 	ALLOWED_SETTING_KEYS,
 } from './settings';
-import { sendToAI, buildSystemPrompt } from './ai/service';
+import { sendToAI, buildSystemPromptParts } from './ai/service';
 import { isPerplexityNativeModel } from './ai/perplexity';
 import { AIProvider, AgentRole, AIActionOutcome, ChatMessage, WorkMode } from './ai/types';
 import { computeContextUsage } from './ai/context-size';
@@ -24,6 +24,10 @@ let editorPanelHandle: ViewHandle | null = null;
 let chatPanelVisible = false;
 let editorPanelVisible = false;
 let editorSelection = '';
+
+/** Track the last note body sent to AI to enable diff-based optimization. */
+let lastSentNoteId: string | null = null;
+let lastSentNoteBody: string | null = null;
 
 const SQLITE_RETRY_MAX = 3;
 const SQLITE_RETRY_BASE_MS = 50;
@@ -220,12 +224,14 @@ const sendContextSize = async (
 	note: { title: string; body: string } | null,
 ) => {
 	const model = await getModelFromSettings();
-	const systemPrompt = buildSystemPrompt({
+	const parts = buildSystemPromptParts({
 		noteTitle: note?.title ?? '',
 		noteBody: note?.body ?? '',
 	});
 	const usage = computeContextUsage({
-		systemPrompt,
+		staticInstructions: parts.staticInstructions,
+		noteBodyContext: parts.noteBodyContext,
+		dynamicContext: parts.dynamicContext,
 		history: [],
 		userPrompt: '',
 		model,
@@ -454,9 +460,10 @@ const sendUpdatedContextSize = (
 		history: ChatMessage[];
 		userPrompt: string;
 		model: string;
+		previousNoteBody?: string;
 	},
 ) => {
-	const systemPrompt = buildSystemPrompt({
+	const parts = buildSystemPromptParts({
 		noteTitle: opts.note.title,
 		noteBody: opts.note.body,
 		notebooks: opts.notebooks,
@@ -464,9 +471,12 @@ const sendUpdatedContextSize = (
 		workMode: opts.workMode,
 		referencedNotes: opts.referencedNotes,
 		attachedFiles: opts.attachedFiles,
+		previousNoteBody: opts.previousNoteBody,
 	});
 	const usage = computeContextUsage({
-		systemPrompt,
+		staticInstructions: parts.staticInstructions,
+		noteBodyContext: parts.noteBodyContext,
+		dynamicContext: parts.dynamicContext,
 		history: opts.history,
 		userPrompt: opts.userPrompt,
 		model: opts.model,
@@ -587,6 +597,7 @@ const handleExecute = async (
 			isSelection: hasSelection || undefined,
 			selectionText: hasSelection ? editorSelection : undefined,
 		};
+		const previousNoteBody = lastSentNoteId === note.id ? lastSentNoteBody ?? undefined : undefined;
 		const response = await sendToAI(
 			config.provider,
 			config.apiKey,
@@ -596,7 +607,11 @@ const handleExecute = async (
 			note.body,
 			context,
 			history,
+			undefined,
+			previousNoteBody,
 		);
+		lastSentNoteId = note.id;
+		lastSentNoteBody = note.body;
 		sendResult(handle, response, config.model);
 		sendUpdatedContextSize(handle, {
 			note,
@@ -608,8 +623,14 @@ const handleExecute = async (
 			history: history ?? [],
 			userPrompt: cleanPrompt,
 			model: config.model,
+			previousNoteBody,
 		});
 		if (response.isEdit) {
+			// Note was updated by AI — reload to get the new body for future diff snapshots
+			const updatedNote = noteId ? await getNoteById(noteId) : await getCurrentNote();
+			if (updatedNote && updatedNote.id === note.id) {
+				lastSentNoteBody = updatedNote.body;
+			}
 			await sendNoteInfo(handle);
 			if (editorPanelHandle && editorPanelVisible) {
 				await sendNoteLoaded(editorPanelHandle);
@@ -617,6 +638,9 @@ const handleExecute = async (
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		// Clear snapshot on error to avoid stale diff state
+		lastSentNoteId = null;
+		lastSentNoteBody = null;
 		joplin.views.panels.postMessage(handle, {
 			type: 'error',
 			message: message,
@@ -628,6 +652,8 @@ export const initPanel = async () => {
 	chatPanelVisible = false;
 	editorPanelVisible = false;
 	editorSelection = '';
+	lastSentNoteId = null;
+	lastSentNoteBody = null;
 
 	editorPanelHandle = await joplin.views.panels.create('blockEditorPanel');
 	await joplin.views.panels.setHtml(editorPanelHandle, EDITOR_PANEL_HTML);

@@ -82,6 +82,11 @@ jest.mock('../utils/share-note', () => ({
 jest.mock('../ai/service', () => ({
 	sendToAI: jest.fn(),
 	buildSystemPrompt: jest.fn(() => 'mocked system prompt'),
+	buildSystemPromptParts: jest.fn(() => ({
+		staticInstructions: 'mocked static instructions',
+		noteBodyContext: '\nCurrent note title: Test\nCurrent note content:\nmocked body',
+		dynamicContext: '',
+	})),
 }));
 
 jest.mock('../utils/pdf-extract', () => ({

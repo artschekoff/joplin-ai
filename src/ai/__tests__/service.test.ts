@@ -1538,9 +1538,10 @@ describe('sendToAI', () => {
 			const messages = mockedSendOpenAI.mock.calls[0][2];
 			expect(messages[0].role).toBe('system');
 			expect(messages[1].role).toBe('system');
-			expect(messages[2]).toEqual({ role: 'user', content: 'Hello' });
-			expect(messages[3]).toEqual({ role: 'assistant', content: 'Hi there!' });
-			expect(messages[4]).toEqual({ role: 'user', content: 'What did I say earlier?' });
+			expect(messages[2].role).toBe('system');
+			expect(messages[3]).toEqual({ role: 'user', content: 'Hello' });
+			expect(messages[4]).toEqual({ role: 'assistant', content: 'Hi there!' });
+			expect(messages[5]).toEqual({ role: 'user', content: 'What did I say earlier?' });
 		});
 
 		it('prepends history messages before user prompt for Claude', async () => {
@@ -1579,10 +1580,11 @@ describe('sendToAI', () => {
 			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'Title', 'Body');
 
 			const messages = mockedSendOpenAI.mock.calls[0][2];
-			expect(messages).toHaveLength(3);
+			expect(messages).toHaveLength(4);
 			expect(messages[0].role).toBe('system');
 			expect(messages[1].role).toBe('system');
-			expect(messages[2]).toEqual({ role: 'user', content: 'hello' });
+			expect(messages[2].role).toBe('system');
+			expect(messages[3]).toEqual({ role: 'user', content: 'hello' });
 		});
 
 		it('works with empty history array', async () => {
@@ -1596,10 +1598,11 @@ describe('sendToAI', () => {
 			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'Title', 'Body', undefined, []);
 
 			const messages = mockedSendOpenAI.mock.calls[0][2];
-			expect(messages).toHaveLength(3);
+			expect(messages).toHaveLength(4);
 			expect(messages[0].role).toBe('system');
 			expect(messages[1].role).toBe('system');
-			expect(messages[2]).toEqual({ role: 'user', content: 'hello' });
+			expect(messages[2].role).toBe('system');
+			expect(messages[3]).toEqual({ role: 'user', content: 'hello' });
 		});
 	});
 

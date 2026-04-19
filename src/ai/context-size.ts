@@ -44,15 +44,31 @@ export const getModelMaxTokens = (model: string): number =>
 	MODEL_MAX_TOKENS[model] ?? DEFAULT_MAX_TOKENS;
 
 export const computeContextUsage = (params: {
-	systemPrompt: string;
+	/** Full concatenated system prompt string, OR the three parts of SystemPromptParts. */
+	systemPrompt?: string;
+	staticInstructions?: string;
+	noteBodyContext?: string;
+	dynamicContext?: string;
 	history: ChatMessage[];
 	userPrompt: string;
 	model: string;
 }): ContextUsage => {
-	const { systemPrompt, history, userPrompt, model } = params;
+	const {
+		systemPrompt,
+		staticInstructions,
+		noteBodyContext,
+		dynamicContext,
+		history,
+		userPrompt,
+		model,
+	} = params;
+
+	const resolvedSystemText =
+		systemPrompt ??
+		((staticInstructions ?? '') + (noteBodyContext ?? '') + (dynamicContext ?? ''));
 
 	const historyText = history.map((m) => m.content).join('');
-	const totalText = (systemPrompt || '') + historyText + (userPrompt || '');
+	const totalText = resolvedSystemText + historyText + (userPrompt || '');
 	const usedTokens = estimateTokens(totalText);
 	const maxTokens = getModelMaxTokens(model);
 	const percentage = maxTokens > 0 ? Math.min((usedTokens / maxTokens) * 100, 100) : 0;

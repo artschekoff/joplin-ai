@@ -7,6 +7,7 @@ import {
 	WorkMode,
 	TokenUsage,
 } from './types';
+import { computeNoteDiff } from './note-diff';
 import { sendOpenAIMessages, streamOpenAIMessages } from './openai';
 import { sendClaudeMessages, streamClaudeMessages } from './claude';
 import {
@@ -228,17 +229,25 @@ export interface BuildSystemPromptOptions {
 	selectionText?: string;
 	/** When true, the note body is intentionally excluded from the prompt to save tokens. A placeholder is shown instead. */
 	noteBodyOmitted?: boolean;
+	/**
+	 * The note body that was sent in the previous request for this note.
+	 * When provided, enables diff-based optimization: unchanged bodies are omitted (Ask/Agent)
+	 * or cached (Edit), small diffs are annotated, large diffs fall back to full body.
+	 */
+	previousNoteBody?: string;
 }
 
 /**
- * System prompt split into cacheable and dynamic parts.
+ * System prompt split into three parts for optimal provider prompt caching.
  * - `staticInstructions`: role, mode, tool descriptions, rules — stable across requests
- * - `dynamicContext`: note body, notebooks, referenced notes, attachments — changes per request
+ * - `noteBodyContext`: current note body (or diff/omission placeholder) — stable when note unchanged
+ * - `dynamicContext`: notebooks, referenced notes, attachments — changes per request
  *
- * Concatenating `staticInstructions + dynamicContext` yields the full system prompt.
+ * Concatenating all three yields the full system prompt.
  */
 export interface SystemPromptParts {
 	staticInstructions: string;
+	noteBodyContext: string;
 	dynamicContext: string;
 }
 
@@ -266,6 +275,89 @@ const embedSelectionMarkers = (fullBody: string, selectionText: string): string 
 	);
 };
 
+/** Threshold below which a partial diff annotation is used instead of a full body re-send. */
+const DIFF_SMALL_CHANGE_THRESHOLD = 0.15;
+
+/**
+ * Resolve the note body content for the prompt given diff state.
+ * Returns `{ bodyContent, contentLabel, noteBodyOmittedEffective }` so callers can build
+ * `noteBodyContext` without repeating this logic.
+ */
+const resolveNoteBodyContent = ({
+	noteBody,
+	noteBodyOmitted,
+	previousNoteBody,
+	workMode,
+	isSelection,
+	selectionText,
+}: {
+	noteBody: string;
+	noteBodyOmitted?: boolean;
+	previousNoteBody?: string;
+	workMode?: WorkMode;
+	isSelection?: boolean;
+	selectionText?: string;
+}): { bodyText: string; contentLabel: string; omitted: boolean } => {
+	if (noteBodyOmitted) {
+		return {
+			bodyText:
+				'[Note body omitted to save context. Use get_note without arguments to read the current note if needed.]',
+			contentLabel: 'Current note body: (omitted)',
+			omitted: true,
+		};
+	}
+
+	const cleanBody = sanitizeContent(noteBody);
+	const hasSelectionMarkers = isSelection && selectionText && cleanBody.includes(selectionText);
+	const markedBody = hasSelectionMarkers
+		? embedSelectionMarkers(cleanBody, selectionText)
+		: cleanBody;
+	const truncated =
+		markedBody.length > MAX_NOTE_BODY_LENGTH
+			? markedBody.substring(0, MAX_NOTE_BODY_LENGTH) + '\n\n[... note truncated due to length ...]'
+			: markedBody;
+
+	// Diff-based optimization when a previous body snapshot is available
+	if (previousNoteBody !== undefined && previousNoteBody !== null) {
+		const diff = computeNoteDiff(previousNoteBody, noteBody);
+
+		if (diff.isIdentical) {
+			if (workMode !== 'edit') {
+				// Ask/Agent: body unchanged — omit entirely, model can use get_note
+				return {
+					bodyText:
+						'[Note body unchanged since last message. Use get_note without arguments if you need to read it.]',
+					contentLabel: 'Current note body: (unchanged, omitted)',
+					omitted: true,
+				};
+			}
+			// Edit: include full body so update_note has complete content, but it will benefit
+			// from provider-level prompt caching since the text is identical
+			return { bodyText: truncated, contentLabel: 'Current note content:', omitted: false };
+		}
+
+		if (diff.changeRatio < DIFF_SMALL_CHANGE_THRESHOLD) {
+			if (workMode !== 'edit') {
+				// Ask/Agent small diff: send diff summary + get_note hint
+				return {
+					bodyText: `[Note body has small changes since last message (${diff.summary}). Use get_note without arguments to read the full current content if needed.]`,
+					contentLabel: 'Current note body: (partially changed)',
+					omitted: true,
+				};
+			}
+			// Edit small diff: send full body with a diff annotation so model knows what changed
+			return {
+				bodyText: `[Recent changes: ${diff.summary}]\n\n${truncated}`,
+				contentLabel: 'Current note content:',
+				omitted: false,
+			};
+		}
+	}
+
+	// Large diff, first turn, or no previous snapshot — send full body
+	return { bodyText: truncated, contentLabel: 'Current note content:', omitted: false };
+};
+
 export const buildSystemPromptParts = (options: BuildSystemPromptOptions): SystemPromptParts => {
 	const {
 		noteTitle,
@@ -279,16 +371,20 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 		isSelection,
 		selectionText,
 		noteBodyOmitted,
+		previousNoteBody,
 	} = options;
+
+	const { bodyText, contentLabel } = resolveNoteBodyContent({
+		noteBody,
+		noteBodyOmitted,
+		previousNoteBody,
+		workMode,
+		isSelection,
+		selectionText,
+	});
+
 	const cleanBody = sanitizeContent(noteBody);
 	const hasSelectionMarkers = isSelection && selectionText && cleanBody.includes(selectionText);
-	const markedBody = hasSelectionMarkers
-		? embedSelectionMarkers(cleanBody, selectionText)
-		: cleanBody;
-	const truncated =
-		markedBody.length > MAX_NOTE_BODY_LENGTH
-			? markedBody.substring(0, MAX_NOTE_BODY_LENGTH) + '\n\n[... note truncated due to length ...]'
-			: markedBody;
 	const notebookSection = notebooks?.length ? buildNotebookSection(notebooks) : '';
 	const referencedSection = referencedNotes?.length
 		? buildReferencedNotesSection(referencedNotes)
@@ -299,10 +395,6 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 		: '';
 	const modeSection = buildWorkModeSection(workMode, noteTitle);
 	const webSearchLine = buildWebSearchToolLine(nativeWebSearch);
-	const bodyContent = noteBodyOmitted
-		? '[Note body omitted to save context. Use get_note without arguments to read the current note if needed.]'
-		: truncated;
-	const contentLabel = noteBodyOmitted ? 'Current note body: (omitted)' : 'Current note content:';
 	const selectionRulesBlock = hasSelectionMarkers
 		? `\nSELECTION RULES:
 The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.
@@ -311,6 +403,11 @@ The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELE
 - Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in the output — they are for your reference only.
 `
 		: '';
+
+	const noteBodyContext = `
+Current note title: ${noteTitle}
+${contentLabel}
+${bodyText}`;
 
 	if (workMode === 'edit') {
 		const staticInstructions = `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
@@ -332,11 +429,8 @@ EDIT MODE RULES:
 - Apply changes immediately without asking for confirmation or clarifying questions. Make your best judgment and act.
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
 ${selectionRulesBlock}`;
-		const dynamicContext = `${referencedSection}${attachedSection}
-Current note title: ${noteTitle}
-${contentLabel}
-${bodyContent}`;
-		return { staticInstructions, dynamicContext };
+		const dynamicContext = `${referencedSection}${attachedSection}`;
+		return { staticInstructions, noteBodyContext, dynamicContext };
 	}
 
 	const staticInstructions = `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
@@ -366,16 +460,13 @@ TOOL USAGE RULES:
 - When creating or moving a note, automatically select the most appropriate notebook based on the note's title and content. Do not ask the user which notebook to use unless ambiguous.
 - If the user asks a question that does not require any action, answer normally in Markdown without using tools.
 ${selectionRulesBlock}`;
-	const dynamicContext = `${notebookSection}${referencedSection}${attachedSection}
-Current note title: ${noteTitle}
-${contentLabel}
-${bodyContent}`;
-	return { staticInstructions, dynamicContext };
+	const dynamicContext = `${notebookSection}${referencedSection}${attachedSection}`;
+	return { staticInstructions, noteBodyContext, dynamicContext };
 };
 
 export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => {
 	const parts = buildSystemPromptParts(options);
-	return parts.staticInstructions + parts.dynamicContext;
+	return parts.staticInstructions + parts.noteBodyContext + parts.dynamicContext;
 };
 
 export const validateApiKey = (provider: AIProvider, apiKey: string): void => {
@@ -453,6 +544,7 @@ const runOpenAILoop = async (
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const messages: any[] = [
 		{ role: 'system', content: promptParts.staticInstructions },
+		{ role: 'system', content: promptParts.noteBodyContext },
 		{ role: 'system', content: promptParts.dynamicContext },
 		...historyMessages,
 		userMessage,
@@ -512,6 +604,7 @@ const runClaudeLoop = async (
 	const messages: any[] = [...historyMessages, userMessage];
 	const systemBlocks: import('./claude').ClaudeSystemBlock[] = [
 		{ type: 'text', text: promptParts.staticInstructions, cache_control: { type: 'ephemeral' } },
+		{ type: 'text', text: promptParts.noteBodyContext, cache_control: { type: 'ephemeral' } },
 		{ type: 'text', text: promptParts.dynamicContext },
 	];
 	const allOutcomes: AIActionOutcome[] = [];
@@ -561,7 +654,8 @@ const runPerplexityLoop = async (
 	history?: ChatMessage[],
 	nativeWebSearch = true,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
-	const systemPrompt = promptParts.staticInstructions + promptParts.dynamicContext;
+	const systemPrompt =
+		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch);
 	const historyItems: PerplexityInputItem[] = (history ?? []).map((m) => ({
 		role: m.role,
@@ -615,7 +709,8 @@ const runSonarLoop = async (
 	history?: ChatMessage[],
 	nativeWebSearch = true,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
-	const systemPrompt = promptParts.staticInstructions + promptParts.dynamicContext;
+	const systemPrompt =
+		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch);
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
@@ -678,6 +773,7 @@ export const sendToAI = async (
 	context?: ActionContext,
 	history?: ChatMessage[],
 	tracker?: CostTracker,
+	previousNoteBody?: string,
 ): Promise<AIResponse> => {
 	validateApiKey(provider, apiKey);
 	const actionContext: ActionContext = context ?? {
@@ -704,6 +800,7 @@ export const sendToAI = async (
 		isSelection: actionContext.isSelection,
 		selectionText: actionContext.selectionText,
 		noteBodyOmitted: !includeBody,
+		previousNoteBody: includeBody ? previousNoteBody : undefined,
 	});
 
 	const ct = tracker ?? defaultCostTracker;
