@@ -1864,7 +1864,7 @@ describe('panel.js file attachments shown under user message', () => {
 	});
 });
 
-describe('panel.js selection indicator', () => {
+describe('panel.js context chars chip', () => {
 	let mockApi: ReturnType<typeof createMockWebviewApi>;
 
 	beforeEach(() => {
@@ -1877,42 +1877,80 @@ describe('panel.js selection indicator', () => {
 		delete (window as any).webviewApi;
 	});
 
-	it('shows selection indicator when selectionInfo message has selection', () => {
+	it('shows selection length when selectionInfo has active selection', () => {
 		const messageHandler = mockApi.onMessage.mock.calls[0][0];
 		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 42 });
 
-		const indicator = document.getElementById('selectionIndicator');
-		expect(indicator).not.toBeNull();
-		expect(indicator!.textContent).toContain('Selected text');
-		expect(indicator!.textContent).toContain('42');
+		const chip = document.getElementById('contextCharsChip');
+		expect(chip).not.toBeNull();
+		expect(chip!.textContent).toContain('Selection');
+		expect(chip!.textContent).toContain('42');
 	});
 
-	it('removes selection indicator when selection is cleared', () => {
+	it('falls back to note body length when selection is cleared', () => {
 		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'noteInfo', noteId: 'n1', title: 'T', bodyLength: 300 });
 		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 10 });
-		expect(document.getElementById('selectionIndicator')).not.toBeNull();
+		expect(document.getElementById('contextCharsChip')!.textContent).toContain('Selection');
 
 		messageHandler({ type: 'selectionInfo', hasSelection: false, length: 0 });
-		expect(document.getElementById('selectionIndicator')).toBeNull();
+		const chip = document.getElementById('contextCharsChip');
+		expect(chip).not.toBeNull();
+		expect(chip!.textContent).toContain('Note');
+		expect(chip!.textContent).toContain('300');
+	});
+
+	it('shows note body length from noteInfo when no selection', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'noteInfo', noteId: 'n1', title: 'Test', bodyLength: 1500 });
+
+		const chip = document.getElementById('contextCharsChip');
+		expect(chip).not.toBeNull();
+		expect(chip!.textContent).toContain('Note');
+		expect(chip!.textContent).toContain('2k');
 	});
 
 	it('shows abbreviated count for large selections', () => {
 		const messageHandler = mockApi.onMessage.mock.calls[0][0];
 		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 5200 });
 
-		const indicator = document.getElementById('selectionIndicator');
-		expect(indicator).not.toBeNull();
-		expect(indicator!.textContent).toContain('5k');
+		const chip = document.getElementById('contextCharsChip');
+		expect(chip).not.toBeNull();
+		expect(chip!.textContent).toContain('5k');
 	});
 
-	it('updates existing indicator when selection changes', () => {
+	it('updates existing chip when selection changes', () => {
 		const messageHandler = mockApi.onMessage.mock.calls[0][0];
 		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 10 });
 		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 200 });
 
-		const indicators = document.querySelectorAll('#selectionIndicator');
-		expect(indicators.length).toBe(1);
-		expect(indicators[0].textContent).toContain('200');
+		const chips = document.querySelectorAll('#contextCharsChip');
+		expect(chips.length).toBe(1);
+		expect(chips[0].textContent).toContain('200');
+	});
+
+	it('removes chip when no note and no selection', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'noteInfo', noteId: null, title: null, bodyLength: 0 });
+		messageHandler({ type: 'selectionInfo', hasSelection: false, length: 0 });
+
+		expect(document.getElementById('contextCharsChip')).toBeNull();
+	});
+
+	it('applies selection CSS modifier class when selection is active', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 50 });
+
+		const chip = document.getElementById('contextCharsChip');
+		expect(chip!.classList.contains('context-chars-chip--selection')).toBe(true);
+	});
+
+	it('does not apply selection CSS modifier when showing note body', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'noteInfo', noteId: 'n1', title: 'T', bodyLength: 100 });
+
+		const chip = document.getElementById('contextCharsChip');
+		expect(chip!.classList.contains('context-chars-chip--selection')).toBe(false);
 	});
 });
 

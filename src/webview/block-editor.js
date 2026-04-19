@@ -300,19 +300,25 @@
   const initEditorJs = () => {
     if (typeof window.EditorJS === 'undefined') return false;
 
+    const toolDefs = {
+      header:    { class: window.Header,      config: { levels: [1, 2, 3], defaultLevel: 2 } },
+      list:      { class: window.EditorjsList, inlineToolbar: true, config: { defaultStyle: 'unordered' } },
+      checklist: { class: window.Checklist,   inlineToolbar: true },
+      code:      { class: window.CodeTool },
+      quote:     { class: window.Quote,       inlineToolbar: true },
+      delimiter: { class: window.Delimiter },
+    };
+    const tools = {};
+    for (const [name, def] of Object.entries(toolDefs)) {
+      if (def.class) tools[name] = def;
+    }
+
     editor = new window.EditorJS({
       holder: 'editor-container',
       autofocus: false,
       placeholder: 'Start writing…  (press Escape for Vim Normal mode)',
       inlineToolbar: ['bold', 'italic', 'link'],
-      tools: {
-        header:    { class: window.Header,      config: { levels: [1, 2, 3], defaultLevel: 2 } },
-        list:      { class: window.EditorjsList, inlineToolbar: true, config: { defaultStyle: 'unordered' } },
-        checklist: { class: window.Checklist,   inlineToolbar: true },
-        code:      { class: window.CodeTool },
-        quote:     { class: window.Quote,       inlineToolbar: true },
-        delimiter: { class: window.Delimiter },
-      },
+      tools,
       onReady: () => {
         if (typeof window.DragDrop === 'function') {
           new window.DragDrop(editor);

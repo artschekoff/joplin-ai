@@ -89,7 +89,13 @@ jest.mock('../utils/pdf-extract', () => ({
 	extractPdfTextFromBase64: (...args: unknown[]) => mockExtractPdf(...args),
 }));
 
-import { initPanel, shareCurrentNote, setEditorSelection, togglePanel, triggerAskAI } from '../panel';
+import {
+	initPanel,
+	shareCurrentNote,
+	setEditorSelection,
+	togglePanel,
+	triggerAskAI,
+} from '../panel';
 import { sendToAI } from '../ai/service';
 
 const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
@@ -1492,20 +1498,14 @@ describe('triggerAskAI', () => {
 	});
 
 	it('opens the AI chat panel if it is not visible', async () => {
-		const showSpy = jest.spyOn(
-			(await import('api')).default.views.panels,
-			'show',
-		);
+		const showSpy = jest.spyOn((await import('api')).default.views.panels, 'show');
 		await triggerAskAI('selected text');
 		expect(showSpy).toHaveBeenCalledWith(MOCK_CHAT_HANDLE);
 	});
 
 	it('does not hide and re-show the panel if it is already visible', async () => {
 		await togglePanel();
-		const showSpy = jest.spyOn(
-			(await import('api')).default.views.panels,
-			'show',
-		);
+		const showSpy = jest.spyOn((await import('api')).default.views.panels, 'show');
 		showSpy.mockClear();
 		await triggerAskAI('selected text');
 		expect(showSpy).not.toHaveBeenCalled();

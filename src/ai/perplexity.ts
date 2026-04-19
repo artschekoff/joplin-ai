@@ -118,7 +118,9 @@ export const sendPerplexityRequest = async (
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const rawUsage = parsed.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+	const rawUsage = parsed.usage as
+		| { prompt_tokens?: number; completion_tokens?: number }
+		| undefined;
 
 	return {
 		textContent,
@@ -152,7 +154,9 @@ export const sendSonarChatRequest = async (
 	}
 	const content = choices[0].message?.content ?? null;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const rawUsage = parsed.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+	const rawUsage = parsed.usage as
+		| { prompt_tokens?: number; completion_tokens?: number }
+		| undefined;
 	return {
 		textContent: content || null,
 		toolCalls: [],

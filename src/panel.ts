@@ -220,6 +220,7 @@ const sendNoteInfo = async (handle: ViewHandle) => {
 		type: 'noteInfo',
 		noteId: note ? note.id : null,
 		title: note ? note.title : null,
+		bodyLength: note ? note.body.length : 0,
 	});
 	await sendContextSize(handle, note);
 };

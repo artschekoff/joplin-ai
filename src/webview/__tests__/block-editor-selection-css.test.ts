@@ -5,10 +5,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const cssSource = fs.readFileSync(
-	path.resolve(__dirname, '..', 'panel.css'),
-	'utf-8',
-);
+const cssSource = fs.readFileSync(path.resolve(__dirname, '..', 'panel.css'), 'utf-8');
 
 describe('block editor selection CSS', () => {
 	describe('::selection rules use background-color (not background shorthand)', () => {
@@ -30,9 +27,7 @@ describe('block editor selection CSS', () => {
 		it('should use background-color in #editor-container ::-moz-selection', () => {
 			const selectionBlocks = extractSelectionBlocks(cssSource);
 			const mozBlocks = selectionBlocks.filter(
-				(b) =>
-					b.selector.includes('#editor-container') &&
-					b.selector.includes('::-moz-selection'),
+				(b) => b.selector.includes('#editor-container') && b.selector.includes('::-moz-selection'),
 			);
 			expect(mozBlocks.length).toBeGreaterThanOrEqual(1);
 			for (const block of mozBlocks) {
@@ -45,9 +40,7 @@ describe('block editor selection CSS', () => {
 	describe('::selection rules use !important to override Editor.js injected styles', () => {
 		it('should have !important on background-color in selection rules', () => {
 			const selectionBlocks = extractSelectionBlocks(cssSource);
-			const editorBlocks = selectionBlocks.filter(
-				(b) => b.selector.includes('#editor-container'),
-			);
+			const editorBlocks = selectionBlocks.filter((b) => b.selector.includes('#editor-container'));
 			expect(editorBlocks.length).toBeGreaterThanOrEqual(1);
 			for (const block of editorBlocks) {
 				expect(block.body).toMatch(/background-color\s*:.*!important/);
@@ -59,9 +52,7 @@ describe('block editor selection CSS', () => {
 		it('should target contenteditable elements for selection styling', () => {
 			const selectionBlocks = extractSelectionBlocks(cssSource);
 			const editorBlocks = selectionBlocks.filter(
-				(b) =>
-					b.selector.includes('#editor-container') &&
-					b.selector.includes('::selection'),
+				(b) => b.selector.includes('#editor-container') && b.selector.includes('::selection'),
 			);
 			const allSelectors = editorBlocks.map((b) => b.selector).join('\n');
 			expect(allSelectors).toMatch(/\[contenteditable\]/);
@@ -83,8 +74,7 @@ describe('block editor selection CSS', () => {
 			const blocks = extractCssBlocks(cssSource);
 			const selectedBlocks = blocks.filter(
 				(b) =>
-					b.selector.includes('ce-block--selected') &&
-					b.selector.includes('ce-block__content'),
+					b.selector.includes('ce-block--selected') && b.selector.includes('ce-block__content'),
 			);
 			expect(selectedBlocks.length).toBeGreaterThanOrEqual(1);
 			for (const block of selectedBlocks) {

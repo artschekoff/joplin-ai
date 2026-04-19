@@ -96,21 +96,26 @@ body {
 	text-overflow: ellipsis;
 }
 
-.selection-indicator {
+.context-chars-chip {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
 	font-size: 10px;
 	font-weight: 500;
-	color: var(--bg-button);
-	background: color-mix(in srgb, var(--bg-button) 12%, transparent);
+	color: var(--text-secondary);
+	background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
 	border-radius: 4px;
 	padding: 2px 6px;
 	margin-top: 3px;
 	white-space: nowrap;
 }
 
-.selection-indicator svg {
+.context-chars-chip--selection {
+	color: var(--bg-button);
+	background: color-mix(in srgb, var(--bg-button) 12%, transparent);
+}
+
+.context-chars-chip svg {
 	display: inline-block;
 	vertical-align: middle;
 	flex-shrink: 0;

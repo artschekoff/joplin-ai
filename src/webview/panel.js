@@ -31,6 +31,8 @@ function initPanel() {
 	let editingRoleId = null;
 	const modeSelect = document.getElementById('modeSelect');
 	let currentMode = modeSelect ? modeSelect.value : 'agent';
+	var noteBodyLength = 0;
+	var selectionLength = 0;
 
 	function persistHistory() {
 		try {
@@ -547,20 +549,37 @@ function initPanel() {
 			'</svg>';
 	}
 
-	function updateSelectionIndicator(hasSelection, charCount) {
-		var existing = document.getElementById('selectionIndicator');
-		if (!hasSelection) {
-			if (existing) existing.remove();
+	function formatCharCount(n) {
+		return n > 999 ? Math.round(n / 1000) + 'k' : String(n);
+	}
+
+	function updateContextCharsChip() {
+		var el = document.getElementById('contextCharsChip');
+		var hasSelection = selectionLength > 0;
+		var chars = hasSelection ? selectionLength : noteBodyLength;
+		if (chars <= 0) {
+			if (el) el.remove();
 			return;
 		}
-		if (!existing) {
-			existing = document.createElement('div');
-			existing.id = 'selectionIndicator';
-			existing.className = 'selection-indicator';
-			noteInfoEl.parentElement.insertBefore(existing, noteInfoEl.nextSibling);
+		if (!el) {
+			el = document.createElement('span');
+			el.id = 'contextCharsChip';
+			el.className = 'file-chip context-chip';
 		}
-		var label = charCount > 999 ? Math.round(charCount / 1000) + 'k' : String(charCount);
-		existing.innerHTML = svgIcon('textSelect', '11') + ' Selected text (' + label + ' chars)';
+		var icon = hasSelection ? svgIcon('textSelect', '11') : svgIcon('fileText', '11');
+		var label = hasSelection
+			? 'Selection: ' + formatCharCount(chars) + ' chars'
+			: 'Note: ' + formatCharCount(chars) + ' chars';
+		el.className = 'file-chip context-chip' + (hasSelection ? ' context-chip--selection' : '');
+		el.innerHTML = icon + ' ' + label;
+		if (!el.parentElement) {
+			fileChipsEl.prepend(el);
+		}
+	}
+
+	function updateSelectionIndicator(hasSelection, charCount) {
+		selectionLength = hasSelection ? charCount : 0;
+		updateContextCharsChip();
 	}
 
 	function renderFileChips() {
@@ -1186,11 +1205,13 @@ function initPanel() {
 
 		if (message.type === 'noteInfo') {
 			currentNoteId = message.noteId || null;
+			noteBodyLength = message.bodyLength || 0;
 			if (message.title) {
 				noteInfoEl.innerHTML = svgIcon('fileText', '12') + ' ' + escapeHtml(message.title);
 			} else {
 				noteInfoEl.textContent = 'No note selected';
 			}
+			updateContextCharsChip();
 		}
 
 		if (message.type === 'selectionInfo') {

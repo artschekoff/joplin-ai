@@ -2374,8 +2374,7 @@ describe('sendToAI', () => {
 		it('accumulates token usage across multiple tool rounds for sonar-pro', async () => {
 			mockedSendSonarChat
 				.mockResolvedValueOnce({
-					textContent:
-						'[TOOL_CALL]{"name":"search_notes","args":{"query":"test"}}[/TOOL_CALL]',
+					textContent: '[TOOL_CALL]{"name":"search_notes","args":{"query":"test"}}[/TOOL_CALL]',
 					toolCalls: [],
 					finishReason: 'stop',
 					rawAssistantMessage: {
