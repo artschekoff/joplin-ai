@@ -312,12 +312,16 @@ EDIT MODE RULES:
 - Apply the exact change the user requests — nothing else. Do not make additional edits beyond what was asked.
 - Apply changes immediately without asking for confirmation or clarifying questions. Make your best judgment and act.
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
-${hasSelectionMarkers ? `\nSELECTION RULES:
+${
+	hasSelectionMarkers
+		? `\nSELECTION RULES:
 The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.
 - Modify ONLY the text between the markers. Keep all other content unchanged.
 - When calling update_note, provide the COMPLETE note body (all content) with only the selected section modified.
 - Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in the output — they are for your reference only.
-` : ''}${referencedSection}${attachedSection}
+`
+		: ''
+}${referencedSection}${attachedSection}
 Current note title: ${noteTitle}
 ${contentLabel}
 ${bodyContent}`;
@@ -349,12 +353,16 @@ TOOL USAGE RULES:
 - If the user provides enough information (e.g. title and content for a new note), call the tool right away.
 - When creating or moving a note, automatically select the most appropriate notebook based on the note's title and content. Do not ask the user which notebook to use unless ambiguous.
 - If the user asks a question that does not require any action, answer normally in Markdown without using tools.
-${hasSelectionMarkers ? `\nSELECTION RULES:
+${
+	hasSelectionMarkers
+		? `\nSELECTION RULES:
 The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.
 - Modify ONLY the text between the markers. Keep all other content unchanged.
 - When calling update_note, provide the COMPLETE note body (all content) with only the selected section modified.
 - Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in the output — they are for your reference only.
-` : ''}${notebookSection}${referencedSection}${attachedSection}
+`
+		: ''
+}${notebookSection}${referencedSection}${attachedSection}
 Current note title: ${noteTitle}
 ${contentLabel}
 ${bodyContent}`;

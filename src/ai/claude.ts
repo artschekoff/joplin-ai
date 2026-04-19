@@ -3,7 +3,6 @@ import { StringDecoder } from 'string_decoder';
 import { AIProviderResponse, AIToolCall, TokenUsage } from './types';
 import { ClaudeTool } from './tools';
 
-
 const makeRequest = (apiKey: string, body: string): Promise<Record<string, unknown>> =>
 	new Promise((resolve, reject) => {
 		const req = https.request(

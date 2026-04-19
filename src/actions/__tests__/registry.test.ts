@@ -279,7 +279,8 @@ describe('update_note', () => {
 	});
 
 	describe('selection mode — merges fragment or passes full body through', () => {
-		const fullBody = '# Договор\n\n**Дата заключения:** 17 апреля 2026 года\n\n## Стороны\n\nЗаказчик: Иванов';
+		const fullBody =
+			'# Договор\n\n**Дата заключения:** 17 апреля 2026 года\n\n## Стороны\n\nЗаказчик: Иванов';
 		const selectionText = '**Дата заключения:** 17 апреля 2026 года';
 
 		const selectionCtx: ActionContext = {
@@ -295,14 +296,16 @@ describe('update_note', () => {
 			const newFragment = '**Дата заключения:** 21 апреля 2026 года';
 			const result = await executeAction('update_note', { body: newFragment }, selectionCtx);
 			expect(result.success).toBe(true);
-			const expectedBody = '# Договор\n\n**Дата заключения:** 21 апреля 2026 года\n\n## Стороны\n\nЗаказчик: Иванов';
+			const expectedBody =
+				'# Договор\n\n**Дата заключения:** 21 апреля 2026 года\n\n## Стороны\n\nЗаказчик: Иванов';
 			expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, {
 				body: expectedBody,
 			});
 		});
 
 		it('passes full body through when AI correctly sends the complete note', async () => {
-			const aiFullBody = '# Договор\n\n**Дата заключения:** 21 апреля 2026 года\n\n## Стороны\n\nЗаказчик: Иванов';
+			const aiFullBody =
+				'# Договор\n\n**Дата заключения:** 21 апреля 2026 года\n\n## Стороны\n\nЗаказчик: Иванов';
 			mockDataGet.mockResolvedValue({ body: fullBody });
 			mockDataPut.mockResolvedValue(undefined);
 			const result = await executeAction('update_note', { body: aiFullBody }, selectionCtx);
@@ -326,7 +329,11 @@ describe('update_note', () => {
 				...selectionCtx,
 				selectionText: 'text that does not exist in note',
 			};
-			const result = await executeAction('update_note', { body: 'completely new body' }, ctxMismatch);
+			const result = await executeAction(
+				'update_note',
+				{ body: 'completely new body' },
+				ctxMismatch,
+			);
 			expect(result.success).toBe(true);
 			expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, {
 				body: 'completely new body',

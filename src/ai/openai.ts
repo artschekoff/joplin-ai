@@ -208,8 +208,7 @@ export const streamOpenAIMessages = async (
 						usage = {
 							inputTokens: parsed.usage.prompt_tokens ?? 0,
 							outputTokens: parsed.usage.completion_tokens ?? 0,
-							cachedTokens:
-								parsed.usage.prompt_tokens_details?.cached_tokens ?? undefined,
+							cachedTokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? undefined,
 						};
 					}
 					const choice = parsed.choices?.[0];

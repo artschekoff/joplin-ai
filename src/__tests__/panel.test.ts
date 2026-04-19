@@ -268,8 +268,7 @@ describe('panel handleExecute', () => {
 
 		const editorNoteLoadedCalls = mockPostMessage.mock.calls.filter(
 			(call: unknown[]) =>
-				call[0] === MOCK_EDITOR_HANDLE &&
-				(call[1] as { type: string }).type === 'noteLoaded',
+				call[0] === MOCK_EDITOR_HANDLE && (call[1] as { type: string }).type === 'noteLoaded',
 		);
 		expect(editorNoteLoadedCalls).toHaveLength(0);
 	});
@@ -289,8 +288,7 @@ describe('panel handleExecute', () => {
 
 		const editorNoteLoadedCalls = mockPostMessage.mock.calls.filter(
 			(call: unknown[]) =>
-				call[0] === MOCK_EDITOR_HANDLE &&
-				(call[1] as { type: string }).type === 'noteLoaded',
+				call[0] === MOCK_EDITOR_HANDLE && (call[1] as { type: string }).type === 'noteLoaded',
 		);
 		expect(editorNoteLoadedCalls).toHaveLength(0);
 	});

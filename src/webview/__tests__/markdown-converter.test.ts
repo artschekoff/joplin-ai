@@ -121,12 +121,7 @@ describe('mdInlineToHtml — backslash escape handling', () => {
 
 describe('markdownToBlocks — markdown table parsing', () => {
 	it('should parse a simple markdown table into a table block', () => {
-		const md = [
-			'| Name | Age |',
-			'| --- | --- |',
-			'| Alice | 30 |',
-			'| Bob | 25 |',
-		].join('\n');
+		const md = ['| Name | Age |', '| --- | --- |', '| Alice | 30 |', '| Bob | 25 |'].join('\n');
 		const blocks = converter.markdownToBlocks(md);
 		expect(blocks).toHaveLength(1);
 		expect(blocks[0].type).toBe('table');
@@ -139,11 +134,7 @@ describe('markdownToBlocks — markdown table parsing', () => {
 	});
 
 	it('should parse table with inline formatting in cells', () => {
-		const md = [
-			'| Feature | Status |',
-			'| --- | --- |',
-			'| **Bold** | *done* |',
-		].join('\n');
+		const md = ['| Feature | Status |', '| --- | --- |', '| **Bold** | *done* |'].join('\n');
 		const blocks = converter.markdownToBlocks(md);
 		expect(blocks).toHaveLength(1);
 		expect(blocks[0].type).toBe('table');
@@ -153,11 +144,7 @@ describe('markdownToBlocks — markdown table parsing', () => {
 	});
 
 	it('should parse table with varying column counts (ragged rows)', () => {
-		const md = [
-			'| A | B | C |',
-			'| --- | --- | --- |',
-			'| 1 | 2 |',
-		].join('\n');
+		const md = ['| A | B | C |', '| --- | --- | --- |', '| 1 | 2 |'].join('\n');
 		const blocks = converter.markdownToBlocks(md);
 		expect(blocks).toHaveLength(1);
 		const content = blocks[0].data.content as string[][];
@@ -184,11 +171,7 @@ describe('markdownToBlocks — markdown table parsing', () => {
 	});
 
 	it('should parse table with alignment markers in separator', () => {
-		const md = [
-			'| Left | Center | Right |',
-			'| :--- | :---: | ---: |',
-			'| L | C | R |',
-		].join('\n');
+		const md = ['| Left | Center | Right |', '| :--- | :---: | ---: |', '| L | C | R |'].join('\n');
 		const blocks = converter.markdownToBlocks(md);
 		expect(blocks).toHaveLength(1);
 		expect(blocks[0].type).toBe('table');
@@ -257,11 +240,7 @@ describe('blocksToMarkdown — table serialization', () => {
 	});
 
 	it('should round-trip a markdown table', () => {
-		const original = [
-			'| Name | Age |',
-			'| --- | --- |',
-			'| Alice | 30 |',
-		].join('\n');
+		const original = ['| Name | Age |', '| --- | --- |', '| Alice | 30 |'].join('\n');
 		const blocks = converter.markdownToBlocks(original);
 		const md = converter.blocksToMarkdown(blocks);
 		const roundTripped = converter.markdownToBlocks(md);
