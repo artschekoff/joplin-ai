@@ -24,7 +24,6 @@ let editorPanelHandle: ViewHandle | null = null;
 let chatPanelVisible = false;
 let editorPanelVisible = false;
 let editorSelection = '';
-let reanchorInProgress = false;
 
 const CHAT_PANEL_HTML = `<!DOCTYPE html>
 <html>
@@ -697,23 +696,6 @@ export const initPanel = async () => {
 	});
 };
 
-/**
- * Joplin appends a newly-shown panel to the RIGHT of already-visible panels.
- * When the block editor is shown while the chat panel is already visible,
- * call this to push the chat back to the rightmost position.
- */
-const reanchorChatRight = async (): Promise<void> => {
-	if (!chatPanelHandle || !chatPanelVisible) return;
-	if (reanchorInProgress) return;
-	reanchorInProgress = true;
-	try {
-		await joplin.views.panels.hide(chatPanelHandle);
-		await joplin.views.panels.show(chatPanelHandle);
-	} finally {
-		reanchorInProgress = false;
-	}
-};
-
 export const togglePanel = async (): Promise<void> => {
 	if (!chatPanelHandle) return;
 	chatPanelVisible = !chatPanelVisible;
@@ -763,9 +745,6 @@ export const toggleBlockEditorPane = async (): Promise<void> => {
 	editorPanelVisible = !editorPanelVisible;
 	if (editorPanelVisible) {
 		await joplin.views.panels.show(editorPanelHandle);
-		if (chatPanelVisible) {
-			await reanchorChatRight();
-		}
 		await sendNoteLoaded(editorPanelHandle);
 	} else {
 		await joplin.views.panels.hide(editorPanelHandle);
