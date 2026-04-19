@@ -36,7 +36,8 @@ export const computeNoteDiff = (oldBody: string, newBody: string): NoteDiff => {
 		const removedCount = oldLines.length;
 		const parts: string[] = [];
 		if (addedCount > 0) parts.push(`${addedCount} line${addedCount !== 1 ? 's' : ''} added`);
-		if (removedCount > 0) parts.push(`${removedCount} line${removedCount !== 1 ? 's' : ''} removed`);
+		if (removedCount > 0)
+			parts.push(`${removedCount} line${removedCount !== 1 ? 's' : ''} removed`);
 		return { isIdentical: false, changeRatio: 1, summary: parts.join(', ') };
 	}
 

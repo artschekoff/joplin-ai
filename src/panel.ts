@@ -597,7 +597,8 @@ const handleExecute = async (
 			isSelection: hasSelection || undefined,
 			selectionText: hasSelection ? editorSelection : undefined,
 		};
-		const previousNoteBody = lastSentNoteId === note.id ? lastSentNoteBody ?? undefined : undefined;
+		const previousNoteBody =
+			lastSentNoteId === note.id ? (lastSentNoteBody ?? undefined) : undefined;
 		const response = await sendToAI(
 			config.provider,
 			config.apiKey,

@@ -64,8 +64,7 @@ export const computeContextUsage = (params: {
 	} = params;
 
 	const resolvedSystemText =
-		systemPrompt ??
-		((staticInstructions ?? '') + (noteBodyContext ?? '') + (dynamicContext ?? ''));
+		systemPrompt ?? (staticInstructions ?? '') + (noteBodyContext ?? '') + (dynamicContext ?? '');
 
 	const historyText = history.map((m) => m.content).join('');
 	const totalText = resolvedSystemText + historyText + (userPrompt || '');
