@@ -687,11 +687,22 @@ export const initPanel = async () => {
 	});
 };
 
+/**
+ * Joplin inserts a newly-shown panel to the LEFT of already-visible panels.
+ * Call this after showing the chat panel to keep the editor on the left.
+ */
+const reanchorEditorLeft = async (): Promise<void> => {
+	if (!editorPanelHandle || !editorPanelVisible) return;
+	await joplin.views.panels.hide(editorPanelHandle);
+	await joplin.views.panels.show(editorPanelHandle);
+};
+
 export const togglePanel = async (): Promise<void> => {
 	if (!chatPanelHandle) return;
 	chatPanelVisible = !chatPanelVisible;
 	if (chatPanelVisible) {
 		await joplin.views.panels.show(chatPanelHandle);
+		await reanchorEditorLeft();
 		await sendNoteInfo(chatPanelHandle);
 	} else {
 		await joplin.views.panels.hide(chatPanelHandle);
@@ -722,6 +733,7 @@ export const triggerAskAI = async (text: string): Promise<void> => {
 	if (!chatPanelVisible) {
 		chatPanelVisible = true;
 		await joplin.views.panels.show(chatPanelHandle);
+		await reanchorEditorLeft();
 		await sendNoteInfo(chatPanelHandle);
 	}
 	setEditorSelection(text);
