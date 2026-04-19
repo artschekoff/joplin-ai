@@ -54,6 +54,8 @@ export interface ActionContext {
 	onStreamChunk?: (text: string) => void;
 	/** When true, the note body passed to the AI is a user-selected fragment, not the full note. */
 	isSelection?: boolean;
+	/** The original selected text fragment. Used by update_note to replace only this portion of the full note body. */
+	selectionText?: string;
 }
 
 export interface ActionHandler {

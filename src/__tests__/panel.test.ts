@@ -229,6 +229,72 @@ describe('panel handleExecute', () => {
 		expect(types).toContain('noteInfo');
 	});
 
+	it('sends noteLoaded to block editor after AI edit when editor is visible', async () => {
+		await toggleBlockEditorPane();
+		mockPostMessage.mockClear();
+
+		mockedSendToAI.mockResolvedValue({
+			content: 'Updated.',
+			isEdit: true,
+			editedBody: undefined,
+			actions: [{ action: 'update_note', success: true, message: 'updated' }],
+		});
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'rewrite the note' });
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_EDITOR_HANDLE,
+			expect.objectContaining({
+				type: 'noteLoaded',
+				note: expect.objectContaining({
+					id: 'note-1',
+					title: 'Test Note',
+				}),
+			}),
+		);
+	});
+
+	it('does not send noteLoaded to block editor after AI edit when editor is hidden', async () => {
+		mockPostMessage.mockClear();
+
+		mockedSendToAI.mockResolvedValue({
+			content: 'Updated.',
+			isEdit: true,
+			editedBody: undefined,
+			actions: [{ action: 'update_note', success: true, message: 'updated' }],
+		});
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'rewrite the note' });
+
+		const editorNoteLoadedCalls = mockPostMessage.mock.calls.filter(
+			(call: unknown[]) =>
+				call[0] === MOCK_EDITOR_HANDLE &&
+				(call[1] as { type: string }).type === 'noteLoaded',
+		);
+		expect(editorNoteLoadedCalls).toHaveLength(0);
+	});
+
+	it('does not send noteLoaded to block editor when AI response is not an edit', async () => {
+		await toggleBlockEditorPane();
+		mockPostMessage.mockClear();
+
+		mockedSendToAI.mockResolvedValue({
+			content: 'This is informational.',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'what is this about?' });
+
+		const editorNoteLoadedCalls = mockPostMessage.mock.calls.filter(
+			(call: unknown[]) =>
+				call[0] === MOCK_EDITOR_HANDLE &&
+				(call[1] as { type: string }).type === 'noteLoaded',
+		);
+		expect(editorNoteLoadedCalls).toHaveLength(0);
+	});
+
 	it('shows error when no note is selected', async () => {
 		mockSelectedNote.mockResolvedValue(null);
 		mockDataGet.mockResolvedValue(null);
@@ -465,6 +531,38 @@ describe('panel handleExecute', () => {
 			expect.objectContaining({
 				type: 'agentRoles',
 				roles,
+			}),
+		);
+	});
+
+	it('saves applied role ID to settings when saveAppliedRoleId message is received', async () => {
+		await capturedOnMessageCallback({ type: 'saveAppliedRoleId', roleId: 'role_123' });
+
+		expect(mockSettingsSetValue).toHaveBeenCalledWith(SETTING_KEYS.appliedRoleId, 'role_123');
+	});
+
+	it('clears applied role ID in settings when saveAppliedRoleId is sent with null', async () => {
+		await capturedOnMessageCallback({ type: 'saveAppliedRoleId', roleId: null });
+
+		expect(mockSettingsSetValue).toHaveBeenCalledWith(SETTING_KEYS.appliedRoleId, '');
+	});
+
+	it('includes appliedRoleId when sending agent roles', async () => {
+		const mockRoles = [{ id: 'r1', name: 'Coder', systemPrompt: 'You code' }];
+		mockSettingsValue.mockImplementation((key: string) => {
+			if (key === SETTING_KEYS.agentRoles) return Promise.resolve(JSON.stringify(mockRoles));
+			if (key === SETTING_KEYS.appliedRoleId) return Promise.resolve('r1');
+			return Promise.resolve('');
+		});
+
+		await capturedOnMessageCallback({ type: 'getAgentRoles' });
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'agentRoles',
+				roles: mockRoles,
+				appliedRoleId: 'r1',
 			}),
 		);
 	});
@@ -1231,7 +1329,7 @@ describe('editor selection as AI context', () => {
 		setEditorSelection('');
 	});
 
-	it('sends selected text instead of full body when editor has a selection', async () => {
+	it('sends full note body with selectionText in context when editor has a selection', async () => {
 		setEditorSelection('selected fragment');
 		mockedSendToAI.mockResolvedValue({
 			content: 'ok',
@@ -1248,8 +1346,12 @@ describe('editor selection as AI context', () => {
 			'gpt-4o',
 			'explain this',
 			'Test Note',
-			'selected fragment',
-			expect.objectContaining({ currentNoteId: 'note-1' }),
+			'Full note body with lots of content.',
+			expect.objectContaining({
+				currentNoteId: 'note-1',
+				isSelection: true,
+				selectionText: 'selected fragment',
+			}),
 			undefined,
 		);
 	});
@@ -1371,6 +1473,50 @@ describe('editor selection as AI context', () => {
 			(call: unknown[]) => (call[1] as { type: string }).type === 'selectionInfo',
 		);
 		expect(selectionCalls).toHaveLength(0);
+	});
+
+	it('clears editor selection and sends selectionInfo when clearSelection message is received', async () => {
+		setEditorSelection('some highlighted text');
+		await togglePanel();
+		mockPostMessage.mockClear();
+
+		await capturedOnMessageCallback({ type: 'clearSelection' });
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'selectionInfo',
+				hasSelection: false,
+				length: 0,
+			}),
+		);
+	});
+
+	it('uses full note body for AI after clearSelection', async () => {
+		setEditorSelection('selected fragment');
+		await togglePanel();
+
+		await capturedOnMessageCallback({ type: 'clearSelection' });
+
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'explain this' });
+
+		expect(mockedSendToAI).toHaveBeenCalledWith(
+			'openai',
+			'sk-test-key',
+			'gpt-4o',
+			'explain this',
+			'Test Note',
+			'Full note body with lots of content.',
+			expect.objectContaining({ currentNoteId: 'note-1' }),
+			undefined,
+		);
 	});
 });
 
@@ -1849,6 +1995,33 @@ describe('settings message handlers', () => {
 		expect(mockSettingsSetValue).not.toHaveBeenCalledWith('unknownKey', expect.anything());
 	});
 
+	it('saves settings sequentially to avoid SQLITE_CONSTRAINT race condition', async () => {
+		const callLog: Array<{ key: string; phase: 'start' | 'end' }> = [];
+		mockSettingsSetValue.mockImplementation(async (key: string) => {
+			callLog.push({ key, phase: 'start' });
+			await new Promise((r) => setTimeout(r, 10));
+			callLog.push({ key, phase: 'end' });
+		});
+
+		await capturedOnMessageCallback({
+			type: 'saveSettings',
+			settings: {
+				[SETTING_KEYS.provider]: 'claude',
+				[SETTING_KEYS.claudeModel]: 'claude-opus-4-20250514',
+			},
+		});
+
+		const startIndices = callLog
+			.map((entry, i) => (entry.phase === 'start' ? i : -1))
+			.filter((i) => i >= 0);
+		const endIndices = callLog
+			.map((entry, i) => (entry.phase === 'end' ? i : -1))
+			.filter((i) => i >= 0);
+		for (let i = 1; i < startIndices.length; i++) {
+			expect(startIndices[i]).toBeGreaterThan(endIndices[i - 1]);
+		}
+	});
+
 	it('refreshes context size after saving settings', async () => {
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
@@ -1874,5 +2047,152 @@ describe('settings message handlers', () => {
 			(call: unknown[]) => (call[1] as { type: string }).type,
 		);
 		expect(types).toContain('contextSize');
+	});
+
+	it('retries setValue when SQLITE_CONSTRAINT error is thrown', async () => {
+		const sqliteError = new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: settings.key');
+		let callCount = 0;
+		mockSettingsSetValue.mockImplementation(async () => {
+			callCount++;
+			if (callCount <= 1) throw sqliteError;
+		});
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'claude',
+			[SETTING_KEYS.openaiKey]: '',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+			[SETTING_KEYS.claudeKey]: '',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.perplexityKey]: '',
+			[SETTING_KEYS.perplexityModel]: 'sonar',
+			[SETTING_KEYS.webSearchEnabled]: false,
+			[SETTING_KEYS.webSearchModel]: 'openai:gpt-4o-search-preview',
+			[SETTING_KEYS.kieApiKey]: '',
+			[SETTING_KEYS.imageGenModel]: 'gpt-image/1.5-text-to-image',
+			[SETTING_KEYS.fileMaxSizeMb]: 10,
+		});
+
+		await capturedOnMessageCallback({
+			type: 'saveSettings',
+			settings: { [SETTING_KEYS.provider]: 'claude' },
+		});
+
+		expect(mockSettingsSetValue).toHaveBeenCalledTimes(2);
+		expect(mockSettingsSetValue).toHaveBeenCalledWith(SETTING_KEYS.provider, 'claude');
+	});
+
+	it('does not retry on non-SQLITE errors — propagates gracefully', async () => {
+		const genericError = new Error('Network error');
+		mockSettingsSetValue.mockRejectedValue(genericError);
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: '',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+			[SETTING_KEYS.claudeKey]: '',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.perplexityKey]: '',
+			[SETTING_KEYS.perplexityModel]: 'sonar',
+			[SETTING_KEYS.webSearchEnabled]: false,
+			[SETTING_KEYS.webSearchModel]: 'openai:gpt-4o-search-preview',
+			[SETTING_KEYS.kieApiKey]: '',
+			[SETTING_KEYS.imageGenModel]: 'gpt-image/1.5-text-to-image',
+			[SETTING_KEYS.fileMaxSizeMb]: 10,
+		});
+
+		await capturedOnMessageCallback({
+			type: 'saveSettings',
+			settings: { [SETTING_KEYS.provider]: 'claude' },
+		});
+
+		expect(mockSettingsSetValue).toHaveBeenCalledTimes(1);
+	});
+
+	it('gives up after max retries on persistent SQLITE_CONSTRAINT error', async () => {
+		const sqliteError = new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: settings.key');
+		mockSettingsSetValue.mockRejectedValue(sqliteError);
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: '',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+			[SETTING_KEYS.claudeKey]: '',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.perplexityKey]: '',
+			[SETTING_KEYS.perplexityModel]: 'sonar',
+			[SETTING_KEYS.webSearchEnabled]: false,
+			[SETTING_KEYS.webSearchModel]: 'openai:gpt-4o-search-preview',
+			[SETTING_KEYS.kieApiKey]: '',
+			[SETTING_KEYS.imageGenModel]: 'gpt-image/1.5-text-to-image',
+			[SETTING_KEYS.fileMaxSizeMb]: 10,
+		});
+
+		await capturedOnMessageCallback({
+			type: 'saveSettings',
+			settings: { [SETTING_KEYS.provider]: 'claude' },
+		});
+
+		expect(mockSettingsSetValue).toHaveBeenCalledTimes(3);
+	});
+
+	it('sends settingsError to webview when save fails after all retries', async () => {
+		const sqliteError = new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: settings.key');
+		mockSettingsSetValue.mockRejectedValue(sqliteError);
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: '',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+			[SETTING_KEYS.claudeKey]: '',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.perplexityKey]: '',
+			[SETTING_KEYS.perplexityModel]: 'sonar',
+			[SETTING_KEYS.webSearchEnabled]: false,
+			[SETTING_KEYS.webSearchModel]: 'openai:gpt-4o-search-preview',
+			[SETTING_KEYS.kieApiKey]: '',
+			[SETTING_KEYS.imageGenModel]: 'gpt-image/1.5-text-to-image',
+			[SETTING_KEYS.fileMaxSizeMb]: 10,
+		});
+
+		await capturedOnMessageCallback({
+			type: 'saveSettings',
+			settings: { [SETTING_KEYS.provider]: 'claude' },
+		});
+
+		expect(mockPostMessage).toHaveBeenCalledWith(
+			MOCK_PANEL_HANDLE,
+			expect.objectContaining({
+				type: 'settingsError',
+				message: expect.stringContaining('SQLITE_CONSTRAINT'),
+			}),
+		);
+	});
+
+	it('retries saveAgentRoles on SQLITE_CONSTRAINT error', async () => {
+		const sqliteError = new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: settings.key');
+		let callCount = 0;
+		mockSettingsSetValue.mockImplementation(async () => {
+			callCount++;
+			if (callCount <= 1) throw sqliteError;
+		});
+
+		const roles = [{ id: 'role-1', name: 'Coder', prompt: 'You are a coder.' }];
+		await capturedOnMessageCallback({ type: 'saveAgentRoles', roles });
+
+		expect(mockSettingsSetValue).toHaveBeenCalledTimes(2);
+		expect(mockSettingsSetValue).toHaveBeenCalledWith(
+			SETTING_KEYS.agentRoles,
+			JSON.stringify(roles),
+		);
+	});
+
+	it('retries saveAppliedRoleId on SQLITE_CONSTRAINT error', async () => {
+		const sqliteError = new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: settings.key');
+		let callCount = 0;
+		mockSettingsSetValue.mockImplementation(async () => {
+			callCount++;
+			if (callCount <= 1) throw sqliteError;
+		});
+
+		await capturedOnMessageCallback({ type: 'saveAppliedRoleId', roleId: 'role-1' });
+
+		expect(mockSettingsSetValue).toHaveBeenCalledTimes(2);
+		expect(mockSettingsSetValue).toHaveBeenCalledWith(SETTING_KEYS.appliedRoleId, 'role-1');
 	});
 });

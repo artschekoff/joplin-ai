@@ -106,12 +106,32 @@ body {
 	color: var(--bg-button);
 	border-color: color-mix(in srgb, var(--bg-button) 30%, transparent);
 	background: color-mix(in srgb, var(--bg-button) 8%, transparent);
+	pointer-events: auto;
 }
 
 .context-chip svg {
 	display: inline-block;
 	vertical-align: middle;
 	flex-shrink: 0;
+}
+
+.context-chip-clear {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 0 0 0 4px;
+	margin: 0;
+	color: inherit;
+	opacity: 0.6;
+	vertical-align: middle;
+	line-height: 1;
+}
+
+.context-chip-clear:hover {
+	opacity: 1;
 }
 
 /* Messages area */
@@ -1178,6 +1198,41 @@ body {
 
 #vim-statusbar[data-mode='normal'] {
 	color: var(--bg-button);
+}
+
+/* ── Popover search indicator ──────────────────────────────────────────────── */
+
+/* ── Block-editor table ─────────────────────────────────────────────────── */
+
+.be-table-wrapper {
+	overflow-x: auto;
+	margin: 4px 0;
+}
+
+.be-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+.be-table th,
+.be-table td {
+	border: 1px solid var(--border-color);
+	padding: 6px 10px;
+	text-align: left;
+	min-width: 60px;
+}
+
+.be-table th {
+	background: var(--bg-secondary);
+	font-weight: 600;
+}
+
+.be-table td:focus,
+.be-table th:focus {
+	outline: 2px solid var(--border-focus);
+	outline-offset: -2px;
 }
 
 /* ── Popover search indicator ──────────────────────────────────────────────── */

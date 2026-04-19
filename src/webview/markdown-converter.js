@@ -112,6 +112,22 @@ const markdownToBlocks = (markdown) => {
 		}
 	};
 
+	/** Detect a markdown table separator row (e.g. `| --- | :---: | ---: |`). */
+	const isTableSeparator = (l) => /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(l);
+
+	/** Split a pipe-delimited table row into trimmed cell strings. */
+	const parseTableRow = (l, colCount) => {
+		let inner = l.trim();
+		if (inner.startsWith('|')) inner = inner.slice(1);
+		if (inner.endsWith('|')) inner = inner.slice(0, -1);
+		const cells = inner.split('|').map((c) => c.trim());
+		while (cells.length < colCount) cells.push('');
+		return cells;
+	};
+
+	/** Check whether a line looks like a pipe-delimited table row. */
+	const isTableRow = (l) => l.trim().includes('|');
+
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
 
@@ -146,6 +162,24 @@ const markdownToBlocks = (markdown) => {
 		// ── horizontal rule ─────────────────────────────────────────────────
 		if (/^(\*{3,}|-{3,}|_{3,})\s*$/.test(line)) {
 			blocks.push({ type: 'delimiter', data: {} });
+			continue;
+		}
+
+		// ── markdown table ──────────────────────────────────────────────────
+		if (
+			isTableRow(line) &&
+			i + 1 < lines.length &&
+			isTableSeparator(lines[i + 1])
+		) {
+			const headerCells = parseTableRow(line, 0);
+			const colCount = headerCells.length;
+			i += 1; // skip separator row
+			const content = [headerCells.map((c) => mdInlineToHtml(c))];
+			while (i + 1 < lines.length && isTableRow(lines[i + 1]) && !isTableSeparator(lines[i + 1])) {
+				i += 1;
+				content.push(parseTableRow(lines[i], colCount).map((c) => mdInlineToHtml(c)));
+			}
+			blocks.push({ type: 'table', data: { withHeadings: true, content } });
 			continue;
 		}
 
@@ -260,6 +294,24 @@ const blocksToMarkdown = (blocks) => {
 			case 'quote':
 				parts.push('> ' + htmlInlineToMd(d.text || ''));
 				break;
+
+			case 'table': {
+				const rows = d.content || [];
+				if (rows.length === 0) break;
+				const colCount = Math.max(...rows.map((r) => r.length));
+				const fmtRow = (cells) =>
+					'| ' + Array.from({ length: colCount }, (_, ci) => htmlInlineToMd(cells[ci] || '')).join(' | ') + ' |';
+				const tableLines = [];
+				if (d.withHeadings && rows.length > 0) {
+					tableLines.push(fmtRow(rows[0]));
+					tableLines.push('| ' + Array.from({ length: colCount }, () => '---').join(' | ') + ' |');
+					rows.slice(1).forEach((r) => tableLines.push(fmtRow(r)));
+				} else {
+					rows.forEach((r) => tableLines.push(fmtRow(r)));
+				}
+				parts.push(tableLines.join('\n'));
+				break;
+			}
 
 			case 'delimiter':
 				parts.push('---');

@@ -277,6 +277,92 @@ describe('update_note', () => {
 			expect(mockDataPut).not.toHaveBeenCalled();
 		});
 	});
+
+	describe('selection mode — merges fragment or passes full body through', () => {
+		const fullBody = '# Договор\n\n**Дата заключения:** 17 апреля 2026 года\n\n## Стороны\n\nЗаказчик: Иванов';
+		const selectionText = '**Дата заключения:** 17 апреля 2026 года';
+
+		const selectionCtx: ActionContext = {
+			currentNoteId: 'note-1',
+			currentNoteTitle: 'My Note',
+			isSelection: true,
+			selectionText,
+		};
+
+		it('merges a small fragment back when AI sends only the modified selection', async () => {
+			mockDataGet.mockResolvedValue({ body: fullBody });
+			mockDataPut.mockResolvedValue(undefined);
+			const newFragment = '**Дата заключения:** 21 апреля 2026 года';
+			const result = await executeAction('update_note', { body: newFragment }, selectionCtx);
+			expect(result.success).toBe(true);
+			const expectedBody = '# Договор\n\n**Дата заключения:** 21 апреля 2026 года\n\n## Стороны\n\nЗаказчик: Иванов';
+			expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, {
+				body: expectedBody,
+			});
+		});
+
+		it('passes full body through when AI correctly sends the complete note', async () => {
+			const aiFullBody = '# Договор\n\n**Дата заключения:** 21 апреля 2026 года\n\n## Стороны\n\nЗаказчик: Иванов';
+			mockDataGet.mockResolvedValue({ body: fullBody });
+			mockDataPut.mockResolvedValue(undefined);
+			const result = await executeAction('update_note', { body: aiFullBody }, selectionCtx);
+			expect(result.success).toBe(true);
+			expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, {
+				body: aiFullBody,
+			});
+		});
+
+		it('fetches the full note body before deciding', async () => {
+			mockDataGet.mockResolvedValue({ body: fullBody });
+			mockDataPut.mockResolvedValue(undefined);
+			await executeAction('update_note', { body: 'small fragment' }, selectionCtx);
+			expect(mockDataGet).toHaveBeenCalledWith(['notes', 'note-1'], { fields: ['body'] });
+		});
+
+		it('falls back to full replacement when selection text is not found in note body', async () => {
+			mockDataGet.mockResolvedValue({ body: fullBody });
+			mockDataPut.mockResolvedValue(undefined);
+			const ctxMismatch: ActionContext = {
+				...selectionCtx,
+				selectionText: 'text that does not exist in note',
+			};
+			const result = await executeAction('update_note', { body: 'completely new body' }, ctxMismatch);
+			expect(result.success).toBe(true);
+			expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, {
+				body: 'completely new body',
+			});
+		});
+
+		it('does not activate selection merge when isSelection is false', async () => {
+			mockDataPut.mockResolvedValue(undefined);
+			const noSelCtx: ActionContext = {
+				currentNoteId: 'note-1',
+				currentNoteTitle: 'My Note',
+				selectionText: 'ignored',
+			};
+			const result = await executeAction('update_note', { body: '# Full replacement' }, noSelCtx);
+			expect(result.success).toBe(true);
+			expect(mockDataGet).not.toHaveBeenCalled();
+			expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, {
+				body: '# Full replacement',
+			});
+		});
+
+		it('does not activate selection merge when selectionText is missing', async () => {
+			mockDataPut.mockResolvedValue(undefined);
+			const noTextCtx: ActionContext = {
+				currentNoteId: 'note-1',
+				currentNoteTitle: 'My Note',
+				isSelection: true,
+			};
+			const result = await executeAction('update_note', { body: '# Full replacement' }, noTextCtx);
+			expect(result.success).toBe(true);
+			expect(mockDataGet).not.toHaveBeenCalled();
+			expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-1'], null, {
+				body: '# Full replacement',
+			});
+		});
+	});
 });
 
 describe('delete_note', () => {

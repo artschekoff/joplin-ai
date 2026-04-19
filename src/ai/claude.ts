@@ -3,6 +3,7 @@ import { StringDecoder } from 'string_decoder';
 import { AIProviderResponse, AIToolCall, TokenUsage } from './types';
 import { ClaudeTool } from './tools';
 
+
 const makeRequest = (apiKey: string, body: string): Promise<Record<string, unknown>> =>
 	new Promise((resolve, reject) => {
 		const req = https.request(
@@ -80,11 +81,28 @@ export const sendClaudeMessages = async (
 			args: b.input ?? {},
 		}));
 
+	const rawUsage = parsed.usage as
+		| {
+				input_tokens?: number;
+				output_tokens?: number;
+				cache_read_input_tokens?: number;
+				cache_creation_input_tokens?: number;
+		  }
+		| undefined;
+	const usage: TokenUsage | undefined = rawUsage
+		? {
+				inputTokens: rawUsage.input_tokens ?? 0,
+				outputTokens: rawUsage.output_tokens ?? 0,
+				cachedTokens: rawUsage.cache_read_input_tokens ?? undefined,
+			}
+		: undefined;
+
 	return {
 		textContent,
 		toolCalls,
 		finishReason: (parsed.stop_reason as string) || 'end_turn',
 		rawAssistantMessage: { role: 'assistant', content: contentBlocks },
+		usage,
 	};
 };
 
@@ -159,6 +177,7 @@ export const streamClaudeMessages = async (
 		let finishReason = 'end_turn';
 		let inputTokens = 0;
 		let outputTokens = 0;
+		let cachedTokens: number | undefined;
 		const blocks: ClaudeStreamBlock[] = [];
 		let currentBlockIndex = -1;
 
@@ -178,6 +197,9 @@ export const streamClaudeMessages = async (
 						}
 						if (parsed.type === 'message_start' && parsed.message?.usage) {
 							inputTokens = parsed.message.usage.input_tokens ?? 0;
+							if (parsed.message.usage.cache_read_input_tokens) {
+								cachedTokens = parsed.message.usage.cache_read_input_tokens;
+							}
 						}
 						if (parsed.type === 'content_block_start') {
 							currentBlockIndex = parsed.index ?? blocks.length;
@@ -255,7 +277,9 @@ export const streamClaudeMessages = async (
 				}
 			}
 			const usage: TokenUsage | undefined =
-				inputTokens > 0 || outputTokens > 0 ? { inputTokens, outputTokens } : undefined;
+				inputTokens > 0 || outputTokens > 0
+					? { inputTokens, outputTokens, cachedTokens }
+					: undefined;
 			resolve({
 				textContent: fullText || null,
 				toolCalls,

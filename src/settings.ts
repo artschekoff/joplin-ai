@@ -87,6 +87,7 @@ export const SETTING_KEYS = {
 	perplexityKey: 'perplexityApiKey',
 	perplexityModel: 'perplexityModel',
 	agentRoles: 'agentRoles',
+	appliedRoleId: 'appliedRoleId',
 	webSearchEnabled: 'webSearchEnabled',
 	webSearchModel: 'webSearchModel',
 	kieApiKey: 'kieApiKey',
@@ -290,6 +291,15 @@ export const initSettings = async () => {
 			public: false,
 			label: 'Agent Roles',
 			description: 'JSON array of agent role definitions (managed via AI Assistant panel).',
+		},
+
+		[SETTING_KEYS.appliedRoleId]: {
+			value: '',
+			type: SettingItemType.String,
+			section: 'aiAssistant',
+			public: false,
+			label: 'Applied Role ID',
+			description: 'ID of the currently applied agent role.',
 		},
 	});
 };

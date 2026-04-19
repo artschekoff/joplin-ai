@@ -111,7 +111,13 @@ function initPanel() {
 		var footer = document.createElement('div');
 		footer.className = 'message-cost-footer';
 		var parts = [];
-		if (usage) parts.push(usage.inputTokens + ' in / ' + usage.outputTokens + ' out');
+		if (usage) {
+			var tokenStr = usage.inputTokens + ' in / ' + usage.outputTokens + ' out';
+			if (usage.cachedTokens && usage.cachedTokens > 0) {
+				tokenStr += ' (' + usage.cachedTokens + ' cached)';
+			}
+			parts.push(tokenStr);
+		}
 		var costStr = formatCost(costUsd);
 		if (costStr) parts.push(costStr);
 		footer.textContent = parts.join(' \u2022 ');
@@ -500,6 +506,8 @@ function initPanel() {
 				if (appliedRole && appliedRole.id === id) {
 					appliedRole = null;
 					updateRoleIndicator();
+					persistAppliedRole();
+					webviewApi.postMessage({ type: 'saveAppliedRoleId', roleId: null });
 				}
 				webviewApi.postMessage({ type: 'saveAgentRoles', roles: agentRoles.slice() });
 				renderManageView();
@@ -571,7 +579,22 @@ function initPanel() {
 			? 'Selection: ' + formatCharCount(chars) + ' chars'
 			: 'Note: ' + formatCharCount(chars) + ' chars';
 		el.className = 'file-chip context-chip' + (hasSelection ? ' context-chip--selection' : '');
-		el.innerHTML = icon + ' ' + label;
+		var clearHtml = '';
+		if (hasSelection) {
+			clearHtml = '<button class="context-chip-clear" title="Clear selection">' + svgIcon('x', '10') + '</button>';
+		}
+		el.innerHTML = icon + ' ' + label + clearHtml;
+		if (hasSelection) {
+			var clearBtn = el.querySelector('.context-chip-clear');
+			if (clearBtn) {
+				clearBtn.addEventListener('click', function (e) {
+					e.stopPropagation();
+					selectionLength = 0;
+					updateContextCharsChip();
+					webviewApi.postMessage({ type: 'clearSelection' });
+				});
+			}
+		}
 		if (!el.parentElement) {
 			fileChipsEl.prepend(el);
 		}
@@ -1122,6 +1145,7 @@ function initPanel() {
 		}
 		updateRoleIndicator();
 		persistAppliedRole();
+		webviewApi.postMessage({ type: 'saveAppliedRoleId', roleId: appliedRole ? appliedRole.id : null });
 	});
 
 	manageRolesBtn.addEventListener('click', function () {
@@ -1233,6 +1257,20 @@ function initPanel() {
 
 		if (message.type === 'agentRoles') {
 			agentRoles = message.roles || [];
+			if (message.appliedRoleId) {
+				var matchedRole = null;
+				for (var ri = 0; ri < agentRoles.length; ri++) {
+					if (agentRoles[ri].id === message.appliedRoleId) {
+						matchedRole = agentRoles[ri];
+						break;
+					}
+				}
+				if (matchedRole) {
+					appliedRole = matchedRole;
+					updateRoleIndicator();
+					persistAppliedRole();
+				}
+			}
 			populateRoleSelect();
 			if (roleManageView.style.display !== 'none') {
 				renderManageView();

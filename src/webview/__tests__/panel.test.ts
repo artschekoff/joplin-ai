@@ -1952,6 +1952,54 @@ describe('panel.js context chars chip', () => {
 		const chip = document.getElementById('contextCharsChip');
 		expect(chip!.classList.contains('context-chip--selection')).toBe(false);
 	});
+
+	it('shows clear button on chip when selection is active', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 50 });
+
+		const chip = document.getElementById('contextCharsChip');
+		const clearBtn = chip!.querySelector('.context-chip-clear');
+		expect(clearBtn).not.toBeNull();
+	});
+
+	it('does not show clear button on chip when showing note body', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'noteInfo', noteId: 'n1', title: 'T', bodyLength: 100 });
+
+		const chip = document.getElementById('contextCharsChip');
+		const clearBtn = chip!.querySelector('.context-chip-clear');
+		expect(clearBtn).toBeNull();
+	});
+
+	it('sends clearSelection message when clear button is clicked', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 50 });
+
+		const chip = document.getElementById('contextCharsChip');
+		const clearBtn = chip!.querySelector('.context-chip-clear') as HTMLButtonElement;
+		clearBtn.click();
+
+		expect(mockApi.postMessage).toHaveBeenCalledWith({ type: 'clearSelection' });
+	});
+
+	it('resets chip to note body display after clear button click and selectionInfo reset', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({ type: 'noteInfo', noteId: 'n1', title: 'T', bodyLength: 500 });
+		messageHandler({ type: 'selectionInfo', hasSelection: true, length: 50 });
+
+		const chip = document.getElementById('contextCharsChip');
+		expect(chip!.textContent).toContain('Selection');
+
+		const clearBtn = chip!.querySelector('.context-chip-clear') as HTMLButtonElement;
+		clearBtn.click();
+
+		messageHandler({ type: 'selectionInfo', hasSelection: false, length: 0 });
+
+		const updatedChip = document.getElementById('contextCharsChip');
+		expect(updatedChip!.textContent).toContain('Note');
+		expect(updatedChip!.textContent).toContain('500');
+		expect(updatedChip!.querySelector('.context-chip-clear')).toBeNull();
+	});
 });
 
 describe('panel.js context size circle', () => {
@@ -3000,6 +3048,139 @@ describe('panel.js chat persistence across settings navigation', () => {
 		expect(stored).not.toBeNull();
 		const parsed = JSON.parse(stored!);
 		expect(parsed).toMatchObject({ id: 'r1', name: 'Coder' });
+	});
+});
+
+describe('panel.js role persistence via backend settings', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+
+	beforeEach(() => {
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+	});
+
+	it('sends saveAppliedRoleId to backend when a role is applied', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You code' }],
+		});
+
+		const roleSelect = document.getElementById('roleSelect') as HTMLSelectElement;
+		roleSelect.value = 'r1';
+		document.getElementById('applyRoleBtn')!.click();
+
+		const saveCall = mockApi.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'saveAppliedRoleId',
+		);
+		expect(saveCall).toBeDefined();
+		expect(saveCall![0].roleId).toBe('r1');
+	});
+
+	it('sends saveAppliedRoleId with null when role is cleared', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You code' }],
+		});
+
+		const roleSelect = document.getElementById('roleSelect') as HTMLSelectElement;
+		roleSelect.value = 'r1';
+		document.getElementById('applyRoleBtn')!.click();
+
+		roleSelect.value = '';
+		document.getElementById('applyRoleBtn')!.click();
+
+		const saveCalls = mockApi.postMessage.mock.calls.filter(
+			(call: any[]) => call[0]?.type === 'saveAppliedRoleId',
+		);
+		expect(saveCalls.length).toBeGreaterThanOrEqual(2);
+		expect(saveCalls[saveCalls.length - 1][0].roleId).toBeNull();
+	});
+
+	it('restores applied role from appliedRoleId in agentRoles message', () => {
+		localStorage.clear();
+
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const messageHandler = mockApi2.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [
+				{ id: 'r1', name: 'Coder', systemPrompt: 'You code' },
+				{ id: 'r2', name: 'Writer', systemPrompt: 'You write' },
+			],
+			appliedRoleId: 'r2',
+		});
+
+		const indicator = document.querySelector('.role-active-indicator');
+		expect(indicator).not.toBeNull();
+		expect(indicator!.textContent).toContain('Writer');
+
+		const roleSelect = document.getElementById('roleSelect') as HTMLSelectElement;
+		expect(roleSelect.value).toBe('r2');
+	});
+
+	it('sends saveAppliedRoleId with null when deleting the applied role', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [{ id: 'r1', name: 'Coder', systemPrompt: 'You code' }],
+		});
+
+		const roleSelect = document.getElementById('roleSelect') as HTMLSelectElement;
+		roleSelect.value = 'r1';
+		document.getElementById('applyRoleBtn')!.click();
+
+		const manageView = document.getElementById('roleManageView') as HTMLElement;
+		manageView.style.display = '';
+		document.getElementById('manageRolesBtn')!.click();
+
+		mockApi.postMessage.mockClear();
+
+		const deleteBtn = document.querySelector('.delete-role-btn') as HTMLButtonElement;
+		expect(deleteBtn).not.toBeNull();
+		deleteBtn.click();
+
+		const saveCall = mockApi.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'saveAppliedRoleId',
+		);
+		expect(saveCall).toBeDefined();
+		expect(saveCall![0].roleId).toBeNull();
+	});
+
+	it('does not restore role from localStorage when backend provides appliedRoleId', () => {
+		localStorage.setItem(
+			'joplin-ai-applied-role',
+			JSON.stringify({ id: 'old', name: 'Old', systemPrompt: 'old prompt' }),
+		);
+
+		delete (window as any).webviewApi;
+		buildDOM();
+		const mockApi2 = createMockWebviewApi();
+		initPanel(mockApi2);
+
+		const messageHandler = mockApi2.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'agentRoles',
+			roles: [
+				{ id: 'r1', name: 'Coder', systemPrompt: 'You code' },
+				{ id: 'r2', name: 'Writer', systemPrompt: 'You write' },
+			],
+			appliedRoleId: 'r2',
+		});
+
+		const indicator = document.querySelector('.role-active-indicator');
+		expect(indicator).not.toBeNull();
+		expect(indicator!.textContent).toContain('Writer');
 	});
 });
 

@@ -175,6 +175,43 @@ export const buildClaudePdfParts = (
 			title: f.name,
 		}));
 
+const NOTE_RELATED_PATTERNS = [
+	/\b(this|the|current|my|open)\s+(note|document|text|page)/i,
+	/(заметк|текущ|этой|эту|этом|этот|этого|открыт)/i,
+	/\b(summarize|translate|rewrite|explain|improve|fix|correct|format|restructure|outline|proofread|shorten|expand|simplify|paraphrase)\b/i,
+	/(переведи|суммируй|перепиши|объясни|улучши|исправ|структурируй|перефразируй|сократи|расширь|упрости)/i,
+	/\b(update|edit|modify|change|reformat|reorganize)\s+(the\s+)?(note|body|text|content|title)/i,
+	/(измен|отредактируй|обнов|поменяй|допиши|добав)/i,
+];
+
+export interface ShouldIncludeNoteBodyOptions {
+	workMode: WorkMode | undefined;
+	prompt: string;
+	noteTitle: string;
+	hasSelection?: boolean;
+	hasReferencedNotes?: boolean;
+	historyLength?: number;
+}
+
+/**
+ * Determines whether the full note body should be included in the system prompt.
+ *
+ * - Edit mode: always includes the body (needed for update_note).
+ * - Ask / Agent mode: includes the body only when the prompt appears
+ *   related to the current note (keyword heuristic, note title mention,
+ *   active selection, first message in session, or referenced notes present).
+ */
+export const shouldIncludeNoteBody = (opts: ShouldIncludeNoteBodyOptions): boolean => {
+	const { workMode, prompt, noteTitle, hasSelection, hasReferencedNotes, historyLength } = opts;
+	if (workMode === 'edit') return true;
+	if (hasSelection) return true;
+	if (hasReferencedNotes) return true;
+	if ((historyLength ?? 0) === 0) return true;
+	const lower = prompt.toLowerCase();
+	if (noteTitle && lower.includes(noteTitle.toLowerCase())) return true;
+	return NOTE_RELATED_PATTERNS.some((pattern) => pattern.test(prompt));
+};
+
 export interface BuildSystemPromptOptions {
 	noteTitle: string;
 	noteBody: string;
@@ -185,8 +222,12 @@ export interface BuildSystemPromptOptions {
 	attachedFiles?: AttachedFile[];
 	/** When true, the selected model has native built-in web search (e.g. Perplexity). Replaces the web_search tool description with a native search note. */
 	nativeWebSearch?: boolean;
-	/** When true, noteBody contains only the user-selected fragment, not the full note. */
+	/** When true, a specific fragment of the note is selected by the user. */
 	isSelection?: boolean;
+	/** The markdown text of the selected fragment. Used to mark the relevant section inside the full note body. */
+	selectionText?: string;
+	/** When true, the note body is intentionally excluded from the prompt to save tokens. A placeholder is shown instead. */
+	noteBodyOmitted?: boolean;
 }
 
 const buildWebSearchToolLine = (nativeWebSearch?: boolean): string => {
@@ -194,6 +235,23 @@ const buildWebSearchToolLine = (nativeWebSearch?: boolean): string => {
 		return '(This model has native built-in web search — answer questions about recent events and current data directly without using any tool.)';
 	}
 	return '- web_search: Search the web for current information. Returns results with source citations. Use when the user asks about recent events, current data, or topics not covered in their notes.';
+};
+
+/**
+ * When the user has selected a fragment, embed `>>>SELECTED<<<` / `<<<END_SELECTED>>>`
+ * markers around that fragment inside the full note body so the AI can see the
+ * full context while knowing exactly which portion to modify.
+ */
+const embedSelectionMarkers = (fullBody: string, selectionText: string): string => {
+	const idx = fullBody.indexOf(selectionText);
+	if (idx === -1) return fullBody;
+	return (
+		fullBody.substring(0, idx) +
+		'>>>SELECTED<<<\n' +
+		selectionText +
+		'\n<<<END_SELECTED>>>' +
+		fullBody.substring(idx + selectionText.length)
+	);
 };
 
 export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => {
@@ -207,12 +265,18 @@ export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => 
 		attachedFiles,
 		nativeWebSearch,
 		isSelection,
+		selectionText,
+		noteBodyOmitted,
 	} = options;
 	const cleanBody = sanitizeContent(noteBody);
+	const hasSelectionMarkers = isSelection && selectionText && cleanBody.includes(selectionText);
+	const markedBody = hasSelectionMarkers
+		? embedSelectionMarkers(cleanBody, selectionText)
+		: cleanBody;
 	const truncated =
-		cleanBody.length > MAX_NOTE_BODY_LENGTH
-			? cleanBody.substring(0, MAX_NOTE_BODY_LENGTH) + '\n\n[... note truncated due to length ...]'
-			: cleanBody;
+		markedBody.length > MAX_NOTE_BODY_LENGTH
+			? markedBody.substring(0, MAX_NOTE_BODY_LENGTH) + '\n\n[... note truncated due to length ...]'
+			: markedBody;
 	const notebookSection = notebooks?.length ? buildNotebookSection(notebooks) : '';
 	const referencedSection = referencedNotes?.length
 		? buildReferencedNotesSection(referencedNotes)
@@ -224,9 +288,10 @@ export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => 
 	const modeSection = buildWorkModeSection(workMode, noteTitle);
 
 	const webSearchLine = buildWebSearchToolLine(nativeWebSearch);
-	const contentLabel = isSelection
-		? 'Selected fragment from the current note (the user highlighted this portion — focus your answer on it):'
-		: 'Current note content:';
+	const bodyContent = noteBodyOmitted
+		? '[Note body omitted to save context. Use get_note without arguments to read the current note if needed.]'
+		: truncated;
+	const contentLabel = noteBodyOmitted ? 'Current note body: (omitted)' : 'Current note content:';
 
 	if (workMode === 'edit') {
 		return `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
@@ -247,10 +312,15 @@ EDIT MODE RULES:
 - Apply the exact change the user requests — nothing else. Do not make additional edits beyond what was asked.
 - Apply changes immediately without asking for confirmation or clarifying questions. Make your best judgment and act.
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
-${referencedSection}${attachedSection}
+${hasSelectionMarkers ? `\nSELECTION RULES:
+The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.
+- Modify ONLY the text between the markers. Keep all other content unchanged.
+- When calling update_note, provide the COMPLETE note body (all content) with only the selected section modified.
+- Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in the output — they are for your reference only.
+` : ''}${referencedSection}${attachedSection}
 Current note title: ${noteTitle}
 ${contentLabel}
-${truncated}`;
+${bodyContent}`;
 	}
 
 	return `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
@@ -279,10 +349,15 @@ TOOL USAGE RULES:
 - If the user provides enough information (e.g. title and content for a new note), call the tool right away.
 - When creating or moving a note, automatically select the most appropriate notebook based on the note's title and content. Do not ask the user which notebook to use unless ambiguous.
 - If the user asks a question that does not require any action, answer normally in Markdown without using tools.
-${notebookSection}${referencedSection}${attachedSection}
+${hasSelectionMarkers ? `\nSELECTION RULES:
+The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.
+- Modify ONLY the text between the markers. Keep all other content unchanged.
+- When calling update_note, provide the COMPLETE note body (all content) with only the selected section modified.
+- Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in the output — they are for your reference only.
+` : ''}${notebookSection}${referencedSection}${attachedSection}
 Current note title: ${noteTitle}
 ${contentLabel}
-${truncated}`;
+${bodyContent}`;
 };
 
 export const validateApiKey = (provider: AIProvider, apiKey: string): void => {
@@ -330,9 +405,14 @@ const runToolCalls = async (
 
 const accumulateUsage = (total: TokenUsage, add?: TokenUsage): TokenUsage => {
 	if (!add) return total;
+	const cached =
+		total.cachedTokens != null || add.cachedTokens != null
+			? (total.cachedTokens ?? 0) + (add.cachedTokens ?? 0)
+			: undefined;
 	return {
 		inputTokens: total.inputTokens + add.inputTokens,
 		outputTokens: total.outputTokens + add.outputTokens,
+		cachedTokens: cached,
 	};
 };
 
@@ -579,9 +659,17 @@ export const sendToAI = async (
 		currentNoteId: null,
 		currentNoteTitle: noteTitle,
 	};
+	const includeBody = shouldIncludeNoteBody({
+		workMode: actionContext.workMode,
+		prompt: userPrompt,
+		noteTitle,
+		hasSelection: actionContext.isSelection,
+		hasReferencedNotes: (actionContext.referencedNotes?.length ?? 0) > 0,
+		historyLength: history?.length ?? 0,
+	});
 	const systemPrompt = buildSystemPrompt({
 		noteTitle,
-		noteBody,
+		noteBody: includeBody ? noteBody : '',
 		notebooks: actionContext.notebooks,
 		agentRolePrompt: actionContext.agentRolePrompt,
 		workMode: actionContext.workMode,
@@ -589,6 +677,8 @@ export const sendToAI = async (
 		attachedFiles: actionContext.attachedFiles,
 		nativeWebSearch: provider === 'perplexity' && isPerplexityNativeModel(model),
 		isSelection: actionContext.isSelection,
+		selectionText: actionContext.selectionText,
+		noteBodyOmitted: !includeBody,
 	});
 
 	const ct = tracker ?? defaultCostTracker;

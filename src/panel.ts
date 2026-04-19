@@ -25,6 +25,26 @@ let chatPanelVisible = false;
 let editorPanelVisible = false;
 let editorSelection = '';
 
+const SQLITE_RETRY_MAX = 3;
+const SQLITE_RETRY_BASE_MS = 50;
+
+const isSqliteConstraintError = (err: unknown): boolean => {
+	const msg = err instanceof Error ? err.message : String(err);
+	return msg.includes('SQLITE_CONSTRAINT');
+};
+
+const safeSetValue = async (key: string, value: unknown): Promise<void> => {
+	for (let attempt = 1; attempt <= SQLITE_RETRY_MAX; attempt++) {
+		try {
+			await joplin.settings.setValue(key, value);
+			return;
+		} catch (err) {
+			if (!isSqliteConstraintError(err) || attempt === SQLITE_RETRY_MAX) throw err;
+			await new Promise((r) => setTimeout(r, SQLITE_RETRY_BASE_MS * attempt));
+		}
+	}
+};
+
 const CHAT_PANEL_HTML = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -236,6 +256,7 @@ const sendNoteLoaded = async (handle: ViewHandle) => {
 
 const sendAgentRoles = async (handle: ViewHandle) => {
 	const raw = (await joplin.settings.value(SETTING_KEYS.agentRoles)) as string;
+	const appliedRoleId = ((await joplin.settings.value(SETTING_KEYS.appliedRoleId)) as string) || '';
 	let roles: AgentRole[] = [];
 	try {
 		const parsed = raw ? JSON.parse(raw) : [];
@@ -243,11 +264,15 @@ const sendAgentRoles = async (handle: ViewHandle) => {
 	} catch {
 		roles = [];
 	}
-	joplin.views.panels.postMessage(handle, { type: 'agentRoles', roles });
+	joplin.views.panels.postMessage(handle, {
+		type: 'agentRoles',
+		roles,
+		appliedRoleId: appliedRoleId || null,
+	});
 };
 
 const saveAgentRoles = async (handle: ViewHandle, roles: AgentRole[]) => {
-	await joplin.settings.setValue(SETTING_KEYS.agentRoles, JSON.stringify(roles));
+	await safeSetValue(SETTING_KEYS.agentRoles, JSON.stringify(roles));
 	joplin.views.panels.postMessage(handle, { type: 'agentRoles', roles });
 };
 
@@ -291,7 +316,22 @@ const sendSettings = async (handle: ViewHandle) => {
 
 const handleSaveSettings = async (handle: ViewHandle, settings: Record<string, unknown>) => {
 	const entries = Object.entries(settings).filter(([key]) => ALLOWED_SETTING_KEYS.has(key));
-	await Promise.all(entries.map(([key, value]) => joplin.settings.setValue(key, value)));
+	const failed: string[] = [];
+	for (const [key, value] of entries) {
+		try {
+			await safeSetValue(key, value);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.error(`Failed to save setting "${key}":`, msg);
+			failed.push(key);
+		}
+	}
+	if (failed.length > 0) {
+		joplin.views.panels.postMessage(handle, {
+			type: 'settingsError',
+			message: `Failed to save settings (${failed.join(', ')}): SQLITE_CONSTRAINT — please try again.`,
+		});
+	}
 	await sendSettings(handle);
 	const note = await getCurrentNote();
 	await sendContextSize(handle, note);
@@ -370,7 +410,7 @@ const sendResult = (
 		isEdit: boolean;
 		content: string;
 		actions: AIActionOutcome[];
-		usage?: { inputTokens: number; outputTokens: number };
+		usage?: { inputTokens: number; outputTokens: number; cachedTokens?: number };
 		costUsd?: number;
 	},
 	model: string,
@@ -510,7 +550,6 @@ const handleExecute = async (
 			);
 		}
 		const hasSelection = editorSelection.trim().length > 0;
-		const noteBodyForAI = hasSelection ? editorSelection : note.body;
 		const isNativePerplexitySearch =
 			config.provider === 'perplexity' && isPerplexityNativeModel(config.model);
 		const context: ActionContext = {
@@ -531,6 +570,7 @@ const handleExecute = async (
 			onThinkingStep,
 			onStreamChunk,
 			isSelection: hasSelection || undefined,
+			selectionText: hasSelection ? editorSelection : undefined,
 		};
 		const response = await sendToAI(
 			config.provider,
@@ -538,7 +578,7 @@ const handleExecute = async (
 			config.model,
 			cleanPrompt,
 			note.title,
-			noteBodyForAI,
+			note.body,
 			context,
 			history,
 		);
@@ -556,6 +596,9 @@ const handleExecute = async (
 		});
 		if (response.isEdit) {
 			await sendNoteInfo(handle);
+			if (editorPanelHandle && editorPanelVisible) {
+				await sendNoteLoaded(editorPanelHandle);
+			}
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -637,6 +680,15 @@ export const initPanel = async () => {
 
 		if (message.type === 'saveAgentRoles') {
 			await saveAgentRoles(chatPanelHandle, message.roles as AgentRole[]);
+		}
+
+		if (message.type === 'saveAppliedRoleId') {
+			const roleId = (message.roleId as string) ?? '';
+			await safeSetValue(SETTING_KEYS.appliedRoleId, roleId);
+		}
+
+		if (message.type === 'clearSelection') {
+			setEditorSelection('');
 		}
 
 		if (message.type === 'getSettings') {

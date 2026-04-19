@@ -96,11 +96,27 @@ export const sendOpenAIMessages = async (
 		args: JSON.parse(tc.function.arguments),
 	}));
 
+	const rawUsage = parsed.usage as
+		| {
+				prompt_tokens?: number;
+				completion_tokens?: number;
+				prompt_tokens_details?: { cached_tokens?: number };
+		  }
+		| undefined;
+	const usage: TokenUsage | undefined = rawUsage
+		? {
+				inputTokens: rawUsage.prompt_tokens ?? 0,
+				outputTokens: rawUsage.completion_tokens ?? 0,
+				cachedTokens: rawUsage.prompt_tokens_details?.cached_tokens ?? undefined,
+			}
+		: undefined;
+
 	return {
 		textContent: message.content ?? null,
 		toolCalls,
 		finishReason: choice.finish_reason,
 		rawAssistantMessage: message,
+		usage,
 	};
 };
 
@@ -192,6 +208,8 @@ export const streamOpenAIMessages = async (
 						usage = {
 							inputTokens: parsed.usage.prompt_tokens ?? 0,
 							outputTokens: parsed.usage.completion_tokens ?? 0,
+							cachedTokens:
+								parsed.usage.prompt_tokens_details?.cached_tokens ?? undefined,
 						};
 					}
 					const choice = parsed.choices?.[0];

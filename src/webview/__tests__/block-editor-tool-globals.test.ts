@@ -257,7 +257,7 @@ describe('EditorJS init with ALL tool globals undefined', () => {
 		expect(mockCtor).toHaveBeenCalledTimes(1);
 		const config = mockCtor.mock.calls[0][0];
 		const toolNames = Object.keys(config.tools);
-		expect(toolNames).toEqual(['askAI', 'askAITune']);
+		expect(toolNames).toEqual(['table', 'askAI', 'askAITune']);
 		expect(errorSpy).not.toHaveBeenCalledWith(
 			expect.stringContaining('[BlockEditor] EditorJS failed to load'),
 		);

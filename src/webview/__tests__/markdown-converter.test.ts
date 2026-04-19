@@ -119,6 +119,176 @@ describe('mdInlineToHtml — backslash escape handling', () => {
 	});
 });
 
+describe('markdownToBlocks — markdown table parsing', () => {
+	it('should parse a simple markdown table into a table block', () => {
+		const md = [
+			'| Name | Age |',
+			'| --- | --- |',
+			'| Alice | 30 |',
+			'| Bob | 25 |',
+		].join('\n');
+		const blocks = converter.markdownToBlocks(md);
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0].type).toBe('table');
+		expect(blocks[0].data.withHeadings).toBe(true);
+		const content = blocks[0].data.content as string[][];
+		expect(content).toHaveLength(3);
+		expect(content[0]).toEqual(['Name', 'Age']);
+		expect(content[1]).toEqual(['Alice', '30']);
+		expect(content[2]).toEqual(['Bob', '25']);
+	});
+
+	it('should parse table with inline formatting in cells', () => {
+		const md = [
+			'| Feature | Status |',
+			'| --- | --- |',
+			'| **Bold** | *done* |',
+		].join('\n');
+		const blocks = converter.markdownToBlocks(md);
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0].type).toBe('table');
+		const content = blocks[0].data.content as string[][];
+		expect(content[1][0]).toContain('<b>Bold</b>');
+		expect(content[1][1]).toContain('<i>done</i>');
+	});
+
+	it('should parse table with varying column counts (ragged rows)', () => {
+		const md = [
+			'| A | B | C |',
+			'| --- | --- | --- |',
+			'| 1 | 2 |',
+		].join('\n');
+		const blocks = converter.markdownToBlocks(md);
+		expect(blocks).toHaveLength(1);
+		const content = blocks[0].data.content as string[][];
+		expect(content[0]).toHaveLength(3);
+		expect(content[1]).toHaveLength(3);
+		expect(content[1][2]).toBe('');
+	});
+
+	it('should handle table surrounded by other content', () => {
+		const md = [
+			'# Title',
+			'',
+			'| Col1 | Col2 |',
+			'| --- | --- |',
+			'| A | B |',
+			'',
+			'Some paragraph after.',
+		].join('\n');
+		const blocks = converter.markdownToBlocks(md);
+		expect(blocks).toHaveLength(3);
+		expect(blocks[0].type).toBe('header');
+		expect(blocks[1].type).toBe('table');
+		expect(blocks[2].type).toBe('paragraph');
+	});
+
+	it('should parse table with alignment markers in separator', () => {
+		const md = [
+			'| Left | Center | Right |',
+			'| :--- | :---: | ---: |',
+			'| L | C | R |',
+		].join('\n');
+		const blocks = converter.markdownToBlocks(md);
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0].type).toBe('table');
+		const content = blocks[0].data.content as string[][];
+		expect(content).toHaveLength(2);
+		expect(content[0]).toEqual(['Left', 'Center', 'Right']);
+	});
+
+	it('should handle single-column table', () => {
+		const md = ['| Item |', '| --- |', '| One |', '| Two |'].join('\n');
+		const blocks = converter.markdownToBlocks(md);
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0].type).toBe('table');
+		const content = blocks[0].data.content as string[][];
+		expect(content).toEqual([['Item'], ['One'], ['Two']]);
+	});
+
+	it('should not treat horizontal rules as table separators', () => {
+		const md = ['---', '', 'text'].join('\n');
+		const blocks = converter.markdownToBlocks(md);
+		expect(blocks[0].type).toBe('delimiter');
+	});
+});
+
+describe('blocksToMarkdown — table serialization', () => {
+	it('should convert a table block with headings to markdown', () => {
+		const blocks = [
+			{
+				type: 'table',
+				data: {
+					withHeadings: true,
+					content: [
+						['Name', 'Age'],
+						['Alice', '30'],
+						['Bob', '25'],
+					],
+				},
+			},
+		];
+		const md = converter.blocksToMarkdown(blocks);
+		const lines = md.split('\n');
+		expect(lines[0]).toBe('| Name | Age |');
+		expect(lines[1]).toMatch(/^\| -+ \| -+ \|$/);
+		expect(lines[2]).toBe('| Alice | 30 |');
+		expect(lines[3]).toBe('| Bob | 25 |');
+	});
+
+	it('should convert a table block without headings to markdown', () => {
+		const blocks = [
+			{
+				type: 'table',
+				data: {
+					withHeadings: false,
+					content: [
+						['A', 'B'],
+						['C', 'D'],
+					],
+				},
+			},
+		];
+		const md = converter.blocksToMarkdown(blocks);
+		const lines = md.split('\n');
+		expect(lines[0]).toBe('| A | B |');
+		expect(lines[1]).toBe('| C | D |');
+		expect(lines).not.toContain(expect.stringMatching(/^| -/));
+	});
+
+	it('should round-trip a markdown table', () => {
+		const original = [
+			'| Name | Age |',
+			'| --- | --- |',
+			'| Alice | 30 |',
+		].join('\n');
+		const blocks = converter.markdownToBlocks(original);
+		const md = converter.blocksToMarkdown(blocks);
+		const roundTripped = converter.markdownToBlocks(md);
+		expect(roundTripped).toHaveLength(1);
+		expect(roundTripped[0].type).toBe('table');
+		expect(roundTripped[0].data.content).toEqual(blocks[0].data.content);
+	});
+
+	it('should handle HTML inline formatting in table cells on serialize', () => {
+		const blocks = [
+			{
+				type: 'table',
+				data: {
+					withHeadings: true,
+					content: [
+						['<b>Bold</b>', 'Plain'],
+						['<i>Italic</i>', 'Text'],
+					],
+				},
+			},
+		];
+		const md = converter.blocksToMarkdown(blocks);
+		expect(md).toContain('**Bold**');
+		expect(md).toContain('*Italic*');
+	});
+});
+
 describe('blocksToMarkdown — escaping characters that would be misinterpreted', () => {
 	it('should escape consecutive underscores so they round-trip correctly', () => {
 		const inputBlocks = [{ type: 'paragraph', data: { text: 'ФИО: __________' } }];

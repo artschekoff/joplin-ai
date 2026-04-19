@@ -160,6 +160,24 @@ const updateNoteHandler: ActionHandler = {
 			}
 			return { success: false, message: 'No fields provided to update' };
 		}
+		if (
+			context.isSelection &&
+			context.selectionText &&
+			typeof updates.body === 'string'
+		) {
+			const fullNote = await joplin.data.get(['notes', noteId], { fields: ['body'] });
+			const fullBody: string = fullNote?.body ?? '';
+			const aiBody = updates.body as string;
+			const selIdx = fullBody.indexOf(context.selectionText);
+			const aiSentFragment =
+				selIdx !== -1 && aiBody.length < fullBody.length * 0.8;
+			if (aiSentFragment) {
+				updates.body =
+					fullBody.substring(0, selIdx) +
+					aiBody +
+					fullBody.substring(selIdx + context.selectionText.length);
+			}
+		}
 		await joplin.data.put(['notes', noteId], null, updates);
 		let noteTitle = context.currentNoteTitle;
 		if (args.noteId) {

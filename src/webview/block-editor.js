@@ -312,6 +312,7 @@
     for (const [name, def] of Object.entries(toolDefs)) {
       if (def.class) tools[name] = def;
     }
+    tools.table = { class: SimpleTableTool, inlineToolbar: true };
     tools.askAI = { class: AskAIInlineTool };
     tools.askAITune = { class: AskAIBlockTune };
 
@@ -346,9 +347,10 @@
 
   window.BlockEditor = {
     loadNote: async (note) => {
+      clearTimeout(saveTimer);
+      saveTimer = null;
       currentNoteId = note ? (note.id || null) : null;
       if (!editor) return;
-      // Reset undo history whenever a new note is loaded.
       undoStack.length = 0;
       currentSnapshot = null;
       isRestoringUndo = false;
@@ -604,6 +606,62 @@
     }, true);
   };
 
+  // ── Simple Table Editor.js block tool ──────────────────────────────────
+
+  /**
+   * Lightweight Editor.js block tool for rendering markdown tables.
+   * Stores data as `{ withHeadings: boolean, content: string[][] }`.
+   * Cells are contenteditable so users can edit text inline.
+   */
+  class SimpleTableTool {
+    static get toolbox() {
+      return {
+        title: 'Table',
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>',
+      };
+    }
+
+    constructor({ data }) {
+      this._data = {
+        withHeadings: data.withHeadings ?? true,
+        content: Array.isArray(data.content) && data.content.length > 0
+          ? data.content
+          : [['', ''], ['', '']],
+      };
+    }
+
+    render() {
+      const wrapper = document.createElement('div');
+      wrapper.classList.add('be-table-wrapper');
+      const table = document.createElement('table');
+      table.classList.add('be-table');
+      this._data.content.forEach((row, ri) => {
+        const tr = document.createElement('tr');
+        row.forEach((cell) => {
+          const td = document.createElement(ri === 0 && this._data.withHeadings ? 'th' : 'td');
+          td.innerHTML = cell;
+          td.contentEditable = 'true';
+          tr.appendChild(td);
+        });
+        table.appendChild(tr);
+      });
+      wrapper.appendChild(table);
+      this._table = table;
+      return wrapper;
+    }
+
+    save() {
+      if (!this._table) return this._data;
+      const rows = Array.from(this._table.querySelectorAll('tr'));
+      const content = rows.map((tr) =>
+        Array.from(tr.querySelectorAll('th, td')).map((cell) => cell.innerHTML.trim()),
+      );
+      return { withHeadings: this._data.withHeadings, content };
+    }
+
+    static get isReadOnlySupported() { return true; }
+  }
+
   // ── "Ask AI" Editor.js inline tool ──────────────────────────────────────
 
   const ROBOT_SVG =
@@ -662,14 +720,23 @@
       wrapper.innerHTML =
         '<div class="ce-popover-item__icon">' + ROBOT_SVG + '</div>' +
         '<div class="ce-popover-item__title">Ask AI</div>';
-      wrapper.addEventListener('click', () => {
+      wrapper.addEventListener('click', async () => {
         const blockIndex = this._api.blocks.getCurrentBlockIndex();
-        const blockEl = document.querySelectorAll('#editor-container .ce-block')[blockIndex];
-        const content = blockEl
-          ? (blockEl.querySelector('.ce-block__content') || blockEl).textContent.trim()
-          : '';
-        if (content && typeof window.webviewApi !== 'undefined') {
-          window.webviewApi.postMessage({ type: 'askAI', text: content });
+        let md = '';
+        try {
+          const out = await editor.save();
+          const block = out.blocks[blockIndex];
+          if (block) {
+            md = window.MarkdownConverter.blocksToMarkdown([block]).trim();
+          }
+        } catch (_) {
+          const blockEl = document.querySelectorAll('#editor-container .ce-block')[blockIndex];
+          md = blockEl
+            ? (blockEl.querySelector('.ce-block__content') || blockEl).textContent.trim()
+            : '';
+        }
+        if (md && typeof window.webviewApi !== 'undefined') {
+          window.webviewApi.postMessage({ type: 'askAI', text: md });
         }
         this._api.toolbar.close();
       });

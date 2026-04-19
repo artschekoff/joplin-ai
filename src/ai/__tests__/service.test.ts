@@ -4,6 +4,7 @@ import {
 	validateApiKey,
 	buildOpenAIPdfParts,
 	buildClaudePdfParts,
+	shouldIncludeNoteBody,
 } from '../service';
 import { ChatMessage } from '../types';
 
@@ -779,45 +780,72 @@ describe('buildSystemPrompt', () => {
 		});
 	});
 
-	describe('with isSelection flag', () => {
-		it('labels content as selected fragment when isSelection is true', () => {
+	describe('with isSelection and selectionText', () => {
+		it('embeds selection markers around the selected fragment in the body', () => {
 			const prompt = buildSystemPrompt({
 				noteTitle: 'Test',
-				noteBody: 'Some selected text here',
+				noteBody: '# Title\n\nDate: 17 April\n\n## Footer',
 				isSelection: true,
+				selectionText: 'Date: 17 April',
 			});
-			expect(prompt).toMatch(/selected (fragment|text|portion)/i);
-			expect(prompt).toContain('Some selected text here');
+			expect(prompt).toContain('>>>SELECTED<<<');
+			expect(prompt).toContain('<<<END_SELECTED>>>');
+			expect(prompt).toContain('>>>SELECTED<<<\nDate: 17 April\n<<<END_SELECTED>>>');
+			expect(prompt).toContain('# Title');
+			expect(prompt).toContain('## Footer');
 		});
 
-		it('labels content as full note when isSelection is false', () => {
+		it('includes SELECTION RULES when markers are present', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: '# Title\n\nDate: 17 April\n\n## Footer',
+				isSelection: true,
+				selectionText: 'Date: 17 April',
+			});
+			expect(prompt).toContain('SELECTION RULES');
+			expect(prompt).toMatch(/COMPLETE note body/);
+		});
+
+		it('includes SELECTION RULES in edit mode too', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: '# Title\n\nSelected paragraph\n\n## End',
+				isSelection: true,
+				selectionText: 'Selected paragraph',
+				workMode: 'edit',
+			});
+			expect(prompt).toContain('SELECTION RULES');
+			expect(prompt).toContain('>>>SELECTED<<<\nSelected paragraph\n<<<END_SELECTED>>>');
+		});
+
+		it('does not add markers when selectionText is not in the body', () => {
+			const prompt = buildSystemPrompt({
+				noteTitle: 'Test',
+				noteBody: 'Some body text',
+				isSelection: true,
+				selectionText: 'nonexistent fragment',
+			});
+			expect(prompt).not.toContain('>>>SELECTED<<<');
+			expect(prompt).not.toContain('SELECTION RULES');
+		});
+
+		it('does not add markers when isSelection is false', () => {
 			const prompt = buildSystemPrompt({
 				noteTitle: 'Test',
 				noteBody: 'Full note content',
 				isSelection: false,
 			});
 			expect(prompt).toContain('Current note content');
-			expect(prompt).not.toMatch(/selected (fragment|text|portion)/i);
+			expect(prompt).not.toContain('>>>SELECTED<<<');
 		});
 
-		it('labels content as full note when isSelection is undefined', () => {
+		it('does not add markers when isSelection is undefined', () => {
 			const prompt = buildSystemPrompt({
 				noteTitle: 'Test',
 				noteBody: 'Full note content',
 			});
 			expect(prompt).toContain('Current note content');
-			expect(prompt).not.toMatch(/selected (fragment|text|portion)/i);
-		});
-
-		it('includes selection label in edit mode too', () => {
-			const prompt = buildSystemPrompt({
-				noteTitle: 'Test',
-				noteBody: 'Some selected text',
-				isSelection: true,
-				workMode: 'edit',
-			});
-			expect(prompt).toMatch(/selected (fragment|text|portion)/i);
-			expect(prompt).toContain('Some selected text');
+			expect(prompt).not.toContain('>>>SELECTED<<<');
 		});
 	});
 });
@@ -2614,5 +2642,245 @@ describe('sendToAI', () => {
 			expect(executionOrder[0]).toBe('start:search_notes');
 			expect(executionOrder[1]).toBe('start:list_notebooks');
 		});
+	});
+});
+
+describe('shouldIncludeNoteBody', () => {
+	it('always includes body in edit mode', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'edit',
+				prompt: 'what is Python?',
+				noteTitle: 'Unrelated',
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body when selection is active', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'ask',
+				prompt: 'what is Python?',
+				noteTitle: 'Unrelated',
+				hasSelection: true,
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body when referenced notes exist', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'ask',
+				prompt: 'compare these',
+				noteTitle: 'Unrelated',
+				hasReferencedNotes: true,
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body on first message (no history)', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'ask',
+				prompt: 'what is Python?',
+				noteTitle: 'Unrelated',
+				historyLength: 0,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body when prompt mentions note title', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'agent',
+				prompt: 'summarize my Shopping List',
+				noteTitle: 'Shopping List',
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body when prompt says "this note"', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'ask',
+				prompt: 'what is this note about?',
+				noteTitle: 'Unrelated',
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body when prompt says "текущую заметку"', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'ask',
+				prompt: 'проанализируй текущую заметку',
+				noteTitle: 'Unrelated',
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body when prompt contains "summarize"', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'ask',
+				prompt: 'summarize the key points',
+				noteTitle: 'Unrelated',
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body when prompt contains "translate"', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'agent',
+				prompt: 'translate to English',
+				noteTitle: 'Unrelated',
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body when prompt contains "переведи"', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'ask',
+				prompt: 'переведи на английский',
+				noteTitle: 'Unrelated',
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('excludes body when prompt is unrelated in ask mode with history', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'ask',
+				prompt: 'what is the capital of France?',
+				noteTitle: 'Shopping List',
+				historyLength: 4,
+			}),
+		).toBe(false);
+	});
+
+	it('excludes body for general question in agent mode with history', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'agent',
+				prompt: 'create a new note about meeting agenda',
+				noteTitle: 'Shopping List',
+				historyLength: 4,
+			}),
+		).toBe(false);
+	});
+
+	it('excludes body for search command in agent mode with history', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'agent',
+				prompt: 'find all notes tagged with work',
+				noteTitle: 'My Journal',
+				historyLength: 4,
+			}),
+		).toBe(false);
+	});
+
+	it('includes body when prompt mentions "update the note"', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'agent',
+				prompt: 'update the note body with new info',
+				noteTitle: 'Unrelated',
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body for "rewrite" command', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'agent',
+				prompt: 'rewrite in a formal tone',
+				noteTitle: 'Unrelated',
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+
+	it('includes body for "исправь" (fix in Russian)', () => {
+		expect(
+			shouldIncludeNoteBody({
+				workMode: 'ask',
+				prompt: 'исправь ошибки',
+				noteTitle: 'Unrelated',
+				historyLength: 5,
+			}),
+		).toBe(true);
+	});
+});
+
+describe('buildSystemPrompt with noteBodyOmitted', () => {
+	it('includes placeholder when noteBodyOmitted is true', () => {
+		const prompt = buildSystemPrompt({
+			noteTitle: 'Test',
+			noteBody: '',
+			noteBodyOmitted: true,
+		});
+		expect(prompt).toContain('Note body omitted');
+		expect(prompt).toContain('get_note');
+	});
+
+	it('does not include note body when noteBodyOmitted is true', () => {
+		const prompt = buildSystemPrompt({
+			noteTitle: 'Test',
+			noteBody: '',
+			noteBodyOmitted: true,
+		});
+		expect(prompt).not.toContain('Current note content:');
+		expect(prompt).toContain('Current note body: (omitted)');
+	});
+
+	it('includes note title when noteBodyOmitted is true', () => {
+		const prompt = buildSystemPrompt({
+			noteTitle: 'My Important Note',
+			noteBody: '',
+			noteBodyOmitted: true,
+		});
+		expect(prompt).toContain('Current note title: My Important Note');
+	});
+
+	it('includes full body when noteBodyOmitted is false', () => {
+		const prompt = buildSystemPrompt({
+			noteTitle: 'Test',
+			noteBody: 'This is the full body content',
+			noteBodyOmitted: false,
+		});
+		expect(prompt).toContain('This is the full body content');
+		expect(prompt).not.toContain('Note body omitted');
+	});
+
+	it('includes full body when noteBodyOmitted is undefined', () => {
+		const prompt = buildSystemPrompt({
+			noteTitle: 'Test',
+			noteBody: 'Body here',
+		});
+		expect(prompt).toContain('Body here');
+		expect(prompt).not.toContain('Note body omitted');
+	});
+
+	it('applies noteBodyOmitted in edit mode too', () => {
+		const prompt = buildSystemPrompt({
+			noteTitle: 'Test',
+			noteBody: '',
+			noteBodyOmitted: true,
+			workMode: 'edit',
+		});
+		expect(prompt).toContain('Note body omitted');
 	});
 });

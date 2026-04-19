@@ -22,6 +22,7 @@ export interface AIToolCall {
 export interface TokenUsage {
 	inputTokens: number;
 	outputTokens: number;
+	cachedTokens?: number;
 }
 
 export interface AIProviderResponse {
