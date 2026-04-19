@@ -1,3 +1,4 @@
+import joplin from 'api';
 import { ToolbarButtonLocation } from 'api/types';
 
 const mockToolbarButtonsCreate = jest.fn().mockResolvedValue(undefined);
@@ -162,8 +163,7 @@ describe('index onStart registration', () => {
 			jest.clearAllMocks();
 			mockPanelsCreate.mockResolvedValue('panel-handle-test');
 
-			const joplinApi = require('api').default;
-			(joplinApi.settings.registerSettings as jest.Mock).mockRejectedValueOnce(
+			(joplin.settings.registerSettings as jest.Mock).mockRejectedValueOnce(
 				new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: settings.key'),
 			);
 
@@ -204,9 +204,7 @@ describe('index onStart registration', () => {
 		it('should register all commands even when registerSettings throws', async () => {
 			jest.clearAllMocks();
 			mockPanelsCreate.mockResolvedValue('panel-handle-test');
-
-			const joplinApi = require('api').default;
-			(joplinApi.settings.registerSettings as jest.Mock).mockRejectedValueOnce(
+			(joplin.settings.registerSettings as jest.Mock).mockRejectedValueOnce(
 				new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: settings.key'),
 			);
 
