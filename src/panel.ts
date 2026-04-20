@@ -113,7 +113,6 @@ const CHAT_PANEL_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-
 const getCurrentNote = async (): Promise<{ id: string; title: string; body: string } | null> => {
 	const note = await joplin.workspace.selectedNote();
 	if (!note) return null;
@@ -235,7 +234,6 @@ const sendNoteInfo = async (handle: ViewHandle) => {
 	});
 	await sendContextSize(handle, note);
 };
-
 
 const sendAgentRoles = async (handle: ViewHandle) => {
 	const raw = (await joplin.settings.value(SETTING_KEYS.agentRoles)) as string;
@@ -704,12 +702,7 @@ export const initPanel = async () => {
 			const raw = (await joplin.settings.globalValue('notion.askAI.request')) as string;
 			if (!raw) return;
 			const parsed: unknown = JSON.parse(raw);
-			if (
-				typeof parsed === 'object' &&
-				parsed !== null &&
-				'ts' in parsed &&
-				'text' in parsed
-			) {
+			if (typeof parsed === 'object' && parsed !== null && 'ts' in parsed && 'text' in parsed) {
 				const { ts, text } = parsed as { ts: number; text: string };
 				if (ts > lastAskAITs && typeof text === 'string' && text.trim()) {
 					lastAskAITs = ts;
@@ -763,4 +756,3 @@ export const triggerAskAI = async (text: string): Promise<void> => {
 		text,
 	});
 };
-

@@ -1,12 +1,7 @@
 import joplin from 'api';
 import { ContentScriptType, MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import { initSettings } from './settings';
-import {
-	initPanel,
-	togglePanel,
-	setEditorSelection,
-	triggerAskAI,
-} from './panel';
+import { initPanel, togglePanel, setEditorSelection, triggerAskAI } from './panel';
 
 joplin.plugins.register({
 	onStart: async function () {

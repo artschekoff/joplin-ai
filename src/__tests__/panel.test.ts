@@ -82,12 +82,7 @@ jest.mock('../utils/pdf-extract', () => ({
 	extractPdfTextFromBase64: (...args: unknown[]) => mockExtractPdf(...args),
 }));
 
-import {
-	initPanel,
-	setEditorSelection,
-	togglePanel,
-	triggerAskAI,
-} from '../panel';
+import { initPanel, setEditorSelection, togglePanel, triggerAskAI } from '../panel';
 import { sendToAI } from '../ai/service';
 
 const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
@@ -220,7 +215,6 @@ describe('panel handleExecute', () => {
 		const types = postMessageCalls.map((call: unknown[]) => (call[1] as { type: string }).type);
 		expect(types).toContain('noteInfo');
 	});
-
 
 	it('shows error when no note is selected', async () => {
 		mockSelectedNote.mockResolvedValue(null);
@@ -1557,7 +1551,6 @@ describe('triggerAskAI', () => {
 		);
 		expect(triggerCalls).toHaveLength(0);
 	});
-
 });
 
 describe('settings message handlers', () => {
