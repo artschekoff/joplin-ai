@@ -936,12 +936,33 @@
     }
   };
 
+  // ── List cross-item selection patch ────────────────────────────────────────
+  //
+  // @editorjs/list sets contentEditable on each .cdx-list__item-content div.
+  // Browsers cannot extend a text selection across separate contentEditable
+  // boundaries.  By promoting contentEditable to the parent .cdx-list wrapper,
+  // all items share one editable region and drag-selection works normally.
+
+  const patchListContentEditable = () => {
+    const container = document.getElementById('editor-container');
+    if (!container) return;
+    const apply = () => {
+      container.querySelectorAll('.cdx-list:not([contenteditable])').forEach(list => {
+        list.setAttribute('contenteditable', 'true');
+      });
+    };
+    apply();
+    const obs = new MutationObserver(apply);
+    obs.observe(container, { childList: true, subtree: true });
+  };
+
   // ── Boot ───────────────────────────────────────────────────────────────────
 
   const boot = () => {
     initTOC();
     attachPopoverBehavior();
     attachMessageHandler();
+    patchListContentEditable();
 
     if (!initEditorJs()) {
       setTimeout(() => { if (!initEditorJs()) console.error('[BlockEditor] EditorJS failed to load'); }, 500);
