@@ -699,7 +699,9 @@ export const initPanel = async () => {
 	let lastAskAITs: number = 0;
 	setInterval(async () => {
 		try {
-			const raw = (await joplin.settings.globalValue('notion.askAI.request')) as string;
+			const raw = (await joplin.settings.globalValue(
+				'com.riskyworks.joplin-notion-editor.notion.askAI.request',
+			)) as string;
 			if (!raw) return;
 			const parsed: unknown = JSON.parse(raw);
 			if (typeof parsed === 'object' && parsed !== null && 'ts' in parsed && 'text' in parsed) {
