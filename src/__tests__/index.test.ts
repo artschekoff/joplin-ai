@@ -1,3 +1,5 @@
+import * as path from 'path';
+import * as fs from 'fs';
 import joplin from 'api';
 import { ToolbarButtonLocation } from 'api/types';
 
@@ -88,6 +90,15 @@ jest.mock('../utils/pdf-extract', () => ({
 }));
 
 import '../index';
+
+describe('manifest.json plugin identity', () => {
+	const manifestPath = path.resolve(__dirname, '..', 'manifest.json');
+	const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+	it('should use the net.roxl.joplin-ai plugin identifier', () => {
+		expect(manifest.id).toBe('net.roxl.joplin-ai');
+	});
+});
 
 describe('index onStart registration', () => {
 	beforeEach(async () => {

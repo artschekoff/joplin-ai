@@ -26,12 +26,12 @@ joplin.plugins.register({
 				'./contentScripts/editorHider.js',
 			);
 
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			await joplin.contentScripts.onMessage('editorHider', (message: any) => {
 				if (message?.type === 'getBlockEditorState') {
 					return joplin.settings
-						.globalValue('com.riskyworks.joplin-notion-editor.notion.blockEditor.active')
-						.then((active: unknown) => ({ active: Boolean(active) }))
+						.globalValues(['plugin-net.roxl.joplin-notion.notion.blockEditor.active'])
+						.then(([active]: unknown[]) => ({ active: Boolean(active) }))
 						.catch(() => ({ active: false }));
 				}
 				if (message?.type === 'selectionChange') {
