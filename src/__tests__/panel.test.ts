@@ -17,18 +17,6 @@ const mockOnNoteSelectionChange = jest.fn().mockResolvedValue(undefined);
 const capturedCallbacks: Record<string, (message: any) => Promise<void>> = {};
 let capturedOnMessageCallback: (message: any) => Promise<void>;
 
-const mockShareNoteAsText = jest.fn().mockResolvedValue(undefined);
-const mockOpenUrlInSystem = jest.fn().mockResolvedValue(undefined);
-const mockExportNoteWithPandoc = jest.fn().mockResolvedValue('/tmp/note.docx');
-const mockCopyFileToDirectory = jest.fn().mockResolvedValue('/Users/me/Documents/note.docx');
-jest.mock('../utils/share-note', () => ({
-	shareNoteAsText: (...args: unknown[]) => mockShareNoteAsText(...args),
-	openUrlInSystem: (...args: unknown[]) => mockOpenUrlInSystem(...args),
-	buildPdfMailtoUrl: (title: string) => `mailto:?subject=${encodeURIComponent(title)}&body=PDF`,
-	exportNoteWithPandoc: (...args: unknown[]) => mockExportNoteWithPandoc(...args),
-	copyFileToDirectory: (...args: unknown[]) => mockCopyFileToDirectory(...args),
-}));
-
 const mockCommandsExecute = jest.fn().mockResolvedValue(undefined);
 const mockShowOpenDialog = jest.fn().mockResolvedValue(['/Users/me/Documents']);
 const mockShowToast = jest.fn().mockResolvedValue(undefined);
@@ -96,10 +84,8 @@ jest.mock('../utils/pdf-extract', () => ({
 
 import {
 	initPanel,
-	shareCurrentNote,
 	setEditorSelection,
 	togglePanel,
-	toggleBlockEditorPane,
 	triggerAskAI,
 } from '../panel';
 import { sendToAI } from '../ai/service';
@@ -109,7 +95,7 @@ const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
 describe('panel creation order', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -124,17 +110,16 @@ describe('panel creation order', () => {
 		await initPanel();
 	});
 
-	it('creates block editor before AI chat so block editor appears to the left of AI sidebar', () => {
+	it('creates the AI chat panel', () => {
 		const createCalls = mockCreate.mock.calls.map((call: unknown[]) => call[0]);
-		expect(createCalls[0]).toBe('blockEditorPanel');
-		expect(createCalls[1]).toBe('aiChatPanel');
+		expect(createCalls[0]).toBe('aiChatPanel');
 	});
 });
 
 describe('panel handleExecute', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -236,69 +221,6 @@ describe('panel handleExecute', () => {
 		expect(types).toContain('noteInfo');
 	});
 
-	it('sends noteLoaded to block editor after AI edit when editor is visible', async () => {
-		await toggleBlockEditorPane();
-		mockPostMessage.mockClear();
-
-		mockedSendToAI.mockResolvedValue({
-			content: 'Updated.',
-			isEdit: true,
-			editedBody: undefined,
-			actions: [{ action: 'update_note', success: true, message: 'updated' }],
-		});
-
-		await capturedOnMessageCallback({ type: 'execute', prompt: 'rewrite the note' });
-
-		expect(mockPostMessage).toHaveBeenCalledWith(
-			MOCK_EDITOR_HANDLE,
-			expect.objectContaining({
-				type: 'noteLoaded',
-				note: expect.objectContaining({
-					id: 'note-1',
-					title: 'Test Note',
-				}),
-			}),
-		);
-	});
-
-	it('does not send noteLoaded to block editor after AI edit when editor is hidden', async () => {
-		mockPostMessage.mockClear();
-
-		mockedSendToAI.mockResolvedValue({
-			content: 'Updated.',
-			isEdit: true,
-			editedBody: undefined,
-			actions: [{ action: 'update_note', success: true, message: 'updated' }],
-		});
-
-		await capturedOnMessageCallback({ type: 'execute', prompt: 'rewrite the note' });
-
-		const editorNoteLoadedCalls = mockPostMessage.mock.calls.filter(
-			(call: unknown[]) =>
-				call[0] === MOCK_EDITOR_HANDLE && (call[1] as { type: string }).type === 'noteLoaded',
-		);
-		expect(editorNoteLoadedCalls).toHaveLength(0);
-	});
-
-	it('does not send noteLoaded to block editor when AI response is not an edit', async () => {
-		await toggleBlockEditorPane();
-		mockPostMessage.mockClear();
-
-		mockedSendToAI.mockResolvedValue({
-			content: 'This is informational.',
-			isEdit: false,
-			editedBody: undefined,
-			actions: [],
-		});
-
-		await capturedOnMessageCallback({ type: 'execute', prompt: 'what is this about?' });
-
-		const editorNoteLoadedCalls = mockPostMessage.mock.calls.filter(
-			(call: unknown[]) =>
-				call[0] === MOCK_EDITOR_HANDLE && (call[1] as { type: string }).type === 'noteLoaded',
-		);
-		expect(editorNoteLoadedCalls).toHaveLength(0);
-	});
 
 	it('shows error when no note is selected', async () => {
 		mockSelectedNote.mockResolvedValue(null);
@@ -1343,7 +1265,7 @@ describe('panel handleExecute', () => {
 describe('editor selection as AI context', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -1561,116 +1483,10 @@ describe('editor selection as AI context', () => {
 	});
 });
 
-describe('shareCurrentNote', () => {
-	beforeEach(async () => {
-		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
-		mockSelectedNote.mockResolvedValue({ id: 'note-42' });
-		mockDataGet.mockResolvedValue({ id: 'note-42', title: 'My Test Note', body: '# Hello' });
-		await initPanel();
-	});
-
-	it('calls joplin exportPdf command with the current note id for pdf format', async () => {
-		await shareCurrentNote('pdf');
-		expect(mockCommandsExecute).toHaveBeenCalledWith('exportPdf', ['note-42']);
-	});
-
-	it('does not open email client after pdf export', async () => {
-		await shareCurrentNote('pdf');
-		expect(mockOpenUrlInSystem).not.toHaveBeenCalled();
-	});
-
-	it('calls shareNoteAsText with note data for text format', async () => {
-		await shareCurrentNote('text');
-		expect(mockShareNoteAsText).toHaveBeenCalledWith({
-			title: 'My Test Note',
-			body: '# Hello',
-		});
-	});
-
-	it('does not call exportPdf for text format', async () => {
-		await shareCurrentNote('text');
-		expect(mockCommandsExecute).not.toHaveBeenCalledWith('exportPdf', expect.anything());
-	});
-
-	it('throws a user-readable error when no note is selected', async () => {
-		mockSelectedNote.mockResolvedValue(null);
-		await expect(shareCurrentNote('text')).rejects.toThrow('No note selected');
-	});
-
-	it('calls exportNoteWithPandoc with docx format for doc export', async () => {
-		await shareCurrentNote('doc');
-		expect(mockExportNoteWithPandoc).toHaveBeenCalledWith({
-			title: 'My Test Note',
-			body: '# Hello',
-			format: 'docx',
-		});
-	});
-
-	it('shows a folder picker and copies the docx file to the chosen folder', async () => {
-		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.docx');
-		mockShowOpenDialog.mockResolvedValue(['/Users/me/Documents']);
-		await shareCurrentNote('doc');
-		expect(mockShowOpenDialog).toHaveBeenCalled();
-		expect(mockCopyFileToDirectory).toHaveBeenCalledWith(
-			'/tmp/My Test Note.docx',
-			'/Users/me/Documents',
-		);
-		expect(mockOpenUrlInSystem).not.toHaveBeenCalled();
-	});
-
-	it('does not copy file when user cancels the directory picker for doc export', async () => {
-		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.docx');
-		mockShowOpenDialog.mockResolvedValue([]);
-		await shareCurrentNote('doc');
-		expect(mockShowOpenDialog).toHaveBeenCalled();
-		expect(mockCopyFileToDirectory).not.toHaveBeenCalled();
-	});
-
-	it('calls exportNoteWithPandoc with rtf format for rtf export', async () => {
-		await shareCurrentNote('rtf');
-		expect(mockExportNoteWithPandoc).toHaveBeenCalledWith({
-			title: 'My Test Note',
-			body: '# Hello',
-			format: 'rtf',
-		});
-	});
-
-	it('shows a folder picker and copies the rtf file to the chosen folder', async () => {
-		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.rtf');
-		mockShowOpenDialog.mockResolvedValue(['/Users/me/Desktop']);
-		await shareCurrentNote('rtf');
-		expect(mockShowOpenDialog).toHaveBeenCalled();
-		expect(mockCopyFileToDirectory).toHaveBeenCalledWith(
-			'/tmp/My Test Note.rtf',
-			'/Users/me/Desktop',
-		);
-		expect(mockOpenUrlInSystem).not.toHaveBeenCalled();
-	});
-
-	it('does not copy file when user cancels the directory picker for rtf export', async () => {
-		mockExportNoteWithPandoc.mockResolvedValue('/tmp/My Test Note.rtf');
-		mockShowOpenDialog.mockResolvedValue([]);
-		await shareCurrentNote('rtf');
-		expect(mockShowOpenDialog).toHaveBeenCalled();
-		expect(mockCopyFileToDirectory).not.toHaveBeenCalled();
-	});
-
-	it('does not call pandoc for pdf format', async () => {
-		await shareCurrentNote('pdf');
-		expect(mockExportNoteWithPandoc).not.toHaveBeenCalled();
-	});
-
-	it('does not call pandoc for text format', async () => {
-		await shareCurrentNote('text');
-		expect(mockExportNoteWithPandoc).not.toHaveBeenCalled();
-	});
-});
-
 describe('triggerAskAI', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
@@ -1742,135 +1558,12 @@ describe('triggerAskAI', () => {
 		expect(triggerCalls).toHaveLength(0);
 	});
 
-	it('does not re-show editor when chat is opened via triggerAskAI while editor is visible', async () => {
-		const joplinApi = (await import('api')).default;
-		await toggleBlockEditorPane();
-		const showSpy = jest.spyOn(joplinApi.views.panels, 'show');
-		showSpy.mockClear();
-		await triggerAskAI('some text');
-		const showCalls = showSpy.mock.calls.map((c: unknown[]) => c[0]);
-		expect(showCalls).toContain(MOCK_CHAT_HANDLE);
-		expect(showCalls).not.toContain(MOCK_EDITOR_HANDLE);
-	});
-});
-
-describe('block editor askAI message handler', () => {
-	let editorCallback: (message: any) => Promise<void>;
-
-	beforeEach(async () => {
-		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
-		mockSettingsValues.mockResolvedValue({
-			[SETTING_KEYS.provider]: 'openai',
-			[SETTING_KEYS.openaiKey]: 'sk-test-key',
-			[SETTING_KEYS.openaiModel]: 'gpt-4o',
-		});
-		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
-		mockDataGet.mockResolvedValue({
-			id: 'note-1',
-			title: 'Test Note',
-			body: 'Content.',
-		});
-		await initPanel();
-		editorCallback = capturedCallbacks[MOCK_EDITOR_HANDLE];
-	});
-
-	it('triggers ask AI flow when block editor sends askAI message', async () => {
-		await editorCallback({ type: 'askAI', text: 'block selection' });
-
-		expect(mockPostMessage).toHaveBeenCalledWith(
-			MOCK_CHAT_HANDLE,
-			expect.objectContaining({
-				type: 'triggerAskAI',
-				text: 'block selection',
-			}),
-		);
-	});
-
-	it('opens the chat panel when receiving askAI from block editor', async () => {
-		const showSpy = jest.spyOn((await import('api')).default.views.panels, 'show');
-		await editorCallback({ type: 'askAI', text: 'some text' });
-		expect(showSpy).toHaveBeenCalledWith(MOCK_CHAT_HANDLE);
-	});
-
-	it('ignores askAI with empty text from block editor', async () => {
-		mockPostMessage.mockClear();
-		await editorCallback({ type: 'askAI', text: '' });
-		const triggerCalls = mockPostMessage.mock.calls.filter(
-			(call: unknown[]) => (call[1] as { type: string }).type === 'triggerAskAI',
-		);
-		expect(triggerCalls).toHaveLength(0);
-	});
-});
-
-describe('saveBlocks message handler', () => {
-	let editorCallback: (message: any) => Promise<void>;
-
-	beforeEach(async () => {
-		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
-		await initPanel();
-		editorCallback = capturedCallbacks[MOCK_EDITOR_HANDLE];
-	});
-
-	it('persists note body to Joplin when valid saveBlocks message is received', async () => {
-		await editorCallback({
-			type: 'saveBlocks',
-			noteId: 'note-abc',
-			markdown: '# Hello\n\nWorld',
-		});
-
-		expect(mockDataPut).toHaveBeenCalledWith(['notes', 'note-abc'], null, {
-			body: '# Hello\n\nWorld',
-		});
-	});
-
-	it('ignores saveBlocks when noteId is an empty string', async () => {
-		await editorCallback({
-			type: 'saveBlocks',
-			noteId: '',
-			markdown: '# Hello',
-		});
-
-		expect(mockDataPut).not.toHaveBeenCalled();
-	});
-
-	it('ignores saveBlocks when noteId is missing', async () => {
-		await editorCallback({
-			type: 'saveBlocks',
-			markdown: '# Hello',
-		});
-
-		expect(mockDataPut).not.toHaveBeenCalled();
-	});
-
-	it('ignores saveBlocks when markdown is not a string', async () => {
-		await editorCallback({
-			type: 'saveBlocks',
-			noteId: 'note-abc',
-			markdown: null,
-		});
-
-		expect(mockDataPut).not.toHaveBeenCalled();
-	});
-
-	it('does not throw when joplin.data.put rejects — silently continues', async () => {
-		mockDataPut.mockRejectedValueOnce(new Error('Joplin write failed'));
-
-		await expect(
-			editorCallback({
-				type: 'saveBlocks',
-				noteId: 'note-abc',
-				markdown: '# Hello',
-			}),
-		).resolves.not.toThrow();
-	});
 });
 
 describe('settings message handlers', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		mockCreate.mockResolvedValueOnce(MOCK_EDITOR_HANDLE).mockResolvedValueOnce(MOCK_CHAT_HANDLE);
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE);
 		mockSettingsValues.mockResolvedValue({
 			[SETTING_KEYS.provider]: 'openai',
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',

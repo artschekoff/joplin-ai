@@ -17,12 +17,9 @@ import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
 import { extractPdfTextFromBase64 } from './utils/pdf-extract';
-import { shareNoteAsText, exportNoteWithPandoc, copyFileToDirectory } from './utils/share-note';
 
 let chatPanelHandle: ViewHandle | null = null;
-let editorPanelHandle: ViewHandle | null = null;
 let chatPanelVisible = false;
-let editorPanelVisible = false;
 let editorSelection = '';
 
 /** Track the last note body sent to AI to enable diff-based optimization. */
@@ -116,33 +113,6 @@ const CHAT_PANEL_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-const EDITOR_PANEL_HTML = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body>
-	<div id="app">
-		<div id="editor-wrapper">
-			<div id="editor-container" tabindex="-1"></div>
-			<div id="toc-panel" class="toc-hidden">
-				<div id="toc-header">
-					<span>Outline</span>
-				</div>
-				<div id="toc-list"></div>
-			</div>
-		</div>
-		<div id="vim-statusbar" data-mode="insert">
-			<span id="vim-mode-label">INSERT</span>
-		</div>
-	</div>
-	<button id="toc-toggle-btn" title="Toggle outline" aria-label="Toggle outline">
-		<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-			<line x1="3" y1="6" x2="21" y2="6"/>
-			<line x1="3" y1="12" x2="15" y2="12"/>
-			<line x1="3" y1="18" x2="18" y2="18"/>
-		</svg>
-	</button>
-</body>
-</html>`;
 
 const getCurrentNote = async (): Promise<{ id: string; title: string; body: string } | null> => {
 	const note = await joplin.workspace.selectedNote();
@@ -266,14 +236,6 @@ const sendNoteInfo = async (handle: ViewHandle) => {
 	await sendContextSize(handle, note);
 };
 
-const sendNoteLoaded = async (handle: ViewHandle) => {
-	const note = await getCurrentNote();
-	if (!note) return;
-	joplin.views.panels.postMessage(handle, {
-		type: 'noteLoaded',
-		note: { id: note.id, title: note.title, body: note.body },
-	});
-};
 
 const sendAgentRoles = async (handle: ViewHandle) => {
 	const raw = (await joplin.settings.value(SETTING_KEYS.agentRoles)) as string;
@@ -633,9 +595,6 @@ const handleExecute = async (
 				lastSentNoteBody = updatedNote.body;
 			}
 			await sendNoteInfo(handle);
-			if (editorPanelHandle && editorPanelVisible) {
-				await sendNoteLoaded(editorPanelHandle);
-			}
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -651,25 +610,9 @@ const handleExecute = async (
 
 export const initPanel = async () => {
 	chatPanelVisible = false;
-	editorPanelVisible = false;
 	editorSelection = '';
 	lastSentNoteId = null;
 	lastSentNoteBody = null;
-
-	editorPanelHandle = await joplin.views.panels.create('blockEditorPanel');
-	await joplin.views.panels.setHtml(editorPanelHandle, EDITOR_PANEL_HTML);
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/panel.css');
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/editorjs.umd.js');
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/header.umd.js');
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/editorjs-list.umd.js');
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/checklist.umd.js');
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/code.umd.js');
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/quote.umd.js');
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/delimiter.umd.js');
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/vendor/editorjs-drag-drop.js');
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/markdown-converter.js');
-	await joplin.views.panels.addScript(editorPanelHandle, './webview/block-editor.js');
-	await joplin.views.panels.hide(editorPanelHandle);
 
 	chatPanelHandle = await joplin.views.panels.create('aiChatPanel');
 	await joplin.views.panels.setHtml(chatPanelHandle, CHAT_PANEL_HTML);
@@ -745,49 +688,38 @@ export const initPanel = async () => {
 		}
 	});
 
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	await joplin.views.panels.onMessage(editorPanelHandle, async (message: any) => {
-		if (!editorPanelHandle) return;
-
-		if (message.type === 'getNote') {
-			await sendNoteLoaded(editorPanelHandle);
-			return;
-		}
-
-		if (message.type === 'saveBlocks') {
-			const { noteId, markdown } = message as { noteId: unknown; markdown: unknown };
-			if (typeof noteId === 'string' && noteId && typeof markdown === 'string') {
-				try {
-					await joplin.data.put(['notes', noteId], null, { body: markdown });
-				} catch (saveErr) {
-					const errMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
-					console.error('saveBlocks failed:', errMsg);
-					if (editorPanelHandle) {
-						joplin.views.panels.postMessage(editorPanelHandle, {
-							type: 'error',
-							message: 'Failed to save note. Please try again.',
-						});
-					}
-				}
-			}
-			return;
-		}
-
-		if (message.type === 'askAI') {
-			const text = typeof message.text === 'string' ? message.text : '';
-			await triggerAskAI(text);
-			return;
-		}
-	});
-
 	await joplin.workspace.onNoteSelectionChange(async () => {
 		if (chatPanelHandle && chatPanelVisible) {
 			await sendNoteInfo(chatPanelHandle);
 		}
-		if (editorPanelHandle && editorPanelVisible) {
-			await sendNoteLoaded(editorPanelHandle);
-		}
 	});
+
+	// ── Ask AI bridge: poll joplin-notion's global setting ──────────────────
+	// joplin-notion writes { text, ts } to notion.askAI.request when the user
+	// clicks "Ask AI" in the block editor. We poll every 500 ms and trigger
+	// the chat panel when the timestamp changes.
+	let lastAskAITs: number = 0;
+	setInterval(async () => {
+		try {
+			const raw = (await joplin.settings.globalValue('notion.askAI.request')) as string;
+			if (!raw) return;
+			const parsed: unknown = JSON.parse(raw);
+			if (
+				typeof parsed === 'object' &&
+				parsed !== null &&
+				'ts' in parsed &&
+				'text' in parsed
+			) {
+				const { ts, text } = parsed as { ts: number; text: string };
+				if (ts > lastAskAITs && typeof text === 'string' && text.trim()) {
+					lastAskAITs = ts;
+					await triggerAskAI(text);
+				}
+			}
+		} catch {
+			// Setting not yet registered or joplin-notion not installed — ignore
+		}
+	}, 500);
 };
 
 export const togglePanel = async (): Promise<void> => {
@@ -800,8 +732,6 @@ export const togglePanel = async (): Promise<void> => {
 		await joplin.views.panels.hide(chatPanelHandle);
 	}
 };
-
-export const getBlockEditorEnabled = (): boolean => editorPanelVisible;
 
 export const setEditorSelection = (text: string): void => {
 	editorSelection = text;
@@ -834,57 +764,3 @@ export const triggerAskAI = async (text: string): Promise<void> => {
 	});
 };
 
-export const toggleBlockEditorPane = async (): Promise<void> => {
-	if (!editorPanelHandle) return;
-	editorPanelVisible = !editorPanelVisible;
-	if (editorPanelVisible) {
-		await joplin.views.panels.show(editorPanelHandle);
-		await sendNoteLoaded(editorPanelHandle);
-	} else {
-		await joplin.views.panels.hide(editorPanelHandle);
-	}
-};
-
-/**
- * Prompts the user to pick a destination folder, then copies the exported file there.
- * Does nothing if the user cancels the dialog.
- */
-const saveExportedFile = async (tempPath: string): Promise<void> => {
-	const paths: string[] = await joplin.views.dialogs.showOpenDialog({
-		properties: ['openDirectory', 'createDirectory'],
-	});
-	if (!paths || !paths.length) return;
-	await copyFileToDirectory(tempPath, paths[0]);
-};
-
-/**
- * Exports or shares the currently selected note.
- *
- * - 'text' → converts markdown to plain text and opens a mailto: URL.
- * - 'pdf'  → triggers Joplin's built-in PDF export dialog.
- * - 'doc'  → converts markdown to DOCX via pandoc, then saves to a user-chosen folder.
- * - 'rtf'  → converts markdown to RTF via pandoc, then saves to a user-chosen folder.
- */
-export const shareCurrentNote = async (format: string): Promise<void> => {
-	const note = await getCurrentNote();
-	if (!note) throw new Error('No note selected. Please open a note first.');
-	if (format === 'text') {
-		await shareNoteAsText({ title: note.title, body: note.body });
-	} else if (format === 'pdf') {
-		await joplin.commands.execute('exportPdf', [note.id]);
-	} else if (format === 'doc') {
-		const outputPath = await exportNoteWithPandoc({
-			title: note.title,
-			body: note.body,
-			format: 'docx',
-		});
-		await saveExportedFile(outputPath);
-	} else if (format === 'rtf') {
-		const outputPath = await exportNoteWithPandoc({
-			title: note.title,
-			body: note.body,
-			format: 'rtf',
-		});
-		await saveExportedFile(outputPath);
-	}
-};
