@@ -578,7 +578,11 @@ const handleExecute = async (
 		);
 		lastSentNoteId = note.id;
 		lastSentNoteBody = note.body;
-		sendResult(handle, { ...response, pendingEdits: collectedEdits.length > 0 ? collectedEdits : undefined }, config.model);
+		sendResult(
+			handle,
+			{ ...response, pendingEdits: collectedEdits.length > 0 ? collectedEdits : undefined },
+			config.model,
+		);
 		sendUpdatedContextSize(handle, {
 			note,
 			notebooks,

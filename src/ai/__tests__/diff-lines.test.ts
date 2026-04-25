@@ -131,7 +131,10 @@ describe('computeDiffWithGroups', () => {
 	});
 
 	it('includes context lines before and after a change', () => {
-		const result = computeDiffWithGroups('ctx1\nctx2\nold\nctx3\nctx4', 'ctx1\nctx2\nnew\nctx3\nctx4');
+		const result = computeDiffWithGroups(
+			'ctx1\nctx2\nold\nctx3\nctx4',
+			'ctx1\nctx2\nnew\nctx3\nctx4',
+		);
 		const group = result.groups[0];
 		expect(group.contextBefore).toContain('ctx2');
 		expect(group.contextAfter).toContain('ctx3');

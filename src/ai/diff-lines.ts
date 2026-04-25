@@ -45,12 +45,9 @@ export const computeDiffWithGroups = (oldBody: string, newBody: string): DiffWit
 				i++;
 			}
 			const prevSeg = segments.length > 0 ? segments[segments.length - 1] : null;
-			const contextBefore =
-				prevSeg && prevSeg.type === 'unchanged' ? prevSeg.lines.slice(-2) : [];
+			const contextBefore = prevSeg && prevSeg.type === 'unchanged' ? prevSeg.lines.slice(-2) : [];
 			const contextAfter =
-				i < hunks.length && hunks[i].type === 'unchanged'
-					? hunks[i].lines.slice(0, 2)
-					: [];
+				i < hunks.length && hunks[i].type === 'unchanged' ? hunks[i].lines.slice(0, 2) : [];
 			const group: ChangeGroup = {
 				id: `grp_${groups.length + 1}_${Math.random().toString(36).substring(2, 7)}`,
 				removedLines,
