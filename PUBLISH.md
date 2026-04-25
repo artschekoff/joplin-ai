@@ -12,7 +12,7 @@ This runs three webpack steps: compiles TypeScript, bundles assets, and creates 
 The output file will be at:
 
 ```
-publish/com.example.JoplinAIAssistant.jpl
+publish/net.roxl.joplin-ai.jpl
 ```
 
 ## Install in Joplin Desktop
@@ -32,7 +32,7 @@ Update the following fields in `src/manifest.json` before sharing publicly:
 
 | Field             | Current Value                                | Action                                                                              |
 | ----------------- | -------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `id`              | `com.example.JoplinAIAssistant`              | Change to a proper reverse-DNS identifier (e.g. `com.yourname.joplin-ai-assistant`) |
+| `id`              | `net.roxl.joplin-ai`                         | Reverse-DNS identifier                                                              |
 | `app_min_version` | `1.6`                                        | Bump to match the minimum Joplin version required by the APIs you use               |
 | `homepage_url`    | *(empty)*                                    | Set to the project homepage or repository URL                                       |
 | `repository_url`  | *(empty)*                                    | Set to the Git repository URL                                                       |

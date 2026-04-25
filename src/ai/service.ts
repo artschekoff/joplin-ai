@@ -82,14 +82,18 @@ const MAX_NOTE_BODY_LENGTH = 30000;
 const MAX_REF_NOTE_LENGTH = 10000;
 
 /**
- * Strip non-printable garbage characters that can leak into note content:
- * - U+FFFD (Unicode Replacement Character) — produced by bad encoding conversions
- * - Isolated carriage returns — Windows CRLF artifacts
+ * Normalize text encoding at AI boundaries:
+ * - CRLF / isolated CR — LF
+ * - U+2028 line separator, U+2029 paragraph separator — LF
+ * - Non-breaking and other Unicode space variants — regular space
+ * - U+FFFD replacement character (bad encoding artifact) — removed
  */
 const sanitizeContent = (text: string): string =>
 	text
 		.replace(/\r\n/g, '\n')
 		.replace(/\r/g, '\n')
+		.replace(/\u2028|\u2029/g, '\n')
+		.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, ' ')
 		.replace(/\uFFFD/g, '');
 
 const detectTruncatedSonarToolCall = (
@@ -426,6 +430,7 @@ EDIT MODE RULES:
 - Use update_note to modify ONLY the current note. Never pass a noteId to update_note — it must always target the current note.
 - You may use read-only tools (get_note, search_notes, list_notebooks, list_tags, open_note) for reference, but do not create, delete, move, or modify any other note.
 - Apply the exact change the user requests — nothing else. Do not make additional edits beyond what was asked.
+- Copy all unchanged lines character-for-character. Lines with repeated characters (e.g. \`\*\*\*\*\*\*\`, \`------\`, \`______\`, signature blanks) must be reproduced with the exact same number of characters.
 - Apply changes immediately without asking for confirmation or clarifying questions. Make your best judgment and act.
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
 ${selectionRulesBlock}`;
@@ -459,6 +464,8 @@ TOOL USAGE RULES:
 - If the user provides enough information (e.g. title and content for a new note), call the tool right away.
 - When creating or moving a note, automatically select the most appropriate notebook based on the note's title and content. Do not ask the user which notebook to use unless ambiguous.
 - If the user asks a question that does not require any action, answer normally in Markdown without using tools.
+- Before calling update_note or create_note, write one short sentence describing what you are about to do (e.g. "Updating the note with a corrected introduction." or "Creating a new note titled 'Meeting notes'."). Then immediately call the tool.
+- When updating a note, copy unchanged lines character-for-character. Pay special attention to lines that consist of repeated characters (e.g. \`\*\*\*\*\*\*\`, \`------\`, \`______\`, signature blanks, table separators) — reproduce them with the exact same number of characters as in the original.
 ${selectionRulesBlock}`;
 	const dynamicContext = `${notebookSection}${referencedSection}${attachedSection}`;
 	return { staticInstructions, noteBodyContext, dynamicContext };

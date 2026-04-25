@@ -1,3 +1,5 @@
+import * as path from 'path';
+import * as fs from 'fs';
 import joplin from 'api';
 import { ToolbarButtonLocation } from 'api/types';
 
@@ -53,6 +55,7 @@ jest.mock('api', () => ({
 			registerSection: (...args: unknown[]) => mockSettingsRegisterSection(...args),
 			registerSetting: (...args: unknown[]) => mockSettingsRegisterSetting(...args),
 			registerSettings: jest.fn().mockResolvedValue(undefined),
+			globalValue: jest.fn().mockResolvedValue(false),
 			values: jest.fn().mockResolvedValue({}),
 			value: jest.fn().mockResolvedValue(''),
 			setValue: jest.fn().mockResolvedValue(undefined),
@@ -72,13 +75,6 @@ jest.mock('api', () => ({
 	},
 }));
 
-jest.mock('../utils/share-note', () => ({
-	shareNoteAsText: jest.fn().mockResolvedValue(undefined),
-	openUrlInSystem: jest.fn().mockResolvedValue(undefined),
-	buildPdfMailtoUrl: jest.fn().mockReturnValue('mailto:'),
-	exportNoteWithPandoc: jest.fn().mockResolvedValue('/tmp/note.docx'),
-}));
-
 jest.mock('../ai/service', () => ({
 	sendToAI: jest.fn(),
 	buildSystemPrompt: jest.fn(() => 'mocked system prompt'),
@@ -94,6 +90,15 @@ jest.mock('../utils/pdf-extract', () => ({
 }));
 
 import '../index';
+
+describe('manifest.json plugin identity', () => {
+	const manifestPath = path.resolve(__dirname, '..', 'manifest.json');
+	const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+	it('should use the net.roxl.joplin-ai plugin identifier', () => {
+		expect(manifest.id).toBe('net.roxl.joplin-ai');
+	});
+});
 
 describe('index onStart registration', () => {
 	beforeEach(async () => {
@@ -121,7 +126,7 @@ describe('index onStart registration', () => {
 			);
 		});
 
-		it('should place sidebar and note list buttons before AI and block editor buttons', () => {
+		it('should place sidebar and note list buttons before the AI button', () => {
 			const allCalls = mockToolbarButtonsCreate.mock.calls;
 			const sideBarIdx = allCalls.findIndex((call) => call[1] === 'toggleSideBar');
 			const noteListIdx = allCalls.findIndex((call) => call[1] === 'toggleNoteList');
@@ -151,16 +156,6 @@ describe('index onStart registration', () => {
 				}),
 			);
 		});
-
-		it('should place the editWithAI toolbar button before the block editor button', () => {
-			const allCalls = mockToolbarButtonsCreate.mock.calls;
-			const aiButtonIdx = allCalls.findIndex((call) => call[1] === 'editWithAI');
-			const blockEditorButtonIdx = allCalls.findIndex((call) => call[1] === 'enableBlockEditor');
-
-			expect(aiButtonIdx).toBeGreaterThanOrEqual(0);
-			expect(blockEditorButtonIdx).toBeGreaterThanOrEqual(0);
-			expect(aiButtonIdx).toBeLessThan(blockEditorButtonIdx);
-		});
 	});
 
 	describe('toolbar button resilience when initSettings fails', () => {
@@ -179,31 +174,6 @@ describe('index onStart registration', () => {
 				'editWithAI',
 				ToolbarButtonLocation.NoteToolbar,
 			);
-			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
-				'enableBlockEditorBtn',
-				'enableBlockEditor',
-				ToolbarButtonLocation.NoteToolbar,
-			);
-			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
-				'exportNoteAsDocBtn',
-				'exportNoteAsDoc',
-				ToolbarButtonLocation.NoteToolbar,
-			);
-			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
-				'exportNoteAsRtfBtn',
-				'exportNoteAsRtf',
-				ToolbarButtonLocation.NoteToolbar,
-			);
-			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
-				'shareNoteAsPdfBtn',
-				'shareNoteAsPdf',
-				ToolbarButtonLocation.NoteToolbar,
-			);
-			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
-				'shareNoteAsTextBtn',
-				'shareNoteAsText',
-				ToolbarButtonLocation.NoteToolbar,
-			);
 		});
 
 		it('should register all commands even when registerSettings throws', async () => {
@@ -217,15 +187,6 @@ describe('index onStart registration', () => {
 
 			expect(mockCommandsRegister).toHaveBeenCalledWith(
 				expect.objectContaining({ name: 'editWithAI' }),
-			);
-			expect(mockCommandsRegister).toHaveBeenCalledWith(
-				expect.objectContaining({ name: 'enableBlockEditor' }),
-			);
-			expect(mockCommandsRegister).toHaveBeenCalledWith(
-				expect.objectContaining({ name: 'exportNoteAsDoc' }),
-			);
-			expect(mockCommandsRegister).toHaveBeenCalledWith(
-				expect.objectContaining({ name: 'exportNoteAsRtf' }),
 			);
 		});
 
@@ -249,70 +210,6 @@ describe('index onStart registration', () => {
 				'editWithAIBtn',
 				'editWithAI',
 				ToolbarButtonLocation.NoteToolbar,
-			);
-			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
-				'enableBlockEditorBtn',
-				'enableBlockEditor',
-				ToolbarButtonLocation.NoteToolbar,
-			);
-		});
-	});
-
-	describe('export toolbar buttons', () => {
-		it('should register an exportNoteAsDoc command with Word icon', () => {
-			expect(mockCommandsRegister).toHaveBeenCalledWith(
-				expect.objectContaining({
-					name: 'exportNoteAsDoc',
-					iconName: 'fas fa-file-word',
-				}),
-			);
-		});
-
-		it('should register an exportNoteAsRtf command with file icon', () => {
-			expect(mockCommandsRegister).toHaveBeenCalledWith(
-				expect.objectContaining({
-					name: 'exportNoteAsRtf',
-					iconName: 'fas fa-file-alt',
-				}),
-			);
-		});
-
-		it('should create a toolbar button for exportNoteAsDoc', () => {
-			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
-				'exportNoteAsDocBtn',
-				'exportNoteAsDoc',
-				ToolbarButtonLocation.NoteToolbar,
-			);
-		});
-
-		it('should create a toolbar button for exportNoteAsRtf', () => {
-			expect(mockToolbarButtonsCreate).toHaveBeenCalledWith(
-				'exportNoteAsRtfBtn',
-				'exportNoteAsRtf',
-				ToolbarButtonLocation.NoteToolbar,
-			);
-		});
-
-		it('should register PDF export command with label not containing "Email"', () => {
-			const pdfCommand = mockCommandsRegister.mock.calls.find(
-				(call: unknown[]) => (call[0] as { name: string }).name === 'shareNoteAsPdf',
-			);
-			expect(pdfCommand).toBeDefined();
-			const label = (pdfCommand![0] as { label: string }).label;
-			expect(label).not.toContain('Email');
-			expect(label).toContain('PDF');
-		});
-
-		it('should create menu items for doc and rtf export in Tools', () => {
-			expect(mockMenuItemsCreate).toHaveBeenCalledWith(
-				'exportNoteAsDocMenuItem',
-				'exportNoteAsDoc',
-				expect.anything(),
-			);
-			expect(mockMenuItemsCreate).toHaveBeenCalledWith(
-				'exportNoteAsRtfMenuItem',
-				'exportNoteAsRtf',
-				expect.anything(),
 			);
 		});
 	});

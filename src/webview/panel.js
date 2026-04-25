@@ -89,6 +89,94 @@ function initPanel() {
 		return div.innerHTML;
 	}
 
+	function computeDiffHunks(oldBody, newBody) {
+		var oldLines = oldBody === '' ? [] : oldBody.split('\n');
+		var newLines = newBody === '' ? [] : newBody.split('\n');
+		if (oldLines.length === 0 && newLines.length === 0) return [];
+		if (oldLines.length === 0) return [{ type: 'added', lines: newLines }];
+		if (newLines.length === 0) return [{ type: 'removed', lines: oldLines }];
+		var m = oldLines.length, n = newLines.length;
+		var dp = [];
+		for (var r = 0; r <= m; r++) { dp.push([]); for (var c = 0; c <= n; c++) dp[r].push(0); }
+		for (var i = 1; i <= m; i++) {
+			for (var j = 1; j <= n; j++) {
+				dp[i][j] = oldLines[i-1] === newLines[j-1]
+					? dp[i-1][j-1] + 1
+					: Math.max(dp[i-1][j], dp[i][j-1]);
+			}
+		}
+		var ops = [];
+		var bi = m, bj = n;
+		while (bi > 0 || bj > 0) {
+			if (bi > 0 && bj > 0 && oldLines[bi-1] === newLines[bj-1]) {
+				ops.push({ type: 'unchanged', line: oldLines[bi-1] }); bi--; bj--;
+			} else if (bj > 0 && (bi === 0 || dp[bi][bj-1] >= dp[bi-1][bj])) {
+				ops.push({ type: 'added', line: newLines[bj-1] }); bj--;
+			} else {
+				ops.push({ type: 'removed', line: oldLines[bi-1] }); bi--;
+			}
+		}
+		ops.reverse();
+		var hunks = [];
+		for (var k = 0; k < ops.length; k++) {
+			var op = ops[k];
+			if (hunks.length > 0 && hunks[hunks.length-1].type === op.type) {
+				hunks[hunks.length-1].lines.push(op.line);
+			} else {
+				hunks.push({ type: op.type, lines: [op.line] });
+			}
+		}
+		return hunks;
+	}
+
+	function computeDiffWithGroups(oldBody, newBody) {
+		var hunks = computeDiffHunks(oldBody, newBody);
+		if (hunks.length === 0) return { groups: [], segments: [] };
+		var groups = [];
+		var segments = [];
+		var hi = 0;
+		while (hi < hunks.length) {
+			if (hunks[hi].type === 'unchanged') {
+				segments.push({ type: 'unchanged', lines: hunks[hi].lines });
+				hi++;
+			} else {
+				var removedLines = [];
+				var addedLines = [];
+				while (hi < hunks.length && hunks[hi].type !== 'unchanged') {
+					if (hunks[hi].type === 'removed') { removedLines = removedLines.concat(hunks[hi].lines); }
+					else { addedLines = addedLines.concat(hunks[hi].lines); }
+					hi++;
+				}
+				var prevSeg = segments.length > 0 ? segments[segments.length - 1] : null;
+				var contextBefore = (prevSeg && prevSeg.type === 'unchanged') ? prevSeg.lines.slice(-2) : [];
+				var contextAfter = (hi < hunks.length && hunks[hi].type === 'unchanged') ? hunks[hi].lines.slice(0, 2) : [];
+				var groupId = 'grp_' + (groups.length + 1) + '_' + Math.random().toString(36).substring(2, 7);
+				groups.push({ id: groupId, removedLines: removedLines, addedLines: addedLines, contextBefore: contextBefore, contextAfter: contextAfter });
+				segments.push({ type: 'changed', groupId: groupId });
+			}
+		}
+		return { groups: groups, segments: segments };
+	}
+
+	function reconstructBody(oldBody, newBody, acceptedMap, diff) {
+		var groupMap = {};
+		for (var gi = 0; gi < diff.groups.length; gi++) {
+			groupMap[diff.groups[gi].id] = diff.groups[gi];
+		}
+		var lines = [];
+		for (var si = 0; si < diff.segments.length; si++) {
+			var seg = diff.segments[si];
+			if (seg.type === 'unchanged') {
+				lines = lines.concat(seg.lines);
+			} else {
+				var group = groupMap[seg.groupId];
+				if (!group) continue;
+				lines = lines.concat(acceptedMap[seg.groupId] ? group.addedLines : group.removedLines);
+			}
+		}
+		return lines.join('\n');
+	}
+
 	function svgIcon(name, size) {
 		if (typeof window.SVGIcons !== 'undefined' && window.SVGIcons[name]) {
 			return window.SVGIcons[name](size);
@@ -340,6 +428,192 @@ function initPanel() {
 		if (provider && model) return provider.charAt(0).toUpperCase() + provider.slice(1) + ' ' + model;
 		if (provider) return provider.charAt(0).toUpperCase() + provider.slice(1);
 		return 'Web Search';
+	}
+
+	function renderSingleDiffReview(edit, allDiffBlocks) {
+		var diff = computeDiffWithGroups(edit.oldBody, edit.newBody);
+		if (diff.groups.length === 0) return;
+
+		var block = document.createElement('div');
+		block.className = 'diff-review';
+		block.setAttribute('data-note-id', edit.noteId);
+
+		var header = document.createElement('div');
+		header.className = 'diff-review-header';
+		var totalGroups = diff.groups.length;
+		var pendingCount = totalGroups;
+		var counterSpan = document.createElement('span');
+		counterSpan.className = 'diff-review-counter';
+		counterSpan.textContent = totalGroups + ' change' + (totalGroups !== 1 ? 's' : '');
+		header.innerHTML = svgIcon('pencil', '14') + ' <span class="diff-review-title">' + escapeHtml(edit.noteTitle || 'Note') + '</span>';
+		header.appendChild(counterSpan);
+		block.appendChild(header);
+
+		var diffEl = document.createElement('div');
+		diffEl.className = 'diff-review-body';
+
+		var acceptedGroups = {};
+
+		function closeBlock() {
+			block.remove();
+			if (document.querySelectorAll('.diff-review').length === 0) {
+				var gb = document.getElementById('diffReviewGlobalBar');
+				if (gb) gb.remove();
+			}
+		}
+
+		function applyAndClose() {
+			if (Object.keys(acceptedGroups).length > 0) {
+				var finalBody = reconstructBody(edit.oldBody, edit.newBody, acceptedGroups, diff);
+				webviewApi.postMessage({ type: 'applyEdit', noteId: edit.noteId, body: finalBody });
+			}
+			closeBlock();
+		}
+
+		function onGroupDecided(card, accepted, groupId) {
+			if (accepted) acceptedGroups[groupId] = true;
+			pendingCount--;
+			counterSpan.textContent = pendingCount + ' change' + (pendingCount !== 1 ? 's' : '') + ' remaining';
+			card.style.transition = 'opacity 0.15s';
+			card.style.opacity = '0';
+			setTimeout(function () { card.remove(); }, 160);
+			if (pendingCount === 0) applyAndClose();
+		}
+
+		for (var gi = 0; gi < diff.groups.length; gi++) {
+			(function (group) {
+				var card = document.createElement('div');
+				card.className = 'diff-group';
+				card.setAttribute('data-group-id', group.id);
+
+				for (var ci = 0; ci < group.contextBefore.length; ci++) {
+					var ctxBefore = document.createElement('div');
+					ctxBefore.className = 'diff-line diff-line-unchanged';
+					ctxBefore.textContent = '  ' + group.contextBefore[ci];
+					card.appendChild(ctxBefore);
+				}
+				for (var ri = 0; ri < group.removedLines.length; ri++) {
+					var removedLine = document.createElement('div');
+					removedLine.className = 'diff-line diff-line-removed';
+					removedLine.textContent = '- ' + group.removedLines[ri];
+					card.appendChild(removedLine);
+				}
+				for (var ai = 0; ai < group.addedLines.length; ai++) {
+					var addedLine = document.createElement('div');
+					addedLine.className = 'diff-line diff-line-added';
+					addedLine.textContent = '+ ' + group.addedLines[ai];
+					card.appendChild(addedLine);
+				}
+				for (var cai = 0; cai < group.contextAfter.length; cai++) {
+					var ctxAfter = document.createElement('div');
+					ctxAfter.className = 'diff-line diff-line-unchanged';
+					ctxAfter.textContent = '  ' + group.contextAfter[cai];
+					card.appendChild(ctxAfter);
+				}
+
+				var groupActions = document.createElement('div');
+				groupActions.className = 'diff-group-actions';
+
+				var acceptBtn = document.createElement('button');
+				acceptBtn.className = 'btn btn-sm diff-review-accept';
+				acceptBtn.textContent = 'Accept';
+
+				var rejectBtn = document.createElement('button');
+				rejectBtn.className = 'btn btn-sm diff-review-cancel';
+				rejectBtn.textContent = 'Reject';
+
+				acceptBtn.addEventListener('click', function () {
+					acceptBtn.disabled = true;
+					rejectBtn.disabled = true;
+					onGroupDecided(card, true, group.id);
+				});
+				rejectBtn.addEventListener('click', function () {
+					acceptBtn.disabled = true;
+					rejectBtn.disabled = true;
+					onGroupDecided(card, false, group.id);
+				});
+
+				groupActions.appendChild(acceptBtn);
+				groupActions.appendChild(rejectBtn);
+				card.appendChild(groupActions);
+				diffEl.appendChild(card);
+			})(diff.groups[gi]);
+		}
+
+		diffEl.style.minHeight = '160px';
+		block.appendChild(diffEl);
+
+		var footerActions = document.createElement('div');
+		footerActions.className = 'diff-review-actions';
+
+		var applyBtn = document.createElement('button');
+		applyBtn.className = 'btn btn-sm diff-review-footer-accept';
+		applyBtn.textContent = 'Apply accepted';
+		applyBtn.addEventListener('click', applyAndClose);
+
+		var discardBtn = document.createElement('button');
+		discardBtn.className = 'btn btn-sm diff-review-footer-cancel';
+		discardBtn.textContent = 'Discard all';
+		discardBtn.addEventListener('click', closeBlock);
+
+		footerActions.appendChild(applyBtn);
+		footerActions.appendChild(discardBtn);
+		block.appendChild(footerActions);
+
+		messagesEl.appendChild(block);
+		allDiffBlocks.push(block);
+	}
+
+	function renderDiffReviews(pendingEdits) {
+		if (!pendingEdits || pendingEdits.length === 0) return;
+		if (emptyState) emptyState.style.display = 'none';
+
+		var allBlocks = [];
+		for (var e = 0; e < pendingEdits.length; e++) {
+			renderSingleDiffReview(pendingEdits[e], allBlocks);
+		}
+
+		var globalBar = document.createElement('div');
+		globalBar.id = 'diffReviewGlobalBar';
+		globalBar.className = 'diff-review-global-bar';
+
+		var acceptAllBtn = document.createElement('button');
+		acceptAllBtn.className = 'btn btn-sm diff-review-accept-all';
+		acceptAllBtn.textContent = 'Accept All';
+		acceptAllBtn.addEventListener('click', function () {
+			var blocks = document.querySelectorAll('.diff-review');
+			for (var i = 0; i < blocks.length; i++) {
+				var noteId = blocks[i].getAttribute('data-note-id');
+				var editData = null;
+				for (var ei = 0; ei < pendingEdits.length; ei++) {
+					if (pendingEdits[ei].noteId === noteId) { editData = pendingEdits[ei]; break; }
+				}
+				if (editData) {
+					webviewApi.postMessage({ type: 'applyEdit', noteId: noteId, body: editData.newBody });
+				}
+				blocks[i].remove();
+			}
+			globalBar.remove();
+		});
+
+		var cancelAllBtn = document.createElement('button');
+		cancelAllBtn.className = 'btn btn-sm diff-review-cancel-all';
+		cancelAllBtn.textContent = 'Cancel All';
+		cancelAllBtn.addEventListener('click', function () {
+			var blocks = document.querySelectorAll('.diff-review');
+			for (var i = 0; i < blocks.length; i++) {
+				blocks[i].remove();
+			}
+			globalBar.remove();
+		});
+
+		globalBar.appendChild(acceptAllBtn);
+		globalBar.appendChild(cancelAllBtn);
+		messagesEl.appendChild(globalBar);
+
+		if (allBlocks.length > 0 && typeof allBlocks[0].scrollIntoView === 'function') {
+			allBlocks[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
+		}
 	}
 
 	function renderActions(actions) {
@@ -1322,7 +1596,10 @@ function initPanel() {
 			renderActions(message.actions);
 
 			const hasActions = message.actions && message.actions.length > 0;
-			if (message.isEdit && !hasActions) {
+			const hasPendingEdits = message.pendingEdits && message.pendingEdits.length > 0;
+			if (hasPendingEdits) {
+				renderDiffReviews(message.pendingEdits);
+			} else if (message.isEdit && !hasActions) {
 				addMessage(
 					'edit',
 					svgIcon('checkCircle', '14') + ' Note Updated',
