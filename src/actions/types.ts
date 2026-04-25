@@ -34,6 +34,13 @@ export interface ThinkingStepInfo {
 	label: string;
 }
 
+export interface PendingEditInfo {
+	noteId: string;
+	noteTitle: string;
+	oldBody: string;
+	newBody: string;
+}
+
 export interface ActionContext {
 	currentNoteId: string | null;
 	currentNoteTitle: string | null;
@@ -52,6 +59,7 @@ export interface ActionContext {
 	onImageProgress?: (info: ImageProgressInfo) => void;
 	onThinkingStep?: (info: ThinkingStepInfo) => void;
 	onStreamChunk?: (text: string) => void;
+	onPendingEdit?: (info: PendingEditInfo) => void;
 	/** When true, the note body passed to the AI is a user-selected fragment, not the full note. */
 	isSelection?: boolean;
 	/** The original selected text fragment. Used by update_note to replace only this portion of the full note body. */

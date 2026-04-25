@@ -150,7 +150,8 @@ const updateNoteHandler: ActionHandler = {
 		}
 		const updates: Record<string, unknown> = {};
 		if (args.title !== undefined && context.workMode !== 'edit') updates.title = args.title;
-		if (args.body !== undefined) updates.body = args.body;
+		if (args.body !== undefined)
+			updates.body = (args.body as string).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 		if (Object.keys(updates).length === 0) {
 			if (args.title !== undefined && context.workMode === 'edit') {
 				return {
@@ -160,9 +161,16 @@ const updateNoteHandler: ActionHandler = {
 			}
 			return { success: false, message: 'No fields provided to update' };
 		}
+		let oldBody: string | undefined;
+		const needsExistingBody =
+			typeof updates.body === 'string' &&
+			(context.onPendingEdit || (context.isSelection && context.selectionText));
+		if (needsExistingBody) {
+			const existingNote = await joplin.data.get(['notes', noteId], { fields: ['body'] });
+			oldBody = (existingNote?.body ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+		}
 		if (context.isSelection && context.selectionText && typeof updates.body === 'string') {
-			const fullNote = await joplin.data.get(['notes', noteId], { fields: ['body'] });
-			const fullBody: string = fullNote?.body ?? '';
+			const fullBody: string = oldBody ?? '';
 			const aiBody = updates.body as string;
 			const selIdx = fullBody.indexOf(context.selectionText);
 			const aiSentFragment = selIdx !== -1 && aiBody.length < fullBody.length * 0.8;
@@ -173,11 +181,23 @@ const updateNoteHandler: ActionHandler = {
 					fullBody.substring(selIdx + context.selectionText.length);
 			}
 		}
-		await joplin.data.put(['notes', noteId], null, updates);
+		const isPendingBodyEdit =
+			typeof updates.body === 'string' && !!context.onPendingEdit && oldBody !== undefined;
+		if (!isPendingBodyEdit) {
+			await joplin.data.put(['notes', noteId], null, updates);
+		}
 		let noteTitle = context.currentNoteTitle;
 		if (args.noteId) {
 			const note = await joplin.data.get(['notes', noteId], { fields: ['title'] });
 			noteTitle = note?.title ?? noteId;
+		}
+		if (isPendingBodyEdit) {
+			context.onPendingEdit!({
+				noteId,
+				noteTitle: noteTitle ?? noteId,
+				oldBody: oldBody as string,
+				newBody: updates.body as string,
+			});
 		}
 		const parts = Object.keys(updates).join(' and ');
 		return {

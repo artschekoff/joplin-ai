@@ -1128,4 +1128,179 @@ body {
 	min-width: 200px;
 }
 
+/* ── Diff review ──────────────────────────────────────────────────────────── */
+
+.diff-review {
+	margin: 6px 0;
+	border: 1px solid var(--border-color);
+	border-radius: 6px;
+	overflow: hidden;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	flex-shrink: 0;
+}
+
+.diff-review-header {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 12px;
+	background: var(--bg-secondary);
+	border-bottom: 1px solid var(--border-color);
+	font-size: 12px;
+	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+	color: var(--text-secondary);
+}
+
+.diff-review-title {
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.diff-review-counter {
+	margin-left: auto;
+	font-size: 11px;
+	color: var(--text-secondary);
+}
+
+.diff-review-body {
+	overflow-x: auto;
+	min-height: 160px;
+	max-height: 420px;
+	overflow-y: auto;
+}
+
+.diff-group {
+	border-bottom: 1px solid var(--border-color);
+}
+
+.diff-group:last-child {
+	border-bottom: none;
+}
+
+.diff-group-actions {
+	display: flex;
+	gap: 6px;
+	padding: 5px 10px;
+	border-top: 1px solid var(--border-color);
+	background: var(--bg-secondary);
+}
+
+.diff-line {
+	display: block;
+	padding: 1px 10px;
+	white-space: pre-wrap;
+	word-break: break-all;
+	line-height: 1.5;
+}
+
+.diff-line-removed {
+	background: rgba(239, 68, 68, 0.15);
+	color: #b91c1c;
+}
+
+.diff-line-added {
+	background: rgba(34, 197, 94, 0.15);
+	color: #15803d;
+}
+
+.diff-line-unchanged {
+	color: var(--text-secondary);
+}
+
+@media (prefers-color-scheme: dark) {
+	.diff-line-removed {
+		background: rgba(239, 68, 68, 0.18);
+		color: #fca5a5;
+	}
+	.diff-line-added {
+		background: rgba(34, 197, 94, 0.18);
+		color: #86efac;
+	}
+}
+
+.diff-review-actions {
+	display: flex;
+	gap: 6px;
+	padding: 6px 10px;
+	border-top: 1px solid var(--border-color);
+	background: var(--bg-secondary);
+}
+
+.diff-review-accept {
+	background: #22c55e;
+	color: #fff;
+	border: none;
+}
+
+.diff-review-accept:hover {
+	background: #16a34a;
+}
+
+.diff-review-cancel {
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+	border: 1px solid var(--border-color);
+}
+
+.diff-review-cancel:hover {
+	background: var(--border-color);
+}
+
+.diff-review-footer-accept {
+	background: #22c55e;
+	color: #fff;
+	border: none;
+}
+
+.diff-review-footer-accept:hover {
+	background: #16a34a;
+}
+
+.diff-review-footer-cancel {
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+	border: 1px solid var(--border-color);
+}
+
+.diff-review-footer-cancel:hover {
+	background: var(--border-color);
+}
+
+.diff-review-global-bar {
+	display: flex;
+	gap: 8px;
+	padding: 6px 4px;
+	margin-bottom: 4px;
+	justify-content: flex-end;
+}
+
+.diff-review-accept-all {
+	background: #22c55e;
+	color: #fff;
+	border: none;
+	font-size: 12px;
+	padding: 4px 10px;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.diff-review-accept-all:hover {
+	background: #16a34a;
+}
+
+.diff-review-cancel-all {
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+	border: 1px solid var(--border-color);
+	font-size: 12px;
+	padding: 4px 10px;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.diff-review-cancel-all:hover {
+	background: var(--border-color);
+}
+
 

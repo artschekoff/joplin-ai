@@ -40,6 +40,13 @@ export interface AIActionOutcome {
 	data?: Record<string, unknown>;
 }
 
+export interface PendingEdit {
+	noteId: string;
+	noteTitle: string;
+	oldBody: string;
+	newBody: string;
+}
+
 export interface AIResponse {
 	content: string;
 	isEdit: boolean;
@@ -47,4 +54,5 @@ export interface AIResponse {
 	actions: AIActionOutcome[];
 	usage?: TokenUsage;
 	costUsd?: number;
+	pendingEdits?: PendingEdit[];
 }

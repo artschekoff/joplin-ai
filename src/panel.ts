@@ -16,6 +16,7 @@ import { AIProvider, AgentRole, AIActionOutcome, ChatMessage, WorkMode } from '.
 import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
+import { PendingEdit } from './ai/types';
 import { extractPdfTextFromBase64 } from './utils/pdf-extract';
 
 let chatPanelHandle: ViewHandle | null = null;
@@ -393,6 +394,7 @@ const sendResult = (
 		actions: AIActionOutcome[];
 		usage?: { inputTokens: number; outputTokens: number; cachedTokens?: number };
 		costUsd?: number;
+		pendingEdits?: PendingEdit[];
 	},
 	model: string,
 ) => {
@@ -405,6 +407,7 @@ const sendResult = (
 		usage: response.usage ?? null,
 		costLabel: formatCostUsd(response.costUsd),
 		costUsd: response.costUsd ?? null,
+		pendingEdits: response.pendingEdits ?? null,
 	});
 };
 
@@ -537,6 +540,7 @@ const handleExecute = async (
 		const hasSelection = editorSelection.trim().length > 0;
 		const isNativePerplexitySearch =
 			config.provider === 'perplexity' && isPerplexityNativeModel(config.model);
+		const collectedEdits: PendingEdit[] = [];
 		const context: ActionContext = {
 			currentNoteId: note.id,
 			currentNoteTitle: note.title,
@@ -554,6 +558,7 @@ const handleExecute = async (
 			onImageProgress,
 			onThinkingStep,
 			onStreamChunk,
+			onPendingEdit: (info) => collectedEdits.push(info),
 			isSelection: hasSelection || undefined,
 			selectionText: hasSelection ? editorSelection : undefined,
 		};
@@ -573,7 +578,7 @@ const handleExecute = async (
 		);
 		lastSentNoteId = note.id;
 		lastSentNoteBody = note.body;
-		sendResult(handle, response, config.model);
+		sendResult(handle, { ...response, pendingEdits: collectedEdits.length > 0 ? collectedEdits : undefined }, config.model);
 		sendUpdatedContextSize(handle, {
 			note,
 			notebooks,
@@ -586,7 +591,7 @@ const handleExecute = async (
 			model: config.model,
 			previousNoteBody,
 		});
-		if (response.isEdit) {
+		if (response.isEdit && collectedEdits.length === 0) {
 			// Note was updated by AI — reload to get the new body for future diff snapshots
 			const updatedNote = noteId ? await getNoteById(noteId) : await getCurrentNote();
 			if (updatedNote && updatedNote.id === note.id) {
@@ -672,6 +677,16 @@ export const initPanel = async () => {
 
 		if (message.type === 'clearSelection') {
 			setEditorSelection('');
+		}
+
+		if (message.type === 'applyEdit') {
+			const noteId = message.noteId as string;
+			const body = message.body as string;
+			if (noteId && typeof body === 'string') {
+				await joplin.data.put(['notes', noteId], null, { body });
+				lastSentNoteBody = body;
+				await sendNoteInfo(chatPanelHandle);
+			}
 		}
 
 		if (message.type === 'getSettings') {
