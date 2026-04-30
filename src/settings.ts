@@ -4,6 +4,7 @@ import { SettingItemType } from 'api/types';
 export const PROVIDER_OPTIONS: Record<string, string> = {
 	openai: 'OpenAI',
 	claude: 'Claude (Anthropic)',
+	claudecode: 'Claude Code',
 	perplexity: 'Perplexity',
 };
 
@@ -48,6 +49,10 @@ export const PERPLEXITY_MODEL_OPTIONS: Record<string, string> = {
 	'nvidia/nemotron-3-super-120b-a12b': 'Nemotron 3 Super (via Perplexity)',
 };
 
+export const CLAUDECODE_MODEL_OPTIONS: Record<string, string> = {
+	...CLAUDE_MODEL_OPTIONS,
+};
+
 export const WEB_SEARCH_MODEL_OPTIONS: Record<string, string> = {
 	'openai:gpt-4o-search-preview': 'OpenAI — gpt-4o-search-preview',
 	'perplexity:sonar': 'Perplexity — Sonar',
@@ -69,6 +74,8 @@ export const ALLOWED_SETTING_KEYS = new Set([
 	'openaiModel',
 	'claudeApiKey',
 	'claudeModel',
+	'claudeCodeApiKey',
+	'claudeCodeModel',
 	'perplexityApiKey',
 	'perplexityModel',
 	'webSearchEnabled',
@@ -84,6 +91,8 @@ export const SETTING_KEYS = {
 	openaiModel: 'openaiModel',
 	claudeKey: 'claudeApiKey',
 	claudeModel: 'claudeModel',
+	claudeCodeKey: 'claudeCodeApiKey',
+	claudeCodeModel: 'claudeCodeModel',
 	perplexityKey: 'perplexityApiKey',
 	perplexityModel: 'perplexityModel',
 	agentRoles: 'agentRoles',
@@ -114,6 +123,7 @@ export const initSettings = async () => {
 			options: {
 				openai: 'OpenAI',
 				claude: 'Claude (Anthropic)',
+				claudecode: 'Claude Code',
 				perplexity: 'Perplexity',
 			},
 		},
@@ -190,6 +200,34 @@ export const initSettings = async () => {
 			label: 'Perplexity API Key',
 			description:
 				'Your Perplexity API key (pplx-...). Get one at https://www.perplexity.ai/settings/api',
+		},
+
+		[SETTING_KEYS.claudeCodeKey]: {
+			value: '',
+			type: SettingItemType.String,
+			section: 'aiAssistant',
+			public: true,
+			secure: true,
+			label: 'Claude Code API Key',
+			description:
+				'Your Claude Code / Anthropic API key. Claude Code uses Anthropic APIs by default.',
+		},
+
+		[SETTING_KEYS.claudeCodeModel]: {
+			value: 'claude-sonnet-4-20250514',
+			type: SettingItemType.String,
+			section: 'aiAssistant',
+			public: true,
+			isEnum: true,
+			label: 'Claude Code Model',
+			description:
+				'Claude Code runs on Anthropic models. Pricing and model availability follow Anthropic API model support.',
+			options: {
+				'claude-opus-4-20250514': 'Claude Opus 4 — via Claude Code',
+				'claude-sonnet-4-20250514': 'Claude Sonnet 4 — via Claude Code',
+				'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet — via Claude Code',
+				'claude-3-haiku-20240307': 'Claude 3 Haiku — via Claude Code',
+			},
 		},
 
 		[SETTING_KEYS.perplexityModel]: {

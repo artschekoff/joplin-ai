@@ -53,6 +53,7 @@ export interface ActionContext {
 	/** Combined "provider:model" string for web search, e.g. "openai:gpt-4o-search-preview" or "perplexity:sonar-pro". */
 	webSearchModel?: string;
 	openaiApiKey?: string;
+	claudeCodeApiKey?: string;
 	perplexityApiKey?: string;
 	kieApiKey?: string;
 	imageGenModel?: string;

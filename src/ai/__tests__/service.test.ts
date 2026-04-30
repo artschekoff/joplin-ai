@@ -4,6 +4,8 @@ import {
 	validateApiKey,
 	buildOpenAIPdfParts,
 	buildClaudePdfParts,
+	buildOpenAIImageParts,
+	buildClaudeImageParts,
 	shouldIncludeNoteBody,
 } from '../service';
 import { ChatMessage } from '../types';
@@ -631,6 +633,28 @@ describe('buildSystemPrompt', () => {
 			expect(parts).toHaveLength(1);
 			expect(parts[0].file.filename).toBe('doc.pdf');
 		});
+
+		it('does not include image files even when they have base64Data', () => {
+			const files = [
+				{
+					name: 'photo.png',
+					content: '[Image]',
+					mimeType: 'image/png',
+					size: 5000,
+					base64Data: 'iVBORw==',
+				},
+				{
+					name: 'doc.pdf',
+					content: '[PDF]',
+					mimeType: 'application/pdf',
+					size: 2000,
+					base64Data: 'JVBERi0=',
+				},
+			];
+			const parts = buildOpenAIPdfParts(files);
+			expect(parts).toHaveLength(1);
+			expect(parts[0].file.filename).toBe('doc.pdf');
+		});
 	});
 
 	describe('buildClaudePdfParts', () => {
@@ -676,6 +700,193 @@ describe('buildSystemPrompt', () => {
 			const parts = buildClaudePdfParts(files);
 			expect(parts).toHaveLength(1);
 			expect(parts[0].title).toBe('scan.pdf');
+		});
+
+		it('does not include image files even when they have base64Data', () => {
+			const files = [
+				{
+					name: 'photo.png',
+					content: '[Image]',
+					mimeType: 'image/png',
+					size: 5000,
+					base64Data: 'iVBORw==',
+				},
+				{
+					name: 'doc.pdf',
+					content: '[PDF]',
+					mimeType: 'application/pdf',
+					size: 2000,
+					base64Data: 'JVBERi0=',
+				},
+			];
+			const parts = buildClaudePdfParts(files);
+			expect(parts).toHaveLength(1);
+			expect(parts[0].title).toBe('doc.pdf');
+		});
+	});
+
+	describe('buildOpenAIImageParts', () => {
+		it('returns empty array when no image files present', () => {
+			const files = [
+				{ name: 'doc.pdf', content: '[PDF]', mimeType: 'application/pdf', size: 1000 },
+			];
+			expect(buildOpenAIImageParts(files)).toEqual([]);
+		});
+
+		it('excludes images without base64Data', () => {
+			const files = [
+				{ name: 'img.png', content: 'text fallback', mimeType: 'image/png', size: 100 },
+			];
+			expect(buildOpenAIImageParts(files)).toEqual([]);
+		});
+
+		it('returns image_url part for PNG with base64Data', () => {
+			const files = [
+				{
+					name: 'screenshot.png',
+					content: '[Image]',
+					mimeType: 'image/png',
+					size: 4096,
+					base64Data: 'iVBORw==',
+				},
+			];
+			const parts = buildOpenAIImageParts(files);
+			expect(parts).toHaveLength(1);
+			expect(parts[0]).toEqual({
+				type: 'image_url',
+				image_url: { url: 'data:image/png;base64,iVBORw==' },
+			});
+		});
+
+		it('returns image_url part for JPEG with base64Data', () => {
+			const files = [
+				{
+					name: 'photo.jpg',
+					content: '[Image]',
+					mimeType: 'image/jpeg',
+					size: 8000,
+					base64Data: '/9j/4AA=',
+				},
+			];
+			const parts = buildOpenAIImageParts(files);
+			expect(parts).toHaveLength(1);
+			expect(parts[0].image_url.url).toBe('data:image/jpeg;base64,/9j/4AA=');
+		});
+
+		it('does not include PDF files in image parts', () => {
+			const files = [
+				{
+					name: 'doc.pdf',
+					content: '[PDF]',
+					mimeType: 'application/pdf',
+					size: 1000,
+					base64Data: 'JVBERi0=',
+				},
+			];
+			expect(buildOpenAIImageParts(files)).toEqual([]);
+		});
+
+		it('handles multiple images', () => {
+			const files = [
+				{ name: 'a.png', content: '[Image]', mimeType: 'image/png', size: 100, base64Data: 'AAAA' },
+				{
+					name: 'b.webp',
+					content: '[Image]',
+					mimeType: 'image/webp',
+					size: 200,
+					base64Data: 'BBBB',
+				},
+			];
+			const parts = buildOpenAIImageParts(files);
+			expect(parts).toHaveLength(2);
+			expect(parts[0].image_url.url).toBe('data:image/png;base64,AAAA');
+			expect(parts[1].image_url.url).toBe('data:image/webp;base64,BBBB');
+		});
+	});
+
+	describe('buildClaudeImageParts', () => {
+		it('returns empty array when no image files present', () => {
+			const files = [{ name: 'note.txt', content: 'text', mimeType: 'text/plain', size: 4 }];
+			expect(buildClaudeImageParts(files)).toEqual([]);
+		});
+
+		it('excludes images without base64Data', () => {
+			const files = [{ name: 'img.gif', content: 'fallback', mimeType: 'image/gif', size: 50 }];
+			expect(buildClaudeImageParts(files)).toEqual([]);
+		});
+
+		it('returns image block for PNG with base64Data', () => {
+			const files = [
+				{
+					name: 'diagram.png',
+					content: '[Image]',
+					mimeType: 'image/png',
+					size: 2048,
+					base64Data: 'iVBORw==',
+				},
+			];
+			const parts = buildClaudeImageParts(files);
+			expect(parts).toHaveLength(1);
+			expect(parts[0]).toEqual({
+				type: 'image',
+				source: {
+					type: 'base64',
+					media_type: 'image/png',
+					data: 'iVBORw==',
+				},
+			});
+		});
+
+		it('returns image block for JPEG with base64Data', () => {
+			const files = [
+				{
+					name: 'photo.jpg',
+					content: '[Image]',
+					mimeType: 'image/jpeg',
+					size: 6000,
+					base64Data: '/9j/4AA=',
+				},
+			];
+			const parts = buildClaudeImageParts(files);
+			expect(parts).toHaveLength(1);
+			expect(parts[0].source.media_type).toBe('image/jpeg');
+			expect(parts[0].source.data).toBe('/9j/4AA=');
+		});
+
+		it('does not include PDF files in image parts', () => {
+			const files = [
+				{
+					name: 'report.pdf',
+					content: '[PDF]',
+					mimeType: 'application/pdf',
+					size: 5000,
+					base64Data: 'JVBERi0=',
+				},
+			];
+			expect(buildClaudeImageParts(files)).toEqual([]);
+		});
+
+		it('handles webp and gif images', () => {
+			const files = [
+				{
+					name: 'anim.gif',
+					content: '[Image]',
+					mimeType: 'image/gif',
+					size: 100,
+					base64Data: 'R0lGOD',
+				},
+				{
+					name: 'banner.webp',
+					content: '[Image]',
+					mimeType: 'image/webp',
+					size: 200,
+					base64Data: 'UklGRg==',
+				},
+			];
+			const parts = buildClaudeImageParts(files);
+			expect(parts).toHaveLength(2);
+			expect(parts[0].source.media_type).toBe('image/gif');
+			expect(parts[1].source.media_type).toBe('image/webp');
 		});
 	});
 
@@ -859,6 +1070,12 @@ describe('validateApiKey', () => {
 		expect(() => validateApiKey('claude', '   ')).toThrow('API key for claude is not configured');
 	});
 
+	it('throws for claudecode when API key is whitespace only', () => {
+		expect(() => validateApiKey('claudecode', '   ')).toThrow(
+			'API key for claudecode is not configured',
+		);
+	});
+
 	it('does not throw when API key is valid', () => {
 		expect(() => validateApiKey('openai', 'sk-valid-key')).not.toThrow();
 	});
@@ -924,6 +1141,28 @@ describe('sendToAI', () => {
 		expect(result.isEdit).toBe(false);
 		expect(result.content).toBe('Answer from Claude');
 		expect(result.actions).toEqual([]);
+	});
+
+	it('routes to Claude transport when provider is "claudecode"', async () => {
+		mockedSendClaude.mockResolvedValue({
+			textContent: 'Answer from Claude Code',
+			toolCalls: [],
+			finishReason: 'end_turn',
+			rawAssistantMessage: { role: 'assistant', content: [] },
+		});
+
+		const result = await sendToAI(
+			'claudecode',
+			'sk-ant-test',
+			'claude-sonnet-4-20250514',
+			'Explain',
+			'Title',
+			'Body',
+		);
+
+		expect(mockedSendClaude).toHaveBeenCalledTimes(1);
+		expect(mockedSendOpenAI).not.toHaveBeenCalled();
+		expect(result.content).toBe('Answer from Claude Code');
 	});
 
 	it('routes claude-opus-4 model to Claude provider', async () => {

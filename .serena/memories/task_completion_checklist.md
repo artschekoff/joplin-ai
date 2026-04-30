@@ -1,0 +1,1 @@
+After code changes: run focused Jest tests for touched logic, optionally run broader `npm test` if impact is wider, run `npm run lint` and note that the repo currently has many pre-existing warnings in tests, summarize any verification gaps (for example if full plugin runtime in Joplin was not exercised).

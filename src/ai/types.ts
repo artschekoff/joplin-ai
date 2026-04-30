@@ -1,4 +1,4 @@
-export type AIProvider = 'openai' | 'claude' | 'perplexity';
+export type AIProvider = 'openai' | 'claude' | 'claudecode' | 'perplexity';
 
 export type WorkMode = 'ask' | 'agent' | 'edit';
 

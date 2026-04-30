@@ -3816,6 +3816,48 @@ describe('settings panel gear icon', () => {
 		expect(providerSelect.value).toBe('claude');
 	});
 
+	it('renders claudecode provider and its dedicated fields in settings overlay', () => {
+		const btn = document.getElementById('settingsBtn') as HTMLButtonElement;
+		btn.click();
+
+		const messageHandler = mockApi.onMessage.mock.calls[0][0] as (msg: any) => void;
+		messageHandler({
+			type: 'settingsData',
+			provider: 'claudecode',
+			openaiModel: 'gpt-4o',
+			claudeModel: 'claude-sonnet-4-20250514',
+			claudeCodeModel: 'claude-sonnet-4-20250514',
+			perplexityModel: 'sonar',
+			webSearchEnabled: false,
+			webSearchModel: 'openai:gpt-4o-search-preview',
+			imageGenModel: 'gpt-image/1.5-text-to-image',
+			fileMaxSizeMb: 10,
+			openaiKeySet: false,
+			claudeKeySet: false,
+			claudeCodeKeySet: true,
+			perplexityKeySet: false,
+			kieKeySet: false,
+			providerOptions: {
+				openai: 'OpenAI',
+				claude: 'Claude (Anthropic)',
+				claudecode: 'Claude Code',
+				perplexity: 'Perplexity',
+			},
+			openaiModelOptions: { 'gpt-4o': 'GPT-4o' },
+			claudeModelOptions: { 'claude-sonnet-4-20250514': 'Claude Sonnet 4' },
+			claudeCodeModelOptions: { 'claude-sonnet-4-20250514': 'Claude Sonnet 4' },
+			perplexityModelOptions: { sonar: 'Sonar' },
+			webSearchModelOptions: { 'openai:gpt-4o-search-preview': 'GPT-4o Search Preview' },
+			imageGenModelOptions: { 'gpt-image/1.5-text-to-image': 'GPT Image 1.5' },
+		});
+
+		const providerSelect = document.getElementById('settingsProvider') as HTMLSelectElement;
+		const claudeCodeKeyInput = document.getElementById('settingsClaudeCodeKey') as HTMLInputElement;
+		expect(providerSelect.value).toBe('claudecode');
+		expect(claudeCodeKeyInput).not.toBeNull();
+		expect(claudeCodeKeyInput.placeholder).toContain('configured');
+	});
+
 	it('hides settings overlay when close button is clicked', () => {
 		const btn = document.getElementById('settingsBtn') as HTMLButtonElement;
 		btn.click();
@@ -4168,5 +4210,74 @@ describe('SVG icon replacement — dynamic content', () => {
 		expect(editBtn.querySelector('svg')).not.toBeNull();
 		expect(deleteBtn.querySelector('svg')).not.toBeNull();
 		expect(forceBtn.querySelector('svg')).not.toBeNull();
+	});
+});
+
+describe('thinking timer in loading indicator', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+	let messageHandler: (msg: unknown) => void;
+
+	beforeEach(() => {
+		jest.useFakeTimers();
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+		messageHandler = mockApi.onMessage.mock.calls[0][0];
+	});
+
+	afterEach(() => {
+		jest.useRealTimers();
+		delete (window as any).webviewApi;
+	});
+
+	it('shows a timer element with initial value 0:00 when loading starts', () => {
+		messageHandler({ type: 'loading', status: true });
+
+		const loadingEl = document.getElementById('loadingIndicator');
+		expect(loadingEl).not.toBeNull();
+		const timerEl = loadingEl!.querySelector('.loading-timer');
+		expect(timerEl).not.toBeNull();
+		expect(timerEl!.textContent).toBe('0:00');
+	});
+
+	it('increments the timer every second', () => {
+		messageHandler({ type: 'loading', status: true });
+
+		jest.advanceTimersByTime(3000);
+
+		const loadingEl = document.getElementById('loadingIndicator');
+		const timerEl = loadingEl!.querySelector('.loading-timer');
+		expect(timerEl!.textContent).toBe('0:03');
+	});
+
+	it('formats time as M:SS when over 60 seconds', () => {
+		messageHandler({ type: 'loading', status: true });
+
+		jest.advanceTimersByTime(75000);
+
+		const loadingEl = document.getElementById('loadingIndicator');
+		const timerEl = loadingEl!.querySelector('.loading-timer');
+		expect(timerEl!.textContent).toBe('1:15');
+	});
+
+	it('removes the timer element when loading stops', () => {
+		messageHandler({ type: 'loading', status: true });
+		jest.advanceTimersByTime(2000);
+
+		messageHandler({ type: 'loading', status: false });
+
+		expect(document.getElementById('loadingIndicator')).toBeNull();
+	});
+
+	it('resets the timer to 0:00 when loading restarts', () => {
+		messageHandler({ type: 'loading', status: true });
+		jest.advanceTimersByTime(5000);
+
+		messageHandler({ type: 'loading', status: false });
+		messageHandler({ type: 'loading', status: true });
+
+		const loadingEl = document.getElementById('loadingIndicator');
+		const timerEl = loadingEl!.querySelector('.loading-timer');
+		expect(timerEl!.textContent).toBe('0:00');
 	});
 });

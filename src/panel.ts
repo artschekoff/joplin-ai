@@ -5,6 +5,7 @@ import {
 	PROVIDER_OPTIONS,
 	OPENAI_MODEL_OPTIONS,
 	CLAUDE_MODEL_OPTIONS,
+	CLAUDECODE_MODEL_OPTIONS,
 	PERPLEXITY_MODEL_OPTIONS,
 	WEB_SEARCH_MODEL_OPTIONS,
 	IMAGE_GEN_MODEL_OPTIONS,
@@ -18,6 +19,7 @@ import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
 import { PendingEdit } from './ai/types';
 import { extractPdfTextFromBase64 } from './utils/pdf-extract';
+import { extractDocumentText, isDocumentMimeType } from './utils/document-extract';
 
 let chatPanelHandle: ViewHandle | null = null;
 let chatPanelVisible = false;
@@ -26,9 +28,12 @@ let editorSelection = '';
 /** Track the last note body sent to AI to enable diff-based optimization. */
 let lastSentNoteId: string | null = null;
 let lastSentNoteBody: string | null = null;
+const progressiveApplyRuns = new Map<string, number>();
 
 const SQLITE_RETRY_MAX = 3;
 const SQLITE_RETRY_BASE_MS = 50;
+const PROGRESSIVE_APPLY_CHUNK_SIZE = 1200;
+const PROGRESSIVE_APPLY_DELAY_MS = 120;
 
 const isSqliteConstraintError = (err: unknown): boolean => {
 	const msg = err instanceof Error ? err.message : String(err);
@@ -105,7 +110,7 @@ const CHAT_PANEL_HTML = `<!DOCTYPE html>
 						</div>
 					</div>
 				</div>
-				<input type="file" id="fileInput" style="display:none" multiple accept=".pdf,.txt,.md,.csv,.json,.xml,.js,.ts,.py,.java,.c,.cpp,.h,.html,.css,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.bat,.sql,.r,.rb,.go,.rs,.swift,.kt,.scala,.lua,.pl,.php" />
+				<input type="file" id="fileInput" style="display:none" multiple accept=".pdf,.rtf,.docx,.odt,.pptx,.txt,.md,.csv,.json,.xml,.js,.ts,.py,.java,.c,.cpp,.h,.html,.css,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.bat,.sql,.r,.rb,.go,.rs,.swift,.kt,.scala,.lua,.pl,.php,.png,.jpg,.jpeg,.gif,.webp,.bmp" />
 			</div>
 			<div id="roleManageView" class="role-manage-view" style="display: none;"></div>
 			<div id="settingsManageView" class="settings-manage-view" style="display: none;"></div>
@@ -180,10 +185,12 @@ const getModelFromSettings = async (): Promise<string> => {
 		SETTING_KEYS.provider,
 		SETTING_KEYS.openaiModel,
 		SETTING_KEYS.claudeModel,
+		SETTING_KEYS.claudeCodeModel,
 		SETTING_KEYS.perplexityModel,
 	]);
 	const provider = (settings[SETTING_KEYS.provider] as string) ?? 'openai';
 	if (provider === 'perplexity') return settings[SETTING_KEYS.perplexityModel] as string;
+	if (provider === 'claudecode') return settings[SETTING_KEYS.claudeCodeModel] as string;
 	return provider === 'openai'
 		? (settings[SETTING_KEYS.openaiModel] as string)
 		: (settings[SETTING_KEYS.claudeModel] as string);
@@ -222,6 +229,79 @@ const getNoteById = async (
 		return note ?? null;
 	} catch {
 		return null;
+	}
+};
+
+const normalizeBody = (body: string): string => body.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+const buildProgressiveBodySnapshots = (finalBody: string): string[] => {
+	const normalized = normalizeBody(finalBody);
+	if (!normalized) return [''];
+	if (normalized.length <= PROGRESSIVE_APPLY_CHUNK_SIZE) return [normalized];
+
+	const snapshots: string[] = [];
+	let cursor = 0;
+	while (cursor < normalized.length) {
+		let next = Math.min(normalized.length, cursor + PROGRESSIVE_APPLY_CHUNK_SIZE);
+		if (next < normalized.length) {
+			const newline = normalized.lastIndexOf('\n', next);
+			if (newline > cursor + Math.floor(PROGRESSIVE_APPLY_CHUNK_SIZE * 0.5)) {
+				next = newline + 1;
+			}
+		}
+		if (next <= cursor) {
+			next = Math.min(normalized.length, cursor + PROGRESSIVE_APPLY_CHUNK_SIZE);
+		}
+		cursor = next;
+		snapshots.push(normalized.slice(0, cursor));
+	}
+
+	if (snapshots[snapshots.length - 1] !== normalized) snapshots.push(normalized);
+	return snapshots;
+};
+
+const wait = async (ms: number): Promise<void> => {
+	await new Promise((resolve) => setTimeout(resolve, ms));
+};
+
+const applyNoteBodyProgressively = async (
+	handle: ViewHandle,
+	noteId: string,
+	body: string,
+): Promise<void> => {
+	const normalizedBody = normalizeBody(body);
+	const runId = (progressiveApplyRuns.get(noteId) ?? 0) + 1;
+	progressiveApplyRuns.set(noteId, runId);
+
+	const existing = await getNoteById(noteId);
+	if (!existing) return;
+
+	const snapshots = buildProgressiveBodySnapshots(normalizedBody);
+	let lastObservedBody = normalizeBody(existing.body);
+
+	for (let i = 0; i < snapshots.length; i++) {
+		if (progressiveApplyRuns.get(noteId) !== runId) return;
+
+		const current = await getNoteById(noteId);
+		if (!current) return;
+
+		const currentBody = normalizeBody(current.body);
+		if (currentBody !== lastObservedBody) return;
+
+		const nextBody = snapshots[i];
+		if (currentBody !== nextBody) {
+			await joplin.data.put(['notes', noteId], null, { body: nextBody });
+			lastObservedBody = nextBody;
+			lastSentNoteBody = nextBody;
+			const selectedNote = await joplin.workspace.selectedNote();
+			if (selectedNote?.id === noteId) {
+				await sendNoteInfo(handle);
+			}
+		}
+
+		if (i < snapshots.length - 1) {
+			await wait(PROGRESSIVE_APPLY_DELAY_MS);
+		}
 	}
 };
 
@@ -265,6 +345,8 @@ const sendSettings = async (handle: ViewHandle) => {
 		SETTING_KEYS.openaiModel,
 		SETTING_KEYS.claudeKey,
 		SETTING_KEYS.claudeModel,
+		SETTING_KEYS.claudeCodeKey,
+		SETTING_KEYS.claudeCodeModel,
 		SETTING_KEYS.perplexityKey,
 		SETTING_KEYS.perplexityModel,
 		SETTING_KEYS.webSearchEnabled,
@@ -278,6 +360,7 @@ const sendSettings = async (handle: ViewHandle) => {
 		provider: vals[SETTING_KEYS.provider] ?? 'openai',
 		openaiModel: vals[SETTING_KEYS.openaiModel] ?? 'gpt-4o',
 		claudeModel: vals[SETTING_KEYS.claudeModel] ?? 'claude-sonnet-4-20250514',
+		claudeCodeModel: vals[SETTING_KEYS.claudeCodeModel] ?? 'claude-sonnet-4-20250514',
 		perplexityModel: vals[SETTING_KEYS.perplexityModel] ?? 'sonar',
 		webSearchEnabled: !!vals[SETTING_KEYS.webSearchEnabled],
 		webSearchModel: vals[SETTING_KEYS.webSearchModel] ?? 'openai:gpt-4o-search-preview',
@@ -285,11 +368,13 @@ const sendSettings = async (handle: ViewHandle) => {
 		fileMaxSizeMb: vals[SETTING_KEYS.fileMaxSizeMb] ?? 10,
 		openaiKeySet: !!((vals[SETTING_KEYS.openaiKey] as string) ?? '').trim(),
 		claudeKeySet: !!((vals[SETTING_KEYS.claudeKey] as string) ?? '').trim(),
+		claudeCodeKeySet: !!((vals[SETTING_KEYS.claudeCodeKey] as string) ?? '').trim(),
 		perplexityKeySet: !!((vals[SETTING_KEYS.perplexityKey] as string) ?? '').trim(),
 		kieKeySet: !!((vals[SETTING_KEYS.kieApiKey] as string) ?? '').trim(),
 		providerOptions: PROVIDER_OPTIONS,
 		openaiModelOptions: OPENAI_MODEL_OPTIONS,
 		claudeModelOptions: CLAUDE_MODEL_OPTIONS,
+		claudeCodeModelOptions: CLAUDECODE_MODEL_OPTIONS,
 		perplexityModelOptions: PERPLEXITY_MODEL_OPTIONS,
 		webSearchModelOptions: WEB_SEARCH_MODEL_OPTIONS,
 		imageGenModelOptions: IMAGE_GEN_MODEL_OPTIONS,
@@ -326,6 +411,7 @@ interface ProviderConfig {
 	webSearchEnabled: boolean;
 	webSearchModel: string;
 	openaiApiKey: string;
+	claudeCodeApiKey: string;
 	perplexityApiKey: string;
 	kieApiKey?: string;
 	imageGenModel?: string;
@@ -338,6 +424,8 @@ const loadProviderConfig = async (): Promise<ProviderConfig> => {
 		SETTING_KEYS.openaiModel,
 		SETTING_KEYS.claudeKey,
 		SETTING_KEYS.claudeModel,
+		SETTING_KEYS.claudeCodeKey,
+		SETTING_KEYS.claudeCodeModel,
 		SETTING_KEYS.perplexityKey,
 		SETTING_KEYS.perplexityModel,
 		SETTING_KEYS.webSearchEnabled,
@@ -349,11 +437,13 @@ const loadProviderConfig = async (): Promise<ProviderConfig> => {
 	const apiKeyMap: Record<string, string> = {
 		openai: settings[SETTING_KEYS.openaiKey] as string,
 		claude: settings[SETTING_KEYS.claudeKey] as string,
+		claudecode: settings[SETTING_KEYS.claudeCodeKey] as string,
 		perplexity: settings[SETTING_KEYS.perplexityKey] as string,
 	};
 	const modelMap: Record<string, string> = {
 		openai: settings[SETTING_KEYS.openaiModel] as string,
 		claude: settings[SETTING_KEYS.claudeModel] as string,
+		claudecode: settings[SETTING_KEYS.claudeCodeModel] as string,
 		perplexity: settings[SETTING_KEYS.perplexityModel] as string,
 	};
 	return {
@@ -364,6 +454,7 @@ const loadProviderConfig = async (): Promise<ProviderConfig> => {
 		webSearchModel:
 			(settings[SETTING_KEYS.webSearchModel] as string) || 'openai:gpt-4o-search-preview',
 		openaiApiKey: settings[SETTING_KEYS.openaiKey] as string,
+		claudeCodeApiKey: settings[SETTING_KEYS.claudeCodeKey] as string,
 		perplexityApiKey: settings[SETTING_KEYS.perplexityKey] as string,
 		kieApiKey: (settings[SETTING_KEYS.kieApiKey] as string) || undefined,
 		imageGenModel: (settings[SETTING_KEYS.imageGenModel] as string) || undefined,
@@ -536,6 +627,22 @@ const handleExecute = async (
 						}
 					}),
 			);
+			await Promise.all(
+				attachedFiles
+					.filter((f) => f.base64Data && isDocumentMimeType(f.mimeType, f.name))
+					.map(async (f) => {
+						try {
+							const text = await extractDocumentText(f.base64Data!, f.mimeType, f.name);
+							if (text.trim()) {
+								f.content = text;
+								f.base64Data = undefined;
+							}
+						} catch {
+							f.content = `[Could not extract text from "${f.name}". The file may be corrupt or pandoc may not be installed.]`;
+							f.base64Data = undefined;
+						}
+					}),
+			);
 		}
 		const hasSelection = editorSelection.trim().length > 0;
 		const isNativePerplexitySearch =
@@ -552,6 +659,7 @@ const handleExecute = async (
 			webSearchEnabled: config.webSearchEnabled && !isNativePerplexitySearch,
 			webSearchModel: config.webSearchModel,
 			openaiApiKey: config.openaiApiKey,
+			claudeCodeApiKey: config.claudeCodeApiKey,
 			perplexityApiKey: config.perplexityApiKey,
 			kieApiKey: config.kieApiKey,
 			imageGenModel: config.imageGenModel,
@@ -687,9 +795,7 @@ export const initPanel = async () => {
 			const noteId = message.noteId as string;
 			const body = message.body as string;
 			if (noteId && typeof body === 'string') {
-				await joplin.data.put(['notes', noteId], null, { body });
-				lastSentNoteBody = body;
-				await sendNoteInfo(chatPanelHandle);
+				await applyNoteBodyProgressively(chatPanelHandle, noteId, body);
 			}
 		}
 

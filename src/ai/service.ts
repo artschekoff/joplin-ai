@@ -142,6 +142,12 @@ const buildAttachedFilesSection = (files: AttachedFile[]): string => {
 	return `\n\nAttached files (the user uploaded these files — use their content as additional context):\n${sections.join('\n\n')}`;
 };
 
+const isImageAttachment = (f: AttachedFile): boolean =>
+	!!f.base64Data && f.mimeType.startsWith('image/');
+
+const isPdfAttachment = (f: AttachedFile): boolean =>
+	!!f.base64Data && f.mimeType === 'application/pdf';
+
 /**
  * Build OpenAI-format content parts for base64 PDF attachments.
  * Returns an array of `{ type: "file", file: { ... } }` content blocks.
@@ -150,15 +156,13 @@ export const buildOpenAIPdfParts = (
 	files: AttachedFile[],
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any[] =>
-	files
-		.filter((f) => f.base64Data)
-		.map((f) => ({
-			type: 'file',
-			file: {
-				filename: f.name,
-				file_data: `data:application/pdf;base64,${f.base64Data}`,
-			},
-		}));
+	files.filter(isPdfAttachment).map((f) => ({
+		type: 'file',
+		file: {
+			filename: f.name,
+			file_data: `data:application/pdf;base64,${f.base64Data}`,
+		},
+	}));
 
 /**
  * Build Claude-format content blocks for base64 PDF attachments.
@@ -168,17 +172,45 @@ export const buildClaudePdfParts = (
 	files: AttachedFile[],
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any[] =>
-	files
-		.filter((f) => f.base64Data)
-		.map((f) => ({
-			type: 'document',
-			source: {
-				type: 'base64',
-				media_type: 'application/pdf',
-				data: f.base64Data,
-			},
-			title: f.name,
-		}));
+	files.filter(isPdfAttachment).map((f) => ({
+		type: 'document',
+		source: {
+			type: 'base64',
+			media_type: 'application/pdf',
+			data: f.base64Data,
+		},
+		title: f.name,
+	}));
+
+/**
+ * Build OpenAI-format content parts for base64 image attachments.
+ * Returns an array of `{ type: "image_url", image_url: { url: "data:..." } }` blocks.
+ */
+export const buildOpenAIImageParts = (
+	files: AttachedFile[],
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any[] =>
+	files.filter(isImageAttachment).map((f) => ({
+		type: 'image_url',
+		image_url: { url: `data:${f.mimeType};base64,${f.base64Data}` },
+	}));
+
+/**
+ * Build Claude-format content blocks for base64 image attachments.
+ * Returns an array of `{ type: "image", source: { ... } }` content blocks.
+ */
+export const buildClaudeImageParts = (
+	files: AttachedFile[],
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any[] =>
+	files.filter(isImageAttachment).map((f) => ({
+		type: 'image',
+		source: {
+			type: 'base64',
+			media_type: f.mimeType,
+			data: f.base64Data,
+		},
+	}));
 
 const NOTE_RELATED_PATTERNS = [
 	/\b(this|the|current|my|open)\s+(note|document|text|page)/i,
@@ -543,10 +575,12 @@ const runOpenAILoop = async (
 	const tools = getOpenAITools(context.workMode);
 	const historyMessages = (history ?? []).map((m) => ({ role: m.role, content: m.content }));
 	const pdfParts = buildOpenAIPdfParts(context.attachedFiles ?? []);
+	const imageParts = buildOpenAIImageParts(context.attachedFiles ?? []);
+	const mediaParts = [...pdfParts, ...imageParts];
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const userMessage: any =
-		pdfParts.length > 0
-			? { role: 'user', content: [...pdfParts, { type: 'text', text: userPrompt }] }
+		mediaParts.length > 0
+			? { role: 'user', content: [...mediaParts, { type: 'text', text: userPrompt }] }
 			: { role: 'user', content: userPrompt };
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const messages: any[] = [
@@ -602,10 +636,12 @@ const runClaudeLoop = async (
 	const tools = getClaudeTools(context.workMode);
 	const historyMessages = (history ?? []).map((m) => ({ role: m.role, content: m.content }));
 	const pdfParts = buildClaudePdfParts(context.attachedFiles ?? []);
+	const imageParts = buildClaudeImageParts(context.attachedFiles ?? []);
+	const mediaParts = [...pdfParts, ...imageParts];
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const userMessage: any =
-		pdfParts.length > 0
-			? { role: 'user', content: [...pdfParts, { type: 'text', text: userPrompt }] }
+		mediaParts.length > 0
+			? { role: 'user', content: [...mediaParts, { type: 'text', text: userPrompt }] }
 			: { role: 'user', content: userPrompt };
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const messages: any[] = [...historyMessages, userMessage];
@@ -838,6 +874,9 @@ export const sendToAI = async (
 				history,
 				isNativeSearch,
 			);
+		}
+		if (provider === 'claude' || provider === 'claudecode') {
+			return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history);
 		}
 		return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history);
 	};

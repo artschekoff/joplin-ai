@@ -1,0 +1,1 @@
+Key commands: `npm test` to run Jest, `npm test -- --runInBand src/__tests__/panel.test.ts` for a focused backend panel test file, `npm run lint` for ESLint, `npm run format:check` for Prettier validation, `npm run dev` for webpack watch build, `npm run dist` for production plugin build. Repo custom AGENTS command: `test` prints `Hello from Codex`.

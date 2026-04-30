@@ -216,6 +216,68 @@ describe('panel handleExecute', () => {
 		expect(types).toContain('noteInfo');
 	});
 
+	it('applies accepted note edits progressively in multiple writes', async () => {
+		jest.useFakeTimers();
+		let currentBody = 'Old body';
+		mockDataGet.mockImplementation(async (path: string[]) => {
+			if (path[0] === 'notes') {
+				return { id: 'note-1', title: 'Test Note', body: currentBody };
+			}
+			return null;
+		});
+		mockDataPut.mockImplementation(async (_path: string[], _q: unknown, updates: any) => {
+			currentBody = updates.body;
+		});
+		mockDataPut.mockClear();
+
+		const newBody = Array.from({ length: 600 }, (_, i) => `Line ${i + 1}`).join('\n');
+		const applyPromise = capturedOnMessageCallback({
+			type: 'applyEdit',
+			noteId: 'note-1',
+			body: newBody,
+		});
+
+		await jest.advanceTimersByTimeAsync(2000);
+		await applyPromise;
+
+		expect(mockDataPut.mock.calls.length).toBeGreaterThan(1);
+		expect(mockDataPut.mock.calls[mockDataPut.mock.calls.length - 1][2]).toEqual({ body: newBody });
+		expect(currentBody).toBe(newBody);
+		jest.useRealTimers();
+	});
+
+	it('stops progressive note apply when the note changes externally mid-run', async () => {
+		jest.useFakeTimers();
+		let currentBody = 'Old body';
+		let putCount = 0;
+		mockDataGet.mockImplementation(async (path: string[]) => {
+			if (path[0] === 'notes') {
+				return { id: 'note-1', title: 'Test Note', body: currentBody };
+			}
+			return null;
+		});
+		mockDataPut.mockImplementation(async (_path: string[], _q: unknown, updates: any) => {
+			putCount++;
+			currentBody = putCount === 1 ? `${updates.body}\nExternal change` : (updates.body as string);
+		});
+		mockDataPut.mockClear();
+
+		const newBody = Array.from({ length: 600 }, (_, i) => `Line ${i + 1}`).join('\n');
+		const applyPromise = capturedOnMessageCallback({
+			type: 'applyEdit',
+			noteId: 'note-1',
+			body: newBody,
+		});
+
+		await jest.advanceTimersByTimeAsync(2000);
+		await applyPromise;
+
+		expect(mockDataPut).toHaveBeenCalledTimes(1);
+		expect(currentBody).toContain('External change');
+		expect(currentBody).not.toBe(newBody);
+		jest.useRealTimers();
+	});
+
 	it('shows error when no note is selected', async () => {
 		mockSelectedNote.mockResolvedValue(null);
 		mockDataGet.mockResolvedValue(null);
@@ -277,6 +339,41 @@ describe('panel handleExecute', () => {
 			'Some existing content.',
 			expect.objectContaining({ currentNoteId: 'note-1', currentNoteTitle: 'Test Note' }),
 			mockHistory,
+			undefined,
+			undefined,
+		);
+	});
+
+	it('loads claudecode provider settings and passes them to sendToAI', async () => {
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'claudecode',
+			[SETTING_KEYS.openaiKey]: '',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+			[SETTING_KEYS.claudeKey]: '',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.claudeCodeKey]: 'sk-ant-code',
+			[SETTING_KEYS.claudeCodeModel]: 'claude-opus-4-20250514',
+			[SETTING_KEYS.perplexityKey]: '',
+			[SETTING_KEYS.perplexityModel]: 'sonar',
+		});
+		mockedSendToAI.mockResolvedValue({
+			content: 'ok',
+			isEdit: false,
+			editedBody: undefined,
+			actions: [],
+		});
+
+		await capturedOnMessageCallback({ type: 'execute', prompt: 'hello' });
+
+		expect(mockedSendToAI).toHaveBeenCalledWith(
+			'claudecode',
+			'sk-ant-code',
+			'claude-opus-4-20250514',
+			'hello',
+			'Test Note',
+			'Some existing content.',
+			expect.objectContaining({ currentNoteId: 'note-1', currentNoteTitle: 'Test Note' }),
+			undefined,
 			undefined,
 			undefined,
 		);

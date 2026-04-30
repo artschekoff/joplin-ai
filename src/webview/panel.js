@@ -82,6 +82,15 @@ function initPanel() {
 	let streamingText = '';
 	let sessionTotalCost = 0;
 	let thinkingModelName = '';
+	let thinkingSeconds = 0;
+	let lastThinkingSeconds = 0;
+	let thinkingSecondTimer = null;
+
+	function formatThinkingTime(seconds) {
+		var m = Math.floor(seconds / 60);
+		var s = seconds % 60;
+		return m + ':' + (s < 10 ? '0' : '') + s;
+	}
 
 	function escapeHtml(text) {
 		const div = document.createElement('div');
@@ -194,11 +203,19 @@ function initPanel() {
 		try { localStorage.setItem(STORAGE_KEY_TOTAL_COST, String(sessionTotalCost)); } catch (_e) {}
 	}
 
-	function addCostToMessage(msgDiv, costUsd, usage) {
-		if (!costUsd && !usage) return;
+	function formatElapsedTime(seconds) {
+		if (seconds < 60) return seconds + ' sec';
+		var m = Math.floor(seconds / 60);
+		var s = seconds % 60;
+		return m + ' min' + (s > 0 ? ' ' + s + ' sec' : '');
+	}
+
+	function addCostToMessage(msgDiv, costUsd, usage, elapsedSeconds) {
+		if (!costUsd && !usage && !elapsedSeconds) return;
 		var footer = document.createElement('div');
 		footer.className = 'message-cost-footer';
 		var parts = [];
+		if (elapsedSeconds) parts.push(formatElapsedTime(elapsedSeconds));
 		if (usage) {
 			var tokenStr = usage.inputTokens + ' in / ' + usage.outputTokens + ' out';
 			if (usage.cachedTokens && usage.cachedTokens > 0) {
@@ -276,7 +293,7 @@ function initPanel() {
 		}
 
 		if (isAiMessage && costInfo) {
-			addCostToMessage(msgDiv, costInfo.costUsd, costInfo.usage);
+			addCostToMessage(msgDiv, costInfo.costUsd, costInfo.usage, costInfo.elapsedSeconds);
 		}
 
 		messagesEl.appendChild(msgDiv);
@@ -332,15 +349,32 @@ function initPanel() {
 
 		const existing = document.getElementById('loadingIndicator');
 		if (show && !existing) {
+			thinkingSeconds = 0;
 			const loadingDiv = document.createElement('div');
 			loadingDiv.id = 'loadingIndicator';
 			loadingDiv.className = 'loading';
-			loadingDiv.innerHTML = '<div class="spinner"></div><span class="loading-text">' + escapeHtml(thinkingLabel('is thinking...')) + '</span>';
+			loadingDiv.innerHTML =
+				'<span class="loading-timer">' + formatThinkingTime(0) + '</span>' +
+				'<div class="loading-main-row">' +
+				'<div class="spinner"></div>' +
+				'<span class="loading-text">' + escapeHtml(thinkingLabel('is thinking...')) + '</span>' +
+				'</div>';
 			messagesEl.appendChild(loadingDiv);
 			messagesEl.scrollTop = messagesEl.scrollHeight;
 			startThinkingFillers();
+			thinkingSecondTimer = setInterval(function () {
+				thinkingSeconds++;
+				var timerEl = document.querySelector('#loadingIndicator .loading-timer');
+				if (timerEl) timerEl.textContent = formatThinkingTime(thinkingSeconds);
+			}, 1000);
 		} else if (!show && existing) {
 			stopThinkingFillers();
+			if (thinkingSecondTimer) {
+				clearInterval(thinkingSecondTimer);
+				thinkingSecondTimer = null;
+			}
+			lastThinkingSeconds = thinkingSeconds;
+			thinkingSeconds = 0;
 			existing.remove();
 		}
 	}
@@ -416,7 +450,7 @@ function initPanel() {
 				modelDiv.textContent = modelName;
 				streamingMsgDiv.insertBefore(modelDiv, streamingMsgDiv.children[1]);
 			}
-			addCostToMessage(streamingMsgDiv, costUsd, usage);
+			addCostToMessage(streamingMsgDiv, costUsd, usage, lastThinkingSeconds);
 			streamingMsgDiv = null;
 			streamingText = '';
 		}
@@ -916,6 +950,29 @@ function initPanel() {
 		return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 	}
 
+	function isImageFile(file) {
+		return (
+			file.type.startsWith('image/') ||
+			/\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(file.name)
+		);
+	}
+
+	var DOCUMENT_EXTENSIONS = /\.(rtf|docx|doc|odt|odp|pptx|xlsx)$/i;
+	var DOCUMENT_MIME_TYPES = {
+		'application/rtf': true,
+		'text/rtf': true,
+		'application/vnd.openxmlformats-officedocument.wordprocessingml.document': true,
+		'application/msword': true,
+		'application/vnd.oasis.opendocument.text': true,
+		'application/vnd.oasis.opendocument.presentation': true,
+		'application/vnd.openxmlformats-officedocument.presentationml.presentation': true,
+		'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': true,
+	};
+
+	function isDocumentFile(file) {
+		return DOCUMENT_MIME_TYPES[file.type] || DOCUMENT_EXTENSIONS.test(file.name);
+	}
+
 	function arrayBufferToBase64(buffer) {
 		var bytes = new Uint8Array(buffer);
 		var binary = '';
@@ -955,6 +1012,57 @@ function initPanel() {
 					'error',
 					'Error',
 					'Failed to process PDF "' + escapeHtml(file.name) + '".',
+				);
+				onError();
+			}
+		};
+		reader.onerror = onError;
+		reader.readAsArrayBuffer(file);
+	}
+
+	function handleDocumentFile(file, onDone, onError) {
+		var reader = new FileReader();
+		reader.onload = function () {
+			try {
+				var base64 = arrayBufferToBase64(reader.result);
+				onDone({
+					name: file.name,
+					content: '[Document — will be converted to text server-side]',
+					mimeType: file.type || 'application/octet-stream',
+					size: file.size,
+					base64Data: base64,
+				});
+			} catch (_err) {
+				addMessage(
+					'error',
+					'Error',
+					'Failed to read "' + escapeHtml(file.name) + '".',
+				);
+				onError();
+			}
+		};
+		reader.onerror = onError;
+		reader.readAsArrayBuffer(file);
+	}
+
+	function handleImageFile(file, onDone, onError) {
+		var reader = new FileReader();
+		reader.onload = function () {
+			try {
+				var base64 = arrayBufferToBase64(reader.result);
+				var mimeType = file.type || 'image/png';
+				onDone({
+					name: file.name,
+					content: '[Image]',
+					mimeType: mimeType,
+					size: file.size,
+					base64Data: base64,
+				});
+			} catch (_err) {
+				addMessage(
+					'error',
+					'Error',
+					'Failed to read image "' + escapeHtml(file.name) + '".',
 				);
 				onError();
 			}
@@ -1003,6 +1111,10 @@ function initPanel() {
 			};
 			if (isPdfFile(file)) {
 				handlePdfFile(file, onDone, onError);
+			} else if (isImageFile(file)) {
+				handleImageFile(file, onDone, onError);
+			} else if (isDocumentFile(file)) {
+				handleDocumentFile(file, onDone, onError);
 			} else {
 				handleTextFile(file, onDone, onError);
 			}
@@ -1326,6 +1438,8 @@ function initPanel() {
 		html += buildSelectHtml('settingsOpenaiModel', 'OpenAI Model', data.openaiModelOptions || {}, data.openaiModel);
 		html += buildKeyInputHtml('settingsClaudeKey', 'Claude API Key', data.claudeKeySet, 'sk-ant-...');
 		html += buildSelectHtml('settingsClaudeModel', 'Claude Model', data.claudeModelOptions || {}, data.claudeModel);
+		html += buildKeyInputHtml('settingsClaudeCodeKey', 'Claude Code API Key', data.claudeCodeKeySet, 'sk-ant-...');
+		html += buildSelectHtml('settingsClaudeCodeModel', 'Claude Code Model', data.claudeCodeModelOptions || {}, data.claudeCodeModel);
 		html += buildKeyInputHtml('settingsPerplexityKey', 'Perplexity API Key', data.perplexityKeySet, 'pplx-...');
 		html += buildSelectHtml('settingsPerplexityModel', 'Perplexity Model', data.perplexityModelOptions || {}, data.perplexityModel);
 		html += '</div>';
@@ -1366,6 +1480,9 @@ function initPanel() {
 			var claudeKey = document.getElementById('settingsClaudeKey').value.trim();
 			if (claudeKey) settings.claudeApiKey = claudeKey;
 			settings.claudeModel = document.getElementById('settingsClaudeModel').value;
+			var claudeCodeKey = document.getElementById('settingsClaudeCodeKey').value.trim();
+			if (claudeCodeKey) settings.claudeCodeApiKey = claudeCodeKey;
+			settings.claudeCodeModel = document.getElementById('settingsClaudeCodeModel').value;
 			var perplexityKey = document.getElementById('settingsPerplexityKey').value.trim();
 			if (perplexityKey) settings.perplexityApiKey = perplexityKey;
 			settings.perplexityModel = document.getElementById('settingsPerplexityModel').value;
@@ -1387,6 +1504,8 @@ function initPanel() {
 			{ prefix: 'OpenaiModel', providers: ['openai'] },
 			{ prefix: 'ClaudeKey', providers: ['claude'] },
 			{ prefix: 'ClaudeModel', providers: ['claude'] },
+			{ prefix: 'ClaudeCodeKey', providers: ['claudecode'] },
+			{ prefix: 'ClaudeCodeModel', providers: ['claudecode'] },
 			{ prefix: 'PerplexityKey', providers: ['perplexity'] },
 			{ prefix: 'PerplexityModel', providers: ['perplexity'] },
 		];
@@ -1617,7 +1736,7 @@ function initPanel() {
 				savedMessages.push({ type: 'ai', label: 'AI', content: message.content || streamingText, files: null, modelName: message.modelName || null, costUsd: msgCostUsd, usage: msgUsage });
 				persistMessages();
 			} else if (message.content) {
-				addMessage('ai', 'AI', message.content, null, message.modelName, false, { costUsd: msgCostUsd, usage: msgUsage });
+				addMessage('ai', 'AI', message.content, null, message.modelName, false, { costUsd: msgCostUsd, usage: msgUsage, elapsedSeconds: lastThinkingSeconds });
 			}
 			updateSessionCostDisplay();
 			if (lastSentPrompt && (message.content || hasActions)) {

@@ -75,11 +75,5 @@ joplin.plugins.register({
 			'toggleNoteList',
 			ToolbarButtonLocation.NoteToolbar,
 		);
-
-		await joplin.views.toolbarButtons.create(
-			'editWithAIBtn',
-			'editWithAI',
-			ToolbarButtonLocation.NoteToolbar,
-		);
 	},
 });
