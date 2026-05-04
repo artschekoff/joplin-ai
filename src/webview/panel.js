@@ -637,8 +637,9 @@ function initPanel() {
 				if (blockData) {
 					var effectiveAccepted = {};
 					for (var g = 0; g < blockData.diff.groups.length; g++) {
-						if (!blockData.rejectedGroups[g]) {
-							effectiveAccepted[g] = true;
+						var gId = blockData.diff.groups[g].id;
+						if (!blockData.rejectedGroups[gId]) {
+							effectiveAccepted[gId] = true;
 						}
 					}
 					if (Object.keys(effectiveAccepted).length > 0) {
