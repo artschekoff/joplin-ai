@@ -816,8 +816,6 @@ export const initPanel = async () => {
 			await sendNoteInfo(chatPanelHandle);
 		}
 	});
-
-
 };
 
 export const togglePanel = async (): Promise<void> => {
