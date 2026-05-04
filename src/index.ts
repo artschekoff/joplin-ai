@@ -19,7 +19,7 @@ joplin.plugins.register({
 			console.error('AI Assistant: panel initialization failed:', msg);
 		}
 
-await joplin.commands.register({
+		await joplin.commands.register({
 			name: 'editWithAI',
 			label: 'Edit with AI',
 			iconName: 'fas fa-robot',
