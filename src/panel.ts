@@ -666,7 +666,7 @@ const handleExecute = async (
 			onImageProgress,
 			onThinkingStep,
 			onStreamChunk,
-			onPendingEdit: (info) => collectedEdits.push(info),
+			onPendingEdit: workMode === 'edit' ? (info) => collectedEdits.push(info) : undefined,
 			isSelection: hasSelection || undefined,
 			selectionText: hasSelection ? editorSelection : undefined,
 		};
@@ -817,29 +817,7 @@ export const initPanel = async () => {
 		}
 	});
 
-	// ── Ask AI bridge: poll joplin-notion's global setting ──────────────────
-	// joplin-notion writes { text, ts } to notion.askAI.request when the user
-	// clicks "Ask AI" in the block editor. We poll every 500 ms and trigger
-	// the chat panel when the timestamp changes.
-	let lastAskAITs: number = 0;
-	setInterval(async () => {
-		try {
-			const [raw] = (await joplin.settings.globalValues([
-				'plugin-net.roxl.joplin-notion.notion.askAI.request',
-			])) as [string];
-			if (!raw) return;
-			const parsed: unknown = JSON.parse(raw);
-			if (typeof parsed === 'object' && parsed !== null && 'ts' in parsed && 'text' in parsed) {
-				const { ts, text } = parsed as { ts: number; text: string };
-				if (ts > lastAskAITs && typeof text === 'string' && text.trim()) {
-					lastAskAITs = ts;
-					await triggerAskAI(text);
-				}
-			}
-		} catch {
-			// Setting not yet registered or joplin-notion not installed — ignore
-		}
-	}, 500);
+
 };
 
 export const togglePanel = async (): Promise<void> => {

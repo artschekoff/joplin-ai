@@ -202,7 +202,9 @@ const updateNoteHandler: ActionHandler = {
 		const parts = Object.keys(updates).join(' and ');
 		return {
 			success: true,
-			message: `Note "${noteTitle}" ${parts} updated`,
+			message: isPendingBodyEdit
+				? `Note "${noteTitle}" ${parts} ready — review the diff below`
+				: `Note "${noteTitle}" ${parts} updated`,
 			data: { id: noteId, title: noteTitle },
 		};
 	},

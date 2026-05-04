@@ -370,6 +370,52 @@ describe('update_note', () => {
 			});
 		});
 	});
+
+	describe('pending edit (onPendingEdit set)', () => {
+		it('skips joplin.data.put and calls onPendingEdit when body update is pending', async () => {
+			mockDataGet.mockResolvedValue({ body: 'original body' });
+			const pendingCallback = jest.fn();
+			const pendingCtx: ActionContext = {
+				currentNoteId: 'note-1',
+				currentNoteTitle: 'My Note',
+				onPendingEdit: pendingCallback,
+			};
+			const result = await executeAction('update_note', { body: 'new body' }, pendingCtx);
+			expect(result.success).toBe(true);
+			expect(mockDataPut).not.toHaveBeenCalled();
+			expect(pendingCallback).toHaveBeenCalledWith({
+				noteId: 'note-1',
+				noteTitle: 'My Note',
+				oldBody: 'original body',
+				newBody: 'new body',
+			});
+		});
+
+		it('returns a "review" message (not "updated") when edit is pending', async () => {
+			mockDataGet.mockResolvedValue({ body: 'original' });
+			const pendingCtx: ActionContext = {
+				currentNoteId: 'note-1',
+				currentNoteTitle: 'My Note',
+				onPendingEdit: jest.fn(),
+			};
+			const result = await executeAction('update_note', { body: 'translated' }, pendingCtx);
+			expect(result.message).toMatch(/review|diff/i);
+			expect(result.message).not.toMatch(/\bupdated\b/i);
+		});
+
+		it('writes title directly even when onPendingEdit is set (only body goes pending)', async () => {
+			mockDataPut.mockResolvedValue(undefined);
+			const pendingCtx: ActionContext = {
+				currentNoteId: 'note-1',
+				currentNoteTitle: 'My Note',
+				workMode: 'edit',
+				onPendingEdit: jest.fn(),
+			};
+			const result = await executeAction('update_note', { title: 'New Title' }, pendingCtx);
+			expect(result.success).toBe(false);
+			expect(result.message).toMatch(/title.*read-only|read-only.*title/i);
+		});
+	});
 });
 
 describe('delete_note', () => {
