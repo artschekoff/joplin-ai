@@ -464,7 +464,7 @@ function initPanel() {
 		return 'Web Search';
 	}
 
-	function renderSingleDiffReview(edit, allDiffBlocks) {
+	function renderSingleDiffReview(edit, allDiffBlocks, blockDataMap) {
 		var diff = computeDiffWithGroups(edit.oldBody, edit.newBody);
 		if (diff.groups.length === 0) return;
 
@@ -487,6 +487,7 @@ function initPanel() {
 		diffEl.className = 'diff-review-body';
 
 		var acceptedGroups = {};
+		var rejectedGroups = {};
 
 		function closeBlock() {
 			block.remove();
@@ -504,8 +505,21 @@ function initPanel() {
 			closeBlock();
 		}
 
+		function applyAllAndClose() {
+			webviewApi.postMessage({ type: 'applyEdit', noteId: edit.noteId, body: edit.newBody });
+			closeBlock();
+		}
+
+		if (blockDataMap) {
+			blockDataMap[edit.noteId] = { edit: edit, diff: diff, acceptedGroups: acceptedGroups, rejectedGroups: rejectedGroups };
+		}
+
 		function onGroupDecided(card, accepted, groupId) {
-			if (accepted) acceptedGroups[groupId] = true;
+			if (accepted) {
+				acceptedGroups[groupId] = true;
+			} else {
+				rejectedGroups[groupId] = true;
+			}
 			pendingCount--;
 			counterSpan.textContent = pendingCount + ' change' + (pendingCount !== 1 ? 's' : '') + ' remaining';
 			card.style.transition = 'opacity 0.15s';
@@ -582,8 +596,8 @@ function initPanel() {
 
 		var applyBtn = document.createElement('button');
 		applyBtn.className = 'btn btn-sm diff-review-footer-accept';
-		applyBtn.textContent = 'Apply accepted';
-		applyBtn.addEventListener('click', applyAndClose);
+		applyBtn.textContent = 'Apply all';
+		applyBtn.addEventListener('click', applyAllAndClose);
 
 		var discardBtn = document.createElement('button');
 		discardBtn.className = 'btn btn-sm diff-review-footer-cancel';
@@ -603,8 +617,9 @@ function initPanel() {
 		if (emptyState) emptyState.style.display = 'none';
 
 		var allBlocks = [];
+		var blockDataMap = {};
 		for (var e = 0; e < pendingEdits.length; e++) {
-			renderSingleDiffReview(pendingEdits[e], allBlocks);
+			renderSingleDiffReview(pendingEdits[e], allBlocks, blockDataMap);
 		}
 
 		var globalBar = document.createElement('div');
@@ -618,12 +633,24 @@ function initPanel() {
 			var blocks = document.querySelectorAll('.diff-review');
 			for (var i = 0; i < blocks.length; i++) {
 				var noteId = blocks[i].getAttribute('data-note-id');
-				var editData = null;
-				for (var ei = 0; ei < pendingEdits.length; ei++) {
-					if (pendingEdits[ei].noteId === noteId) { editData = pendingEdits[ei]; break; }
-				}
-				if (editData) {
-					webviewApi.postMessage({ type: 'applyEdit', noteId: noteId, body: editData.newBody });
+				var blockData = blockDataMap[noteId];
+				if (blockData) {
+					var effectiveAccepted = {};
+					for (var g = 0; g < blockData.diff.groups.length; g++) {
+						var gId = blockData.diff.groups[g].id;
+						if (!blockData.rejectedGroups[gId]) {
+							effectiveAccepted[gId] = true;
+						}
+					}
+					if (Object.keys(effectiveAccepted).length > 0) {
+						var finalBody = reconstructBody(
+							blockData.edit.oldBody,
+							blockData.edit.newBody,
+							effectiveAccepted,
+							blockData.diff
+						);
+						webviewApi.postMessage({ type: 'applyEdit', noteId: noteId, body: finalBody });
+					}
 				}
 				blocks[i].remove();
 			}
