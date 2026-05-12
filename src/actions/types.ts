@@ -61,6 +61,8 @@ export interface ActionContext {
 	onThinkingStep?: (info: ThinkingStepInfo) => void;
 	onStreamChunk?: (text: string) => void;
 	onPendingEdit?: (info: PendingEditInfo) => void;
+	/** Called after the body-inclusion decision is made in Agent/Ask mode. */
+	onBodyDecision?: (included: boolean) => void;
 	/** When true, the note body passed to the AI is a user-selected fragment, not the full note. */
 	isSelection?: boolean;
 	/** The original selected text fragment. Used by update_note to replace only this portion of the full note body. */

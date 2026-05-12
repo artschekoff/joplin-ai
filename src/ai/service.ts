@@ -24,11 +24,13 @@ import { getOpenAITools, getClaudeTools, getPerplexityTools } from './tools';
 import { executeAction, READ_ONLY_ACTIONS, EDIT_ACTIONS } from '../actions/registry';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from '../actions/types';
 import { CostTracker, defaultCostTracker } from './cost-tracker';
+import { classifyNeedsNoteBody } from './classifier';
 
 const MAX_TOOL_ROUNDS = 5;
 
 const TOOL_STEP_LABELS: Record<string, string> = {
 	create_note: 'Creating note...',
+	copy_note: 'Copying note...',
 	get_note: 'Reading note...',
 	open_note: 'Opening note...',
 	update_note: 'Updating note...',
@@ -212,45 +214,9 @@ export const buildClaudeImageParts = (
 		},
 	}));
 
-const NOTE_RELATED_PATTERNS = [
-	/\b(this|the|current|my|open)\s+(note|document|text|page)/i,
-	/(заметк|текущ|этой|эту|этом|этот|этого|открыт)/i,
-	/\b(summarize|translate|rewrite|explain|improve|fix|correct|format|restructure|outline|proofread|shorten|expand|simplify|paraphrase)\b/i,
-	/(переведи|суммируй|перепиши|объясни|улучши|исправ|структурируй|перефразируй|сократи|расширь|упрости)/i,
-	/\b(update|edit|modify|change|reformat|reorganize)\s+(the\s+)?(note|body|text|content|title)/i,
-	/(измен|отредактируй|обнов|поменяй|допиши|добав)/i,
-];
-
-export interface ShouldIncludeNoteBodyOptions {
-	workMode: WorkMode | undefined;
-	prompt: string;
-	noteTitle: string;
-	hasSelection?: boolean;
-	hasReferencedNotes?: boolean;
-	historyLength?: number;
-}
-
-/**
- * Determines whether the full note body should be included in the system prompt.
- *
- * - Edit mode: always includes the body (needed for update_note).
- * - Ask / Agent mode: includes the body only when the prompt appears
- *   related to the current note (keyword heuristic, note title mention,
- *   active selection, first message in session, or referenced notes present).
- */
-export const shouldIncludeNoteBody = (opts: ShouldIncludeNoteBodyOptions): boolean => {
-	const { workMode, prompt, noteTitle, hasSelection, hasReferencedNotes, historyLength } = opts;
-	if (workMode === 'edit') return true;
-	if (hasSelection) return true;
-	if (hasReferencedNotes) return true;
-	if ((historyLength ?? 0) === 0) return true;
-	const lower = prompt.toLowerCase();
-	if (noteTitle && lower.includes(noteTitle.toLowerCase())) return true;
-	return NOTE_RELATED_PATTERNS.some((pattern) => pattern.test(prompt));
-};
-
 export interface BuildSystemPromptOptions {
 	noteTitle: string;
+	noteId?: string;
 	noteBody: string;
 	notebooks?: Notebook[];
 	agentRolePrompt?: string;
@@ -335,12 +301,7 @@ const resolveNoteBodyContent = ({
 	selectionText?: string;
 }): { bodyText: string; contentLabel: string; omitted: boolean } => {
 	if (noteBodyOmitted) {
-		return {
-			bodyText:
-				'[Note body omitted to save context. Use get_note without arguments to read the current note if needed.]',
-			contentLabel: 'Current note body: (omitted)',
-			omitted: true,
-		};
+		return { bodyText: '', contentLabel: '', omitted: true };
 	}
 
 	const cleanBody = sanitizeContent(noteBody);
@@ -359,13 +320,7 @@ const resolveNoteBodyContent = ({
 
 		if (diff.isIdentical) {
 			if (workMode !== 'edit') {
-				// Ask/Agent: body unchanged — omit entirely, model can use get_note
-				return {
-					bodyText:
-						'[Note body unchanged since last message. Use get_note without arguments if you need to read it.]',
-					contentLabel: 'Current note body: (unchanged, omitted)',
-					omitted: true,
-				};
+				return { bodyText: '', contentLabel: '', omitted: true };
 			}
 			// Edit: include full body so update_note has complete content, but it will benefit
 			// from provider-level prompt caching since the text is identical
@@ -374,12 +329,7 @@ const resolveNoteBodyContent = ({
 
 		if (diff.changeRatio < DIFF_SMALL_CHANGE_THRESHOLD) {
 			if (workMode !== 'edit') {
-				// Ask/Agent small diff: send diff summary + get_note hint
-				return {
-					bodyText: `[Note body has small changes since last message (${diff.summary}). Use get_note without arguments to read the full current content if needed.]`,
-					contentLabel: 'Current note body: (partially changed)',
-					omitted: true,
-				};
+				return { bodyText: '', contentLabel: '', omitted: true };
 			}
 			// Edit small diff: send full body with a diff annotation so model knows what changed
 			return {
@@ -397,6 +347,7 @@ const resolveNoteBodyContent = ({
 export const buildSystemPromptParts = (options: BuildSystemPromptOptions): SystemPromptParts => {
 	const {
 		noteTitle,
+		noteId,
 		noteBody,
 		notebooks,
 		agentRolePrompt,
@@ -410,7 +361,7 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 		previousNoteBody,
 	} = options;
 
-	const { bodyText, contentLabel } = resolveNoteBodyContent({
+	const { bodyText, contentLabel, omitted: bodyOmitted } = resolveNoteBodyContent({
 		noteBody,
 		noteBodyOmitted,
 		previousNoteBody,
@@ -440,10 +391,10 @@ The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELE
 `
 		: '';
 
-	const noteBodyContext = `
-Current note title: ${noteTitle}
-${contentLabel}
-${bodyText}`;
+	const noteIdLine = noteId ? `Current note ID: ${noteId}\n` : '';
+	const noteBodyContext = bodyOmitted
+		? `\nCurrent note title: ${noteTitle}\n${noteIdLine}`
+		: `\nCurrent note title: ${noteTitle}\n${noteIdLine}${contentLabel}\n${bodyText}`;
 
 	if (workMode === 'edit') {
 		const staticInstructions = `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
@@ -451,16 +402,23 @@ The user's current note is provided below. The note is in Markdown format.
 
 You have tools to interact with Joplin:
 - update_note: Update the current note's body. Title is read-only in Edit mode. Do not pass a noteId — it defaults to the current note.
+- copy_note: Duplicate a note by ID (or the current note if no ID given). Fetches content internally — do NOT call get_note first.
+- delete_note: Delete a note by ID.
+- move_note: Move a note to a different notebook.
+- create_note: Create a new note (title, body, optional notebook).
 - get_note: Read another note by ID (read-only, for reference).
 - open_note: Open a note in Joplin's editor by ID.
 - search_notes: Search notes using Joplin query syntax.
 - list_notebooks: List all notebooks and their IDs.
 - list_tags: List tags globally or for a specific note.
+- add_tag / remove_tag: Add or remove a tag on a note.
 ${webSearchLine}
 
 EDIT MODE RULES:
-- Use update_note to modify ONLY the current note. Never pass a noteId to update_note — it must always target the current note.
-- You may use read-only tools (get_note, search_notes, list_notebooks, list_tags, open_note) for reference, but do not create, delete, move, or modify any other note.
+- If the user asks for a structural operation (copy, delete, move, create a new note), call copy_note / delete_note / move_note / create_note DIRECTLY — do NOT call get_note, search_notes, or list_notebooks first. These tools work by note ID and fetch content internally.
+- After copy_note, delete_note, move_note, or create_note succeeds, your task is complete — return your response immediately, do NOT make additional tool calls.
+- Use update_note ONLY when the user explicitly asks to modify the text content of the current note. Never call update_note for copy/delete/move requests.
+- Never pass a noteId to update_note — it must always target the current note.
 - Apply the exact change the user requests — nothing else. Do not make additional edits beyond what was asked.
 - Copy all unchanged lines character-for-character. Lines with repeated characters (e.g. \`\*\*\*\*\*\*\`, \`------\`, \`______\`, signature blanks) must be reproduced with the exact same number of characters.
 - Apply changes immediately without asking for confirmation or clarifying questions. Make your best judgment and act.
@@ -475,7 +433,8 @@ The user's current note is provided below. The note is in Markdown format.
 
 You have tools to interact with Joplin:
 - create_note: Create a new note (title, body, optional notebook).
-- get_note: Read a note by ID (useful after search to retrieve content).
+- copy_note: Duplicate a note by ID (or the current note if no ID given). Fetches note content internally — do NOT call get_note first. Accepts an optional custom title for the copy.
+- get_note: Read a note's full content by ID. Only call this when you actually need to read or analyze the note's text. Do NOT call it before copy_note, delete_note, move_note, or other structural operations.
 - open_note: Open a note in Joplin's editor by ID. Use this when the user wants to navigate to or view a note. Prefer this over get_note when the user says "open", "go to", or "show" a note.
 - update_note: Update a note's title and/or body by ID, or the current note if no ID given.
 - delete_note: Delete a note by ID.
@@ -498,6 +457,8 @@ TOOL USAGE RULES:
 - If the user asks a question that does not require any action, answer normally in Markdown without using tools.
 - Before calling update_note or create_note, write one short sentence describing what you are about to do (e.g. "Updating the note with a corrected introduction." or "Creating a new note titled 'Meeting notes'."). Then immediately call the tool.
 - When updating a note, copy unchanged lines character-for-character. Pay special attention to lines that consist of repeated characters (e.g. \`\*\*\*\*\*\*\`, \`------\`, \`______\`, signature blanks, table separators) — reproduce them with the exact same number of characters as in the original.
+- STRUCTURAL OPERATIONS: When the user asks to copy, duplicate, delete, or move a note, call copy_note / delete_note / move_note DIRECTLY — do NOT call get_note, search_notes, or list_notebooks first. These tools work by note ID and fetch content internally. Never attempt to manually replicate a note by reading it and calling update_note.
+- STOP AFTER STRUCTURAL OPS: After copy_note, delete_note, move_note, or create_note succeeds, your task is complete. Return your response immediately — do NOT make any additional tool calls.
 ${selectionRulesBlock}`;
 	const dynamicContext = `${notebookSection}${referencedSection}${attachedSection}`;
 	return { staticInstructions, noteBodyContext, dynamicContext };
@@ -823,16 +784,11 @@ export const sendToAI = async (
 		currentNoteId: null,
 		currentNoteTitle: noteTitle,
 	};
-	const includeBody = shouldIncludeNoteBody({
-		workMode: actionContext.workMode,
-		prompt: userPrompt,
-		noteTitle,
-		hasSelection: actionContext.isSelection,
-		hasReferencedNotes: (actionContext.referencedNotes?.length ?? 0) > 0,
-		historyLength: history?.length ?? 0,
-	});
+	const includeBody = await classifyNeedsNoteBody(provider, apiKey, model, userPrompt, noteTitle);
+	actionContext.onBodyDecision?.(includeBody);
 	const promptParts = buildSystemPromptParts({
 		noteTitle,
+		noteId: actionContext.currentNoteId ?? undefined,
 		noteBody: includeBody ? noteBody : '',
 		notebooks: actionContext.notebooks,
 		agentRolePrompt: actionContext.agentRolePrompt,

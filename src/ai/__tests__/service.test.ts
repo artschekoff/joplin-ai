@@ -6,7 +6,6 @@ import {
 	buildClaudePdfParts,
 	buildOpenAIImageParts,
 	buildClaudeImageParts,
-	shouldIncludeNoteBody,
 } from '../service';
 import { ChatMessage } from '../types';
 
@@ -28,6 +27,9 @@ jest.mock('../perplexity', () => ({
 	isPerplexityNativeModel: jest.requireActual('../perplexity').isPerplexityNativeModel,
 	parseSonarToolCalls: jest.requireActual('../perplexity').parseSonarToolCalls,
 	buildSonarToolCallPrompt: jest.requireActual('../perplexity').buildSonarToolCallPrompt,
+}));
+jest.mock('../classifier', () => ({
+	classifyNeedsNoteBody: jest.fn().mockResolvedValue(false),
 }));
 jest.mock('../../actions/registry', () => ({
 	getActionHandlers: jest.fn(() => []),
@@ -51,6 +53,7 @@ import { sendOpenAIMessages, streamOpenAIMessages } from '../openai';
 import { sendClaudeMessages, streamClaudeMessages } from '../claude';
 import { sendPerplexityRequest, sendSonarChatRequest } from '../perplexity';
 import { executeAction } from '../../actions/registry';
+import { classifyNeedsNoteBody } from '../classifier';
 
 const mockedSendOpenAI = sendOpenAIMessages as jest.MockedFunction<typeof sendOpenAIMessages>;
 const mockedStreamOpenAI = streamOpenAIMessages as jest.MockedFunction<typeof streamOpenAIMessages>;
@@ -63,6 +66,7 @@ const mockedSendSonarChat = sendSonarChatRequest as jest.MockedFunction<
 	typeof sendSonarChatRequest
 >;
 const mockedExecuteAction = executeAction as jest.MockedFunction<typeof executeAction>;
+const mockedClassify = classifyNeedsNoteBody as jest.MockedFunction<typeof classifyNeedsNoteBody>;
 
 describe('buildSystemPrompt', () => {
 	it('includes note title and body', () => {
@@ -261,23 +265,22 @@ describe('buildSystemPrompt', () => {
 			expect(modeSection).toContain('Shopping List');
 		});
 
-		it('edit mode describes update_note and read-only tools but not destructive tools', () => {
+		it('edit mode describes update_note, structural tools, and read-only tools', () => {
 			const prompt = buildSystemPrompt({
 				noteTitle: 'Test',
 				noteBody: 'Body',
 				workMode: 'edit',
 			});
 			expect(prompt).toContain('update_note');
+			expect(prompt).toContain('copy_note');
+			expect(prompt).toContain('delete_note');
+			expect(prompt).toContain('move_note');
+			expect(prompt).toContain('create_note');
 			expect(prompt).toContain('get_note');
 			expect(prompt).toContain('search_notes');
 			expect(prompt).toContain('list_notebooks');
 			expect(prompt).toContain('list_tags');
-			expect(prompt).not.toMatch(/^- create_note:/m);
-			expect(prompt).not.toMatch(/^- delete_note:/m);
-			expect(prompt).not.toMatch(/^- move_note:/m);
 			expect(prompt).not.toMatch(/^- create_notebook:/m);
-			expect(prompt).not.toMatch(/^- add_tag/m);
-			expect(prompt).not.toMatch(/^- remove_tag/m);
 			expect(prompt).not.toMatch(/^- generate_image:/m);
 			expect(prompt).not.toMatch(/^- remove_resource:/m);
 		});
@@ -1210,6 +1213,7 @@ describe('sendToAI', () => {
 	});
 
 	it('passes system prompt with note context to provider', async () => {
+		mockedClassify.mockResolvedValueOnce(true);
 		mockedSendOpenAI.mockResolvedValue({
 			textContent: 'ok',
 			toolCalls: [],
@@ -1282,7 +1286,7 @@ describe('sendToAI', () => {
 		expect(mockedExecuteAction).toHaveBeenCalledWith(
 			'create_note',
 			{ title: 'New Note', body: '# Hello' },
-			{ currentNoteId: 'curr-1', currentNoteTitle: 'Title' },
+			expect.objectContaining({ currentNoteId: 'curr-1', currentNoteTitle: 'Title' }),
 		);
 		expect(result.actions).toHaveLength(1);
 		expect(result.actions[0]).toEqual({
@@ -1873,6 +1877,7 @@ describe('sendToAI', () => {
 		});
 
 		it('passes system prompt as instructions to Perplexity Agent API', async () => {
+			mockedClassify.mockResolvedValueOnce(true);
 			mockedSendPerplexity.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
@@ -1939,7 +1944,7 @@ describe('sendToAI', () => {
 			expect(mockedExecuteAction).toHaveBeenCalledWith(
 				'search_notes',
 				{ query: 'meeting' },
-				{ currentNoteId: 'n1', currentNoteTitle: 'Title' },
+				expect.objectContaining({ currentNoteId: 'n1', currentNoteTitle: 'Title' }),
 			);
 			expect(result.actions).toHaveLength(1);
 			expect(result.actions[0].action).toBe('search_notes');
@@ -2898,194 +2903,17 @@ describe('sendToAI', () => {
 	});
 });
 
-describe('shouldIncludeNoteBody', () => {
-	it('always includes body in edit mode', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'edit',
-				prompt: 'what is Python?',
-				noteTitle: 'Unrelated',
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body when selection is active', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'ask',
-				prompt: 'what is Python?',
-				noteTitle: 'Unrelated',
-				hasSelection: true,
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body when referenced notes exist', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'ask',
-				prompt: 'compare these',
-				noteTitle: 'Unrelated',
-				hasReferencedNotes: true,
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body on first message (no history)', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'ask',
-				prompt: 'what is Python?',
-				noteTitle: 'Unrelated',
-				historyLength: 0,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body when prompt mentions note title', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'agent',
-				prompt: 'summarize my Shopping List',
-				noteTitle: 'Shopping List',
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body when prompt says "this note"', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'ask',
-				prompt: 'what is this note about?',
-				noteTitle: 'Unrelated',
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body when prompt says "текущую заметку"', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'ask',
-				prompt: 'проанализируй текущую заметку',
-				noteTitle: 'Unrelated',
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body when prompt contains "summarize"', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'ask',
-				prompt: 'summarize the key points',
-				noteTitle: 'Unrelated',
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body when prompt contains "translate"', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'agent',
-				prompt: 'translate to English',
-				noteTitle: 'Unrelated',
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body when prompt contains "переведи"', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'ask',
-				prompt: 'переведи на английский',
-				noteTitle: 'Unrelated',
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('excludes body when prompt is unrelated in ask mode with history', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'ask',
-				prompt: 'what is the capital of France?',
-				noteTitle: 'Shopping List',
-				historyLength: 4,
-			}),
-		).toBe(false);
-	});
-
-	it('excludes body for general question in agent mode with history', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'agent',
-				prompt: 'create a new note about meeting agenda',
-				noteTitle: 'Shopping List',
-				historyLength: 4,
-			}),
-		).toBe(false);
-	});
-
-	it('excludes body for search command in agent mode with history', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'agent',
-				prompt: 'find all notes tagged with work',
-				noteTitle: 'My Journal',
-				historyLength: 4,
-			}),
-		).toBe(false);
-	});
-
-	it('includes body when prompt mentions "update the note"', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'agent',
-				prompt: 'update the note body with new info',
-				noteTitle: 'Unrelated',
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body for "rewrite" command', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'agent',
-				prompt: 'rewrite in a formal tone',
-				noteTitle: 'Unrelated',
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-
-	it('includes body for "исправь" (fix in Russian)', () => {
-		expect(
-			shouldIncludeNoteBody({
-				workMode: 'ask',
-				prompt: 'исправь ошибки',
-				noteTitle: 'Unrelated',
-				historyLength: 5,
-			}),
-		).toBe(true);
-	});
-});
 
 describe('buildSystemPrompt with noteBodyOmitted', () => {
-	it('includes placeholder when noteBodyOmitted is true', () => {
+	it('omits body section entirely when noteBodyOmitted is true', () => {
 		const prompt = buildSystemPrompt({
 			noteTitle: 'Test',
 			noteBody: '',
 			noteBodyOmitted: true,
 		});
-		expect(prompt).toContain('Note body omitted');
+		expect(prompt).not.toContain('not loaded');
+		expect(prompt).not.toContain('Current note content:');
+		expect(prompt).not.toContain('Current note body:');
 		expect(prompt).toContain('get_note');
 	});
 
@@ -3096,7 +2924,7 @@ describe('buildSystemPrompt with noteBodyOmitted', () => {
 			noteBodyOmitted: true,
 		});
 		expect(prompt).not.toContain('Current note content:');
-		expect(prompt).toContain('Current note body: (omitted)');
+		expect(prompt).not.toContain('Current note body:');
 	});
 
 	it('includes note title when noteBodyOmitted is true', () => {
@@ -3134,6 +2962,7 @@ describe('buildSystemPrompt with noteBodyOmitted', () => {
 			noteBodyOmitted: true,
 			workMode: 'edit',
 		});
-		expect(prompt).toContain('Note body omitted');
+		expect(prompt).not.toContain('not loaded');
+		expect(prompt).not.toContain('Current note body:');
 	});
 });

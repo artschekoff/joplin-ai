@@ -207,6 +207,15 @@ body {
 	font-size: 12px;
 }
 
+.message-action-info {
+	background: var(--bg-secondary);
+	align-self: flex-start;
+	border-bottom-left-radius: 2px;
+	border-left: 3px solid #a855f7;
+	font-size: 12px;
+	opacity: 0.85;
+}
+
 .message-label {
 	font-size: 10px;
 	font-weight: 600;
@@ -440,6 +449,28 @@ body {
 	background: var(--bg-button-disabled);
 	cursor: not-allowed;
 	transform: none;
+}
+
+.stop-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	border: none;
+	border-radius: 50%;
+	background: #e53e3e;
+	color: #fff;
+	font-size: 14px;
+	cursor: pointer;
+	transition: background 0.15s, transform 0.1s;
+	flex-shrink: 0;
+}
+
+.stop-btn:hover {
+	background: #c53030;
+	transform: scale(1.05);
 }
 
 .btn {

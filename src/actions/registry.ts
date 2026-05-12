@@ -15,7 +15,16 @@ export const READ_ONLY_ACTIONS = new Set([
 	'web_search',
 ]);
 
-export const EDIT_ACTIONS = new Set([...READ_ONLY_ACTIONS, 'update_note']);
+export const EDIT_ACTIONS = new Set([
+	...READ_ONLY_ACTIONS,
+	'update_note',
+	'copy_note',
+	'delete_note',
+	'move_note',
+	'create_note',
+	'add_tag',
+	'remove_tag',
+]);
 
 const MODE_LABELS: Record<string, string> = {
 	ask: 'Ask mode',
@@ -60,16 +69,25 @@ const createNoteHandler: ActionHandler = {
 const getNoteHandler: ActionHandler = {
 	name: 'get_note',
 	description:
-		'Read a note by ID. Returns the title, body, and parent notebook ID. Use after search_notes to read a specific result.',
+		'Read a note\'s full text content. Use ONLY when you need to analyze, summarize, translate, rewrite, or otherwise work with the note\'s text. ' +
+		'Do NOT call this before copy_note, delete_note, move_note, or any structural operation — those work by ID and do not need the body. ' +
+		'Pass no arguments to read the currently open note; pass noteId to read a specific note.',
 	parameters: {
 		type: 'object',
 		properties: {
-			noteId: { type: 'string', description: 'ID of the note to read' },
+			noteId: {
+				type: 'string',
+				description: 'ID of the note to read. Omit to read the currently open note.',
+			},
 		},
-		required: ['noteId'],
 	},
-	execute: async (args) => {
-		const note = await joplin.data.get(['notes', args.noteId as string], {
+	execute: async (args, context) => {
+		const requestedId = args.noteId as string | undefined;
+		const noteId = requestedId || context.currentNoteId;
+		if (!noteId) {
+			return { success: false, message: 'No note ID provided and no note is currently open' };
+		}
+		const note = await joplin.data.get(['notes', noteId], {
 			fields: ['id', 'title', 'body', 'parent_id'],
 		});
 		if (!note) {
@@ -206,6 +224,51 @@ const updateNoteHandler: ActionHandler = {
 				? `Note "${noteTitle}" ${parts} ready — review the diff below`
 				: `Note "${noteTitle}" ${parts} updated`,
 			data: { id: noteId, title: noteTitle },
+		};
+	},
+};
+
+const copyNoteHandler: ActionHandler = {
+	name: 'copy_note',
+	description:
+		'Duplicate a note by ID — no need to call get_note first, this tool fetches the content internally. ' +
+		'Places the copy in the same notebook. ' +
+		'Use this whenever the user asks to copy, duplicate, or clone a note. ' +
+		'Optionally accepts a custom title for the copy; defaults to "Copy of <original title>".',
+	parameters: {
+		type: 'object',
+		properties: {
+			noteId: {
+				type: 'string',
+				description: 'ID of the note to copy. Omit to copy the currently selected note.',
+			},
+			title: {
+				type: 'string',
+				description: 'Custom title for the copy. If omitted, defaults to "Copy of <original title>".',
+			},
+		},
+	},
+	execute: async (args, context) => {
+		const noteId = (args.noteId as string) || context.currentNoteId;
+		if (!noteId) {
+			return { success: false, message: 'No note ID provided and no note is selected' };
+		}
+		const note = await joplin.data.get(['notes', noteId], {
+			fields: ['id', 'title', 'body', 'parent_id'],
+		});
+		if (!note) {
+			return { success: false, message: 'Note not found' };
+		}
+		const copyTitle = (args.title as string) || 'Copy of ' + note.title;
+		const copy = await joplin.data.post(['notes'], null, {
+			title: copyTitle,
+			body: note.body ?? '',
+			parent_id: note.parent_id,
+		});
+		return {
+			success: true,
+			message: `Note copied as "${copy.title}"`,
+			data: { id: copy.id, title: copy.title },
 		};
 	},
 };
@@ -739,6 +802,7 @@ const handlers: ActionHandler[] = [
 	getNoteHandler,
 	openNoteHandler,
 	updateNoteHandler,
+	copyNoteHandler,
 	deleteNoteHandler,
 	moveNoteHandler,
 	searchNotesHandler,

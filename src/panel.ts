@@ -24,6 +24,7 @@ import { extractDocumentText, isDocumentMimeType } from './utils/document-extrac
 let chatPanelHandle: ViewHandle | null = null;
 let chatPanelVisible = false;
 let editorSelection = '';
+let activeRequestId = 0;
 
 /** Track the last note body sent to AI to enable diff-based optimization. */
 let lastSentNoteId: string | null = null;
@@ -106,6 +107,7 @@ const CHAT_PANEL_HTML = `<!DOCTYPE html>
 						<div class="bottom-bar-right">
 							<div id="contextSizeContainer" class="context-size-container"></div>
 							<button id="clearHistoryBtn" class="icon-btn" title="Clear history"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>
+							<button id="stopBtn" class="btn stop-btn" title="Stop" style="display:none"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg></button>
 							<button id="executeBtn" class="btn send-btn" title="Send (Enter)"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
 						</div>
 					</div>
@@ -566,6 +568,7 @@ const handleExecute = async (
 	attachedFiles?: AttachedFile[],
 	noteId?: string,
 ) => {
+	const myRequestId = ++activeRequestId;
 	try {
 		const [config, note, promptContext] = await Promise.all([
 			loadProviderConfig(),
@@ -672,6 +675,11 @@ const handleExecute = async (
 		};
 		const previousNoteBody =
 			lastSentNoteId === note.id ? (lastSentNoteBody ?? undefined) : undefined;
+		context.onBodyDecision = (included: boolean) => {
+			if (included) {
+				joplin.views.panels.postMessage(handle, { type: 'noteBodySent', noteTitle: note.title });
+			}
+		};
 		const response = await sendToAI(
 			config.provider,
 			config.apiKey,
@@ -684,6 +692,7 @@ const handleExecute = async (
 			undefined,
 			previousNoteBody,
 		);
+		if (myRequestId !== activeRequestId) return;
 		lastSentNoteId = note.id;
 		lastSentNoteBody = note.body;
 		sendResult(
@@ -743,6 +752,8 @@ export const initPanel = async () => {
 		if (!chatPanelHandle) return;
 
 		if (message.type === 'abortRequest') {
+			activeRequestId++;
+			joplin.views.panels.postMessage(chatPanelHandle, { type: 'requestAborted' });
 			return;
 		}
 

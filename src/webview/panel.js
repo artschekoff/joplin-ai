@@ -8,6 +8,7 @@ function initPanel() {
 	const messagesEl = document.getElementById('messages');
 	const promptInput = document.getElementById('promptInput');
 	const executeBtn = document.getElementById('executeBtn');
+	const stopBtn = document.getElementById('stopBtn');
 	const clearBtn = document.getElementById('clearBtn');
 	const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 	const noteInfoEl = document.getElementById('noteInfo');
@@ -335,17 +336,43 @@ function initPanel() {
 		}
 	}
 
-	function updateThinkingStep(label) {
+	var TOOL_ICONS = {
+		get_note: 'fileText',
+		copy_note: 'copy',
+		create_note: 'zap',
+		update_note: 'pencil',
+		delete_note: 'trash',
+		move_note: 'move',
+		search_notes: 'search',
+		list_notebooks: 'folder',
+		create_notebook: 'folder',
+		add_tag: 'tag',
+		remove_tag: 'tag',
+		list_tags: 'tag',
+		web_search: 'globe',
+		generate_image: 'image',
+		remove_resource: 'trash',
+	};
+
+	function updateThinkingStep(step, label) {
 		var el = document.getElementById('loadingIndicator');
-		if (!el) return;
-		stopThinkingFillers();
-		var textNode = el.querySelector('.loading-text');
-		if (textNode) textNode.textContent = label;
+		if (el) {
+			stopThinkingFillers();
+			var textNode = el.querySelector('.loading-text');
+			if (textNode) textNode.textContent = label;
+		}
+		var iconName = (step && TOOL_ICONS[step]) ? TOOL_ICONS[step] : 'zap';
+		addMessage(
+			'action-info',
+			svgIcon(iconName, '14') + ' ' + label,
+			'',
+			null, null, true
+		);
 	}
 
 	function showLoading(show) {
 		isLoading = show;
-		executeBtn.disabled = show;
+		if (stopBtn) stopBtn.style.display = show ? 'flex' : 'none';
 
 		const existing = document.getElementById('loadingIndicator');
 		if (show && !existing) {
@@ -424,7 +451,6 @@ function initPanel() {
 		streamingMsgDiv.appendChild(labelDiv);
 		var contentDiv = document.createElement('div');
 		contentDiv.className = 'markdown-content streaming-content';
-		contentDiv.id = 'streamingContent';
 		streamingMsgDiv.appendChild(contentDiv);
 		messagesEl.appendChild(streamingMsgDiv);
 		streamingText = '';
@@ -433,7 +459,7 @@ function initPanel() {
 	function appendStreamChunk(text) {
 		ensureStreamingMessage();
 		streamingText += text;
-		var contentDiv = document.getElementById('streamingContent');
+		var contentDiv = streamingMsgDiv.querySelector('.streaming-content');
 		if (contentDiv && typeof window.renderMarkdown === 'function') {
 			contentDiv.innerHTML = window.renderMarkdown(streamingText);
 		} else if (contentDiv) {
@@ -691,7 +717,7 @@ function initPanel() {
 			}
 			const type = a.success ? 'action-success' : 'action-error';
 			const iconSvg = a.success ? svgIcon('checkCircle', '14') : svgIcon('xCircle', '14');
-			addMessage(type, iconSvg + ' ' + formatActionName(a.action), a.message);
+			addMessage(type, iconSvg + ' ' + formatActionName(a.action), a.message, null, null, false);
 		}
 	}
 
@@ -1577,6 +1603,12 @@ function initPanel() {
 		sendExecute();
 	});
 
+	if (stopBtn) {
+		stopBtn.addEventListener('click', function () {
+			webviewApi.postMessage({ type: 'abortRequest' });
+		});
+	}
+
 	promptInput.addEventListener('keydown', function (e) {
 		if (autocompleteActive) {
 			if (e.key === 'Escape') {
@@ -1718,6 +1750,15 @@ function initPanel() {
 			}
 		}
 
+		if (message.type === 'noteBodySent') {
+			addMessage(
+				'action-info',
+				svgIcon('fileText', '14') + ' Note text sent to AI',
+				'Content of "' + escapeHtml(message.noteTitle) + '" included in context',
+				null, null, false
+			);
+		}
+
 		if (message.type === 'imageProgress') {
 			showImageProgress(message.progress, message.state);
 		}
@@ -1811,6 +1852,13 @@ function initPanel() {
 			processNextInQueue();
 		}
 
+		if (message.type === 'requestAborted') {
+			showLoading(false);
+			hideImageProgress();
+			lastSentPrompt = null;
+			processNextInQueue();
+		}
+
 		if (message.type === 'error') {
 			if (responsesToSkip > 0) {
 				responsesToSkip--;
@@ -1855,7 +1903,7 @@ function initPanel() {
 		}
 
 		if (message.type === 'thinkingStep') {
-			updateThinkingStep(message.label);
+			updateThinkingStep(message.step, message.label);
 		}
 	});
 
