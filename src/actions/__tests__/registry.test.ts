@@ -52,6 +52,7 @@ describe('getActionHandlers', () => {
 			'get_note',
 			'open_note',
 			'update_note',
+			'copy_note',
 			'delete_note',
 			'move_note',
 			'search_notes',
@@ -842,14 +843,16 @@ describe('EDIT_ACTIONS set', () => {
 		expect(EDIT_ACTIONS.has('update_note')).toBe(true);
 	});
 
-	it('does not contain destructive actions', async () => {
+	it('contains structural tools for edit mode', async () => {
 		const { EDIT_ACTIONS } = await import('../registry');
-		expect(EDIT_ACTIONS.has('create_note')).toBe(false);
-		expect(EDIT_ACTIONS.has('delete_note')).toBe(false);
-		expect(EDIT_ACTIONS.has('move_note')).toBe(false);
+		expect(EDIT_ACTIONS.has('copy_note')).toBe(true);
+		expect(EDIT_ACTIONS.has('delete_note')).toBe(true);
+		expect(EDIT_ACTIONS.has('move_note')).toBe(true);
+		expect(EDIT_ACTIONS.has('create_note')).toBe(true);
+		expect(EDIT_ACTIONS.has('add_tag')).toBe(true);
+		expect(EDIT_ACTIONS.has('remove_tag')).toBe(true);
+		// still excluded
 		expect(EDIT_ACTIONS.has('create_notebook')).toBe(false);
-		expect(EDIT_ACTIONS.has('add_tag')).toBe(false);
-		expect(EDIT_ACTIONS.has('remove_tag')).toBe(false);
 		expect(EDIT_ACTIONS.has('generate_image')).toBe(false);
 		expect(EDIT_ACTIONS.has('remove_resource')).toBe(false);
 	});
@@ -1001,41 +1004,42 @@ describe('executeAction — work mode enforcement', () => {
 			expect(mockDataPut).not.toHaveBeenCalled();
 		});
 
-		it('blocks create_note', async () => {
+		it('allows create_note (structural op permitted in edit mode)', async () => {
+			mockDataPost.mockResolvedValue({ id: 'new-1', title: 'T' });
 			const result = await executeAction('create_note', { title: 'T', body: 'B' }, editCtx);
-			expect(result.success).toBe(false);
-			expect(result.message).toMatch(/edit mode/i);
-			expect(mockDataPost).not.toHaveBeenCalled();
+			expect(result.success).toBe(true);
 		});
 
-		it('blocks delete_note', async () => {
+		it('allows delete_note (structural op permitted in edit mode)', async () => {
+			mockDataDelete.mockResolvedValue(undefined);
 			const result = await executeAction('delete_note', { noteId: 'n1' }, editCtx);
-			expect(result.success).toBe(false);
-			expect(result.message).toMatch(/edit mode/i);
+			expect(result.success).toBe(true);
 		});
 
-		it('blocks move_note', async () => {
-			const result = await executeAction('move_note', { targetNotebookId: 'f1' }, editCtx);
-			expect(result.success).toBe(false);
-			expect(result.message).toMatch(/edit mode/i);
+		it('allows move_note (structural op permitted in edit mode)', async () => {
+			mockDataPut.mockResolvedValue(undefined);
+			const result = await executeAction('move_note', { noteId: 'n1', targetNotebookId: 'f1' }, editCtx);
+			expect(result.success).toBe(true);
 		});
 
-		it('blocks create_notebook', async () => {
+		it('blocks create_notebook (not in EDIT_ACTIONS)', async () => {
 			const result = await executeAction('create_notebook', { title: 'NB' }, editCtx);
 			expect(result.success).toBe(false);
 			expect(result.message).toMatch(/edit mode/i);
 		});
 
-		it('blocks add_tag', async () => {
-			const result = await executeAction('add_tag', { tag: 'test' }, editCtx);
-			expect(result.success).toBe(false);
-			expect(result.message).toMatch(/edit mode/i);
+		it('allows add_tag (structural op permitted in edit mode)', async () => {
+			mockDataGet.mockResolvedValue({ items: [{ id: 'tag-1', title: 'test' }] });
+			mockDataPost.mockResolvedValue(undefined);
+			const result = await executeAction('add_tag', { tag: 'test', noteId: 'note-1' }, editCtx);
+			expect(result.success).toBe(true);
 		});
 
-		it('blocks remove_tag', async () => {
-			const result = await executeAction('remove_tag', { tag: 'test' }, editCtx);
-			expect(result.success).toBe(false);
-			expect(result.message).toMatch(/edit mode/i);
+		it('allows remove_tag (structural op permitted in edit mode)', async () => {
+			mockDataGet.mockResolvedValue({ items: [{ id: 'tag-1', title: 'test' }] });
+			mockDataDelete.mockResolvedValue(undefined);
+			const result = await executeAction('remove_tag', { tag: 'test', noteId: 'note-1' }, editCtx);
+			expect(result.success).toBe(true);
 		});
 
 		it('allows search_notes (read-only access permitted)', async () => {

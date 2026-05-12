@@ -52,6 +52,7 @@ const buildDOM = (): void => {
 						<div class="bottom-bar-right">
 							<div id="contextSizeContainer" class="context-size-container"></div>
 							<button id="clearHistoryBtn" class="icon-btn" title="Clear history"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/></svg></button>
+							<button id="stopBtn" class="btn stop-btn" style="display:none">■</button>
 							<button id="executeBtn" class="btn send-btn"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/></svg></button>
 						</div>
 					</div>
@@ -130,15 +131,15 @@ describe('panel.js alert message handling', () => {
 		expect(document.getElementById('loadingIndicator')).toBeNull();
 	});
 
-	it('re-enables execute button after alert', () => {
-		const executeBtn = document.getElementById('executeBtn') as HTMLButtonElement;
+	it('shows stop button during loading and hides it after alert', () => {
+		const stopBtn = document.getElementById('stopBtn') as HTMLButtonElement;
 		const messageHandler = mockApi.onMessage.mock.calls[0][0];
 
 		messageHandler({ type: 'loading', status: true });
-		expect(executeBtn.disabled).toBe(true);
+		expect(stopBtn?.style.display).not.toBe('none');
 
 		messageHandler({ type: 'alert', message: 'Key missing' });
-		expect(executeBtn.disabled).toBe(false);
+		expect(stopBtn?.style.display).toBe('none');
 	});
 
 	it('accumulates multiple alert messages in chat', () => {
