@@ -1,6 +1,6 @@
 {
   "name": "joplin-plugin-ai-assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "scripts": {
     "dist": "webpack --env joplin-plugin-config=buildMain && webpack --env joplin-plugin-config=buildExtraScripts && webpack --env joplin-plugin-config=createArchive",
     "prepare": "husky && npm run dist",
@@ -16,7 +16,8 @@
     "security": "snyk test --severity-threshold=medium",
     "security:audit": "snyk test --severity-threshold=medium",
     "security:audit:prod": "snyk test --severity-threshold=medium --production",
-    "validate": "npm run format:check && npm run lint && npm test && npm run security:audit:prod"
+    "validate": "npm run format:check && npm run lint && npm test && npm run security:audit:prod",
+    "publish": "npm run dist"
   },
   "license": "MIT",
   "keywords": [
