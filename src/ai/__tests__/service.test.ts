@@ -2903,7 +2903,6 @@ describe('sendToAI', () => {
 	});
 });
 
-
 describe('buildSystemPrompt with noteBodyOmitted', () => {
 	it('omits body section entirely when noteBodyOmitted is true', () => {
 		const prompt = buildSystemPrompt({

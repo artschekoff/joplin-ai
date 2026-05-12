@@ -1018,7 +1018,11 @@ describe('executeAction — work mode enforcement', () => {
 
 		it('allows move_note (structural op permitted in edit mode)', async () => {
 			mockDataPut.mockResolvedValue(undefined);
-			const result = await executeAction('move_note', { noteId: 'n1', targetNotebookId: 'f1' }, editCtx);
+			const result = await executeAction(
+				'move_note',
+				{ noteId: 'n1', targetNotebookId: 'f1' },
+				editCtx,
+			);
 			expect(result.success).toBe(true);
 		});
 

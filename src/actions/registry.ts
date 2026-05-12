@@ -69,7 +69,7 @@ const createNoteHandler: ActionHandler = {
 const getNoteHandler: ActionHandler = {
 	name: 'get_note',
 	description:
-		'Read a note\'s full text content. Use ONLY when you need to analyze, summarize, translate, rewrite, or otherwise work with the note\'s text. ' +
+		"Read a note's full text content. Use ONLY when you need to analyze, summarize, translate, rewrite, or otherwise work with the note's text. " +
 		'Do NOT call this before copy_note, delete_note, move_note, or any structural operation — those work by ID and do not need the body. ' +
 		'Pass no arguments to read the currently open note; pass noteId to read a specific note.',
 	parameters: {
@@ -244,7 +244,8 @@ const copyNoteHandler: ActionHandler = {
 			},
 			title: {
 				type: 'string',
-				description: 'Custom title for the copy. If omitted, defaults to "Copy of <original title>".',
+				description:
+					'Custom title for the copy. If omitted, defaults to "Copy of <original title>".',
 			},
 		},
 	},

@@ -361,7 +361,11 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 		previousNoteBody,
 	} = options;
 
-	const { bodyText, contentLabel, omitted: bodyOmitted } = resolveNoteBodyContent({
+	const {
+		bodyText,
+		contentLabel,
+		omitted: bodyOmitted,
+	} = resolveNoteBodyContent({
 		noteBody,
 		noteBodyOmitted,
 		previousNoteBody,
