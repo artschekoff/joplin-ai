@@ -17,6 +17,20 @@ const mockWorkspaceOnNoteSelectionChange = jest.fn().mockResolvedValue(undefined
 const mockSettingsRegisterSection = jest.fn().mockResolvedValue(undefined);
 const mockSettingsRegisterSetting = jest.fn().mockResolvedValue(undefined);
 
+let capturedOnChange: (() => Promise<void>) | null = null;
+const mockSettingsOnChange = jest.fn().mockImplementation((cb: () => Promise<void>) => {
+    capturedOnChange = cb;
+    return Promise.resolve();
+});
+const mockSettingsGlobalValue = jest.fn().mockResolvedValue('');
+
+const mockExecuteWithSelection = jest.fn().mockResolvedValue(undefined);
+jest.mock('../panel', () => ({
+    initPanel: jest.fn().mockResolvedValue(undefined),
+    togglePanel: jest.fn().mockResolvedValue(undefined),
+    executeWithSelection: (...args: unknown[]) => mockExecuteWithSelection(...args),
+}));
+
 let capturedOnStart: (() => Promise<void>) | null = null;
 
 jest.mock('api', () => ({
@@ -55,7 +69,8 @@ jest.mock('api', () => ({
 			registerSection: (...args: unknown[]) => mockSettingsRegisterSection(...args),
 			registerSetting: (...args: unknown[]) => mockSettingsRegisterSetting(...args),
 			registerSettings: jest.fn().mockResolvedValue(undefined),
-			globalValue: jest.fn().mockResolvedValue(false),
+			globalValue: (...args: unknown[]) => mockSettingsGlobalValue(...args),
+			onChange: (...args: unknown[]) => mockSettingsOnChange(...args),
 			values: jest.fn().mockResolvedValue({}),
 			value: jest.fn().mockResolvedValue(''),
 			setValue: jest.fn().mockResolvedValue(undefined),
@@ -192,5 +207,65 @@ describe('index onStart registration', () => {
 				ToolbarButtonLocation.NoteToolbar,
 			);
 		});
+	});
+});
+
+describe('notion.askAI.request settings.onChange listener', () => {
+	beforeEach(async () => {
+		jest.clearAllMocks();
+		capturedOnChange = null;
+		mockPanelsCreate.mockResolvedValue('panel-handle-test');
+		// re-run onStart to register the listener fresh
+		await capturedOnStart!();
+	});
+
+	it('registers a settings.onChange listener during onStart', () => {
+		expect(mockSettingsOnChange).toHaveBeenCalledTimes(1);
+	});
+
+	it('calls executeWithSelection when notion.askAI.request changes with valid payload', async () => {
+		const payload = JSON.stringify({ text: 'selected text', prompt: 'make it shorter', isSelection: true, ts: 1000 });
+		mockSettingsGlobalValue.mockResolvedValueOnce(payload);
+
+		await capturedOnChange!();
+
+		expect(mockExecuteWithSelection).toHaveBeenCalledWith('selected text', 'make it shorter');
+	});
+
+	it('ignores payload with duplicate ts', async () => {
+		const payload = JSON.stringify({ text: 'text', prompt: 'improve', ts: 1000 });
+		mockSettingsGlobalValue.mockResolvedValue(payload);
+
+		await capturedOnChange!();
+		mockExecuteWithSelection.mockClear();
+		await capturedOnChange!();
+
+		expect(mockExecuteWithSelection).not.toHaveBeenCalled();
+	});
+
+	it('ignores payload with empty text', async () => {
+		const payload = JSON.stringify({ text: '', prompt: 'improve', ts: 2000 });
+		mockSettingsGlobalValue.mockResolvedValueOnce(payload);
+
+		await capturedOnChange!();
+
+		expect(mockExecuteWithSelection).not.toHaveBeenCalled();
+	});
+
+	it('ignores payload with empty prompt', async () => {
+		const payload = JSON.stringify({ text: 'hello', prompt: '', ts: 3000 });
+		mockSettingsGlobalValue.mockResolvedValueOnce(payload);
+
+		await capturedOnChange!();
+
+		expect(mockExecuteWithSelection).not.toHaveBeenCalled();
+	});
+
+	it('ignores empty setting value', async () => {
+		mockSettingsGlobalValue.mockResolvedValueOnce('');
+
+		await capturedOnChange!();
+
+		expect(mockExecuteWithSelection).not.toHaveBeenCalled();
 	});
 });

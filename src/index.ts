@@ -1,7 +1,9 @@
 import joplin from 'api';
 import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
 import { initSettings } from './settings';
-import { initPanel, togglePanel } from './panel';
+import { initPanel, togglePanel, executeWithSelection } from './panel';
+
+let lastProcessedAskAITs = 0;
 
 joplin.plugins.register({
 	onStart: async function () {
@@ -18,6 +20,21 @@ joplin.plugins.register({
 			const msg = err instanceof Error ? err.message : String(err);
 			console.error('AI Assistant: panel initialization failed:', msg);
 		}
+
+		await joplin.settings.onChange(async () => {
+			try {
+				const raw = await joplin.settings.globalValue('notion.askAI.request');
+				if (!raw) return;
+				const parsed = JSON.parse(raw as string);
+				const { text, prompt, ts } = parsed as { text?: string; prompt?: string; ts?: number };
+				if (!ts || ts <= lastProcessedAskAITs) return;
+				if (!text?.trim() || !prompt?.trim()) return;
+				lastProcessedAskAITs = ts;
+				await executeWithSelection(text, prompt);
+			} catch {
+				// ignore parse errors or missing setting
+			}
+		});
 
 		await joplin.commands.register({
 			name: 'editWithAI',
