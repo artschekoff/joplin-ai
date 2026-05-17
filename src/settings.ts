@@ -102,6 +102,7 @@ export const SETTING_KEYS = {
 	kieApiKey: 'kieApiKey',
 	imageGenModel: 'imageGenModel',
 	fileMaxSizeMb: 'fileMaxSizeMb',
+	notionBlockEditorError: 'notion.askAI.error',
 };
 
 export const initSettings = async () => {
@@ -320,6 +321,15 @@ export const initSettings = async () => {
 			label: 'Max File Attachment Size (MB)',
 			description:
 				'Maximum file size allowed for attachments (in megabytes). Files exceeding this limit will be rejected.',
+		},
+
+		[SETTING_KEYS.notionBlockEditorError]: {
+			value: '',
+			type: SettingItemType.String,
+			public: true,
+			label: 'Notion Block Editor: AI error',
+			description:
+				'JSON {message, ts} written by AI Assistant when a block-editor patch request fails.',
 		},
 
 		[SETTING_KEYS.agentRoles]: {
