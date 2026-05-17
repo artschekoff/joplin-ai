@@ -20,6 +20,8 @@ let capturedOnMessageCallback: (message: any) => Promise<void>;
 const mockCommandsExecute = jest.fn().mockResolvedValue(undefined);
 const mockShowOpenDialog = jest.fn().mockResolvedValue(['/Users/me/Documents']);
 const mockShowToast = jest.fn().mockResolvedValue(undefined);
+const mockSettingsOnChange = jest.fn().mockResolvedValue(undefined);
+const mockSettingsGlobalValue = jest.fn().mockResolvedValue('');
 
 jest.mock('api', () => ({
 	__esModule: true,
@@ -52,6 +54,8 @@ jest.mock('api', () => ({
 			values: (...args: any[]) => mockSettingsValues(...args),
 			value: (...args: any[]) => mockSettingsValue(...args),
 			setValue: (...args: any[]) => mockSettingsSetValue(...args),
+			onChange: (...args: any[]) => mockSettingsOnChange(...args),
+			globalValue: (...args: any[]) => mockSettingsGlobalValue(...args),
 		},
 		workspace: {
 			selectedNote: (...args: any[]) => mockSelectedNote(...args),
@@ -82,7 +86,7 @@ jest.mock('../utils/pdf-extract', () => ({
 	extractPdfTextFromBase64: (...args: unknown[]) => mockExtractPdf(...args),
 }));
 
-import { initPanel, setEditorSelection, togglePanel, triggerAskAI } from '../panel';
+import { initPanel, setEditorSelection, togglePanel, triggerAskAI, executeWithSelection } from '../panel';
 import { sendToAI } from '../ai/service';
 
 const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
@@ -1647,6 +1651,90 @@ describe('triggerAskAI', () => {
 			(call: unknown[]) => (call[1] as { type: string }).type === 'triggerAskAI',
 		);
 		expect(triggerCalls).toHaveLength(0);
+	});
+});
+
+describe('executeWithSelection', () => {
+	beforeEach(async () => {
+		jest.clearAllMocks();
+		mockCreate.mockResolvedValueOnce(MOCK_CHAT_HANDLE);
+		mockSettingsValues.mockResolvedValue({
+			[SETTING_KEYS.provider]: 'openai',
+			[SETTING_KEYS.openaiKey]: 'sk-test-key',
+			[SETTING_KEYS.openaiModel]: 'gpt-4o',
+		});
+		mockSelectedNote.mockResolvedValue({ id: 'note-1' });
+		mockDataGet.mockResolvedValue({
+			id: 'note-1',
+			title: 'Test Note',
+			body: 'Some existing content about widgets.',
+		});
+		mockedSendToAI.mockResolvedValue({
+			content: 'Done.',
+			isEdit: true,
+			editedBody: 'Some updated content about widgets.',
+			actions: [],
+		});
+		await initPanel();
+	});
+
+	it('does nothing when text is empty', async () => {
+		await executeWithSelection('', 'make it shorter');
+		expect(mockedSendToAI).not.toHaveBeenCalled();
+	});
+
+	it('does nothing when prompt is empty', async () => {
+		await executeWithSelection('some text', '');
+		expect(mockedSendToAI).not.toHaveBeenCalled();
+	});
+
+	it('does nothing when prompt is whitespace only', async () => {
+		await executeWithSelection('some text', '   ');
+		expect(mockedSendToAI).not.toHaveBeenCalled();
+	});
+
+	it('sets editor selection before calling AI', async () => {
+		mockPostMessage.mockClear();
+		await togglePanel();
+		mockPostMessage.mockClear();
+
+		await executeWithSelection('widgets', 'make it shorter');
+
+		const selectionCall = mockPostMessage.mock.calls.find(
+			(call: unknown[]) => (call[1] as { type: string }).type === 'selectionInfo',
+		);
+		expect(selectionCall).toBeDefined();
+		expect((selectionCall![1] as { hasSelection: boolean }).hasSelection).toBe(true);
+	});
+
+	it('calls AI in edit mode with isSelection true', async () => {
+		await executeWithSelection('widgets', 'make it shorter');
+
+		expect(mockedSendToAI).toHaveBeenCalledTimes(1);
+		const context = mockedSendToAI.mock.calls[0][6];
+		expect(context?.isSelection).toBe(true);
+		expect(context?.selectionText).toBe('widgets');
+	});
+
+	it('does not open the chat panel', async () => {
+		const showSpy = jest.spyOn((await import('api')).default.views.panels, 'show');
+		showSpy.mockClear();
+		await executeWithSelection('widgets', 'make it shorter');
+		expect(showSpy).not.toHaveBeenCalled();
+		showSpy.mockRestore();
+	});
+
+	it('writes notion.askAI.error when AI throws', async () => {
+		mockedSendToAI.mockRejectedValueOnce(new Error('API timeout'));
+
+		await executeWithSelection('widgets', 'make it shorter');
+
+		const setCalls = mockSettingsSetValue.mock.calls;
+		const errorCall = setCalls.find((c: unknown[]) => c[0] === 'notion.askAI.error');
+		expect(errorCall).toBeDefined();
+		const payload = JSON.parse(errorCall![1] as string);
+		expect(payload.message).toBe('API timeout');
+		expect(typeof payload.ts).toBe('number');
 	});
 });
 

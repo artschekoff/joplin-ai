@@ -567,6 +567,7 @@ const handleExecute = async (
 	workMode?: WorkMode,
 	attachedFiles?: AttachedFile[],
 	noteId?: string,
+	onError?: (message: string) => void,
 ) => {
 	const myRequestId = ++activeRequestId;
 	try {
@@ -725,10 +726,14 @@ const handleExecute = async (
 		// Clear snapshot on error to avoid stale diff state
 		lastSentNoteId = null;
 		lastSentNoteBody = null;
-		joplin.views.panels.postMessage(handle, {
-			type: 'error',
-			message: message,
-		});
+		if (onError) {
+			onError(message);
+		} else {
+			joplin.views.panels.postMessage(handle, {
+				type: 'error',
+				message: message,
+			});
+		}
 	}
 };
 
@@ -869,4 +874,28 @@ export const triggerAskAI = async (text: string): Promise<void> => {
 		type: 'triggerAskAI',
 		text,
 	});
+};
+
+export const executeWithSelection = async (text: string, prompt: string): Promise<void> => {
+	if (!chatPanelHandle || !text.trim() || !prompt.trim()) return;
+	setEditorSelection(text);
+	await handleExecute(
+		chatPanelHandle,
+		prompt,
+		[],
+		undefined,
+		'edit',
+		undefined,
+		undefined,
+		async (errMsg) => {
+			try {
+				await safeSetValue(
+					SETTING_KEYS.notionBlockEditorError,
+					JSON.stringify({ message: errMsg, ts: Date.now() }),
+				);
+			} catch {
+				// ignore — error writeback failed, nothing to do
+			}
+		},
+	);
 };
