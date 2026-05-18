@@ -1726,7 +1726,7 @@ describe('executeWithSelection', () => {
 		const showSpy = jest.spyOn((await import('api')).default.views.panels, 'show');
 		showSpy.mockClear();
 		await executeWithSelection('widgets', 'make it shorter');
-		expect(showSpy).toHaveBeenCalled();
+		expect(showSpy).toHaveBeenCalledWith(MOCK_CHAT_HANDLE);
 		showSpy.mockRestore();
 	});
 
@@ -1747,6 +1747,7 @@ describe('executeWithSelection', () => {
 			(call: unknown[]) => (call[1] as { type: string }).type === 'showUserMessage',
 		);
 		expect(msg).toBeDefined();
+		expect(msg![0]).toBe(MOCK_CHAT_HANDLE);
 		expect((msg![1] as { prompt: string }).prompt).toBe('make it shorter');
 	});
 
