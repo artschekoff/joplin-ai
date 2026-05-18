@@ -885,7 +885,7 @@ export const executeWithSelection = async (text: string, prompt: string): Promis
 		await sendNoteInfo(chatPanelHandle);
 	}
 	setEditorSelection(text);
-	joplin.views.panels.postMessage(chatPanelHandle, { type: 'showUserMessage', prompt });
+	await joplin.views.panels.postMessage(chatPanelHandle, { type: 'showUserMessage', prompt });
 	await handleExecute(
 		chatPanelHandle,
 		prompt,
