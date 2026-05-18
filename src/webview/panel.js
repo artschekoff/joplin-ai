@@ -1707,6 +1707,14 @@ function initPanel() {
 			}
 		}
 
+		if (message.type === 'showUserMessage') {
+			if (message.prompt && message.prompt.trim()) {
+				addMessage('user', 'You', message.prompt, undefined);
+				showLoading(true);
+				lastSentPrompt = message.prompt;
+			}
+		}
+
 		if (message.type === 'agentRoles') {
 			agentRoles = message.roles || [];
 			if (message.appliedRoleId) {
