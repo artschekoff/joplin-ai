@@ -1709,9 +1709,13 @@ function initPanel() {
 
 		if (message.type === 'showUserMessage') {
 			if (message.prompt && message.prompt.trim()) {
-				addMessage('user', 'You', message.prompt, undefined);
-				showLoading(true);
-				lastSentPrompt = message.prompt;
+				if (isLoading) {
+					addToQueue(message.prompt, 'edit', undefined, undefined, undefined);
+				} else {
+					addMessage('user', 'You', message.prompt, undefined);
+					showLoading(true);
+					lastSentPrompt = message.prompt;
+				}
 			}
 		}
 
