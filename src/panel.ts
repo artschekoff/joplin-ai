@@ -568,6 +568,7 @@ const handleExecute = async (
 	attachedFiles?: AttachedFile[],
 	noteId?: string,
 	onError?: (message: string) => void,
+	suppressPendingEdits?: boolean,
 ) => {
 	const myRequestId = ++activeRequestId;
 	try {
@@ -670,7 +671,7 @@ const handleExecute = async (
 			onImageProgress,
 			onThinkingStep,
 			onStreamChunk,
-			onPendingEdit: workMode === 'edit' ? (info) => collectedEdits.push(info) : undefined,
+			onPendingEdit: !suppressPendingEdits ? (info) => collectedEdits.push(info) : undefined,
 			isSelection: hasSelection || undefined,
 			selectionText: hasSelection ? editorSelection : undefined,
 		};
@@ -878,7 +879,13 @@ export const triggerAskAI = async (text: string): Promise<void> => {
 
 export const executeWithSelection = async (text: string, prompt: string): Promise<void> => {
 	if (!chatPanelHandle || !text.trim() || !prompt.trim()) return;
+	if (!chatPanelVisible) {
+		chatPanelVisible = true;
+		await joplin.views.panels.show(chatPanelHandle);
+		await sendNoteInfo(chatPanelHandle);
+	}
 	setEditorSelection(text);
+	joplin.views.panels.postMessage(chatPanelHandle, { type: 'showUserMessage', prompt });
 	await handleExecute(
 		chatPanelHandle,
 		prompt,
@@ -897,5 +904,6 @@ export const executeWithSelection = async (text: string, prompt: string): Promis
 				// ignore — error writeback failed, nothing to do
 			}
 		},
+		true,
 	);
 };
