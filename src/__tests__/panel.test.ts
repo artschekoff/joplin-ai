@@ -86,7 +86,13 @@ jest.mock('../utils/pdf-extract', () => ({
 	extractPdfTextFromBase64: (...args: unknown[]) => mockExtractPdf(...args),
 }));
 
-import { initPanel, setEditorSelection, togglePanel, triggerAskAI, executeWithSelection } from '../panel';
+import {
+	initPanel,
+	setEditorSelection,
+	togglePanel,
+	triggerAskAI,
+	executeWithSelection,
+} from '../panel';
 import { sendToAI } from '../ai/service';
 
 const mockedSendToAI = sendToAI as jest.MockedFunction<typeof sendToAI>;
@@ -1716,12 +1722,32 @@ describe('executeWithSelection', () => {
 		expect(context?.selectionText).toBe('widgets');
 	});
 
-	it('does not open the chat panel', async () => {
+	it('opens the chat panel if hidden', async () => {
+		const showSpy = jest.spyOn((await import('api')).default.views.panels, 'show');
+		showSpy.mockClear();
+		await executeWithSelection('widgets', 'make it shorter');
+		expect(showSpy).toHaveBeenCalled();
+		showSpy.mockRestore();
+	});
+
+	it('does not re-open panel when already visible', async () => {
+		await togglePanel();
 		const showSpy = jest.spyOn((await import('api')).default.views.panels, 'show');
 		showSpy.mockClear();
 		await executeWithSelection('widgets', 'make it shorter');
 		expect(showSpy).not.toHaveBeenCalled();
 		showSpy.mockRestore();
+	});
+
+	it('sends showUserMessage to webview with the prompt', async () => {
+		mockPostMessage.mockClear();
+		await executeWithSelection('widgets', 'make it shorter');
+
+		const msg = mockPostMessage.mock.calls.find(
+			(call: unknown[]) => (call[1] as { type: string }).type === 'showUserMessage',
+		);
+		expect(msg).toBeDefined();
+		expect((msg![1] as { prompt: string }).prompt).toBe('make it shorter');
 	});
 
 	it('writes notion.askAI.error when AI throws', async () => {
