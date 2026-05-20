@@ -878,8 +878,7 @@ export const triggerAskAI = async (text: string): Promise<void> => {
 };
 
 export const executeWithSelection = async (text: string, prompt: string): Promise<void> => {
-	console.log('[executeWithSelection] called — chatPanelHandle:', !!chatPanelHandle, 'text.len:', text.length, 'prompt.len:', prompt.length);
-	if (!chatPanelHandle || !text.trim() || !prompt.trim()) { console.log('[executeWithSelection] early return — guard failed'); return; }
+	if (!chatPanelHandle || !text.trim() || !prompt.trim()) return;
 	if (!chatPanelVisible) {
 		chatPanelVisible = true;
 		await joplin.views.panels.show(chatPanelHandle);
