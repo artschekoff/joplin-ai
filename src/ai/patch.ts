@@ -17,8 +17,11 @@ export interface PatchResult {
  */
 export const applyPatches = (body: string, patches: SearchReplacePatch[]): PatchResult => {
 	const dmp = new DiffMatchPatch();
-	let result = body;
+	// Normalize body line endings once so exact-match works regardless of platform
+	let result = body.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 	const applied: boolean[] = [];
+	// diff-match-patch bitap algorithm hard limit; patterns longer than this must not reach match_main
+	const dmpMaxBits: number = (dmp as unknown as { Match_MaxBits: number }).Match_MaxBits ?? 32;
 
 	for (const patch of patches) {
 		const search = patch.search.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -51,7 +54,11 @@ export const applyPatches = (body: string, patches: SearchReplacePatch[]): Patch
 			continue;
 		}
 
-		// 3. Fuzzy match via diff-match-patch: find approximate location, then replace
+		// 3. Fuzzy match via diff-match-patch: only for short patterns — bitap throws above Match_MaxBits (32)
+		if (search.length > dmpMaxBits) {
+			applied.push(false);
+			continue;
+		}
 		dmp.Match_Threshold = 0.5;
 		const loc = dmp.match_main(result, search, Math.floor(result.length / 2));
 		if (loc !== -1) {
