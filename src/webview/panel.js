@@ -1763,10 +1763,11 @@ function initPanel() {
 		}
 
 		if (message.type === 'noteBodySent') {
+			var charLabel = message.charCount != null ? ' (' + message.charCount.toLocaleString() + ' chars)' : '';
 			addMessage(
 				'action-info',
 				svgIcon('fileText', '14') + ' Note text sent to AI',
-				'Content of "' + escapeHtml(message.noteTitle) + '" included in context',
+				'Content of "' + escapeHtml(message.noteTitle) + '" included in context' + charLabel,
 				null, null, false
 			);
 		}

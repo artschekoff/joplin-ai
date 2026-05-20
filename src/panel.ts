@@ -909,6 +909,9 @@ export const executeWithSelection = async (text: string, prompt: string): Promis
 				// ignore — error writeback failed, nothing to do
 			}
 		},
-		true,
+		false,
 	);
+	// Clear selection so subsequent chat-panel requests don't inherit stale selection text
+	// (stale selection causes hasSelectionMarkers=false → AI makes multiple unconstrained patches)
+	setEditorSelection('');
 };
