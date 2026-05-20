@@ -1017,7 +1017,7 @@ describe('buildSystemPrompt', () => {
 				selectionText: 'Date: 17 April',
 			});
 			expect(prompt).toContain('SELECTION RULES');
-			expect(prompt).toMatch(/COMPLETE note body/);
+			expect(prompt).toMatch(/COMPLETE text between the markers/);
 		});
 
 		it('includes SELECTION RULES in edit mode too', () => {
