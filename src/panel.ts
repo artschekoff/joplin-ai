@@ -679,7 +679,12 @@ const handleExecute = async (
 			lastSentNoteId === note.id ? (lastSentNoteBody ?? undefined) : undefined;
 		context.onBodyDecision = (included: boolean) => {
 			if (included) {
-				joplin.views.panels.postMessage(handle, { type: 'noteBodySent', noteTitle: note.title });
+				const charCount = hasSelection ? editorSelection.trim().length : note.body.length;
+				joplin.views.panels.postMessage(handle, {
+					type: 'noteBodySent',
+					noteTitle: note.title,
+					charCount,
+				});
 			}
 		};
 		const response = await sendToAI(

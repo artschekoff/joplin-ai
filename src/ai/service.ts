@@ -73,7 +73,7 @@ You are in EDIT mode. Your only task is to edit the body of the currently open n
 Rules:
 - Every user message is an immediate edit instruction — execute it right away without asking for confirmation or suggestions.
 - Apply only the exact change requested. Do not make additional edits or improvements beyond what was asked.
-- Use update_note (no noteId) to save changes. Do not modify any other note.
+- Use patch_note for targeted edits (changing a section, fixing text, inserting content). Use update_note only for complete rewrites. Never pass a noteId to either tool.
 - You may search, read, and list other notes for reference — but never create, delete, or modify them.
 - The note title is read-only in Edit mode. Only the body can be changed.
 [End Work Mode]
@@ -391,8 +391,8 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 		? `\nSELECTION RULES:
 The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.
 - Modify ONLY the text between the markers. Keep all other content unchanged.
-- When calling update_note, provide the COMPLETE note body (all content) with only the selected section modified.
-- Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in the output — they are for your reference only.
+- Use a SINGLE patch_note call (NOT update_note): set search to the COMPLETE text between the markers (verbatim, without the markers themselves), and set replace to your complete modified version of that selected text. Do not split into multiple patches.
+- Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in search or replace.
 `
 		: '';
 
