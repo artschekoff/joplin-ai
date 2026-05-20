@@ -4,6 +4,9 @@ import eslintConfigPrettier from 'eslint-config-prettier';
 
 export default [
 	{
+		ignores: ['webpack.config.js', 'dist/**', 'publish/**'],
+	},
+	{
 		files: ['src/**/*.ts'],
 		languageOptions: {
 			parser: tsParser,

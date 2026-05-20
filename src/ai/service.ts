@@ -24,7 +24,7 @@ import { getOpenAITools, getClaudeTools, getPerplexityTools } from './tools';
 import { executeAction, READ_ONLY_ACTIONS, EDIT_ACTIONS } from '../actions/registry';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from '../actions/types';
 import { CostTracker, defaultCostTracker } from './cost-tracker';
-import { classifyNeedsNoteBody } from './classifier';
+import { planUserRequest } from './planner';
 
 const MAX_TOOL_ROUNDS = 5;
 
@@ -34,6 +34,7 @@ const TOOL_STEP_LABELS: Record<string, string> = {
 	get_note: 'Reading note...',
 	open_note: 'Opening note...',
 	update_note: 'Updating note...',
+	patch_note: 'Patching note...',
 	delete_note: 'Deleting note...',
 	move_note: 'Moving note...',
 	search_notes: 'Searching notes...',
@@ -405,7 +406,8 @@ The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELE
 The user's current note is provided below. The note is in Markdown format.
 
 You have tools to interact with Joplin:
-- update_note: Update the current note's body. Title is read-only in Edit mode. Do not pass a noteId — it defaults to the current note.
+- patch_note: Surgically edit specific sections of the current note. Pass patches: [{search, replace}]. Include surrounding lines in search. Do not pass a noteId — defaults to the current note. Prefer this for all targeted edits.
+- update_note: Replace the entire note body. Use ONLY for complete rewrites. Do not pass a noteId.
 - copy_note: Duplicate a note by ID (or the current note if no ID given). Fetches content internally — do NOT call get_note first.
 - delete_note: Delete a note by ID.
 - move_note: Move a note to a different notebook.
@@ -424,7 +426,8 @@ EDIT MODE RULES:
 - Use update_note ONLY when the user explicitly asks to modify the text content of the current note. Never call update_note for copy/delete/move requests.
 - Never pass a noteId to update_note — it must always target the current note.
 - Apply the exact change the user requests — nothing else. Do not make additional edits beyond what was asked.
-- Copy all unchanged lines character-for-character. Lines with repeated characters (e.g. \`\*\*\*\*\*\*\`, \`------\`, \`______\`, signature blanks) must be reproduced with the exact same number of characters.
+- For targeted edits (add, remove, or change a specific section), always use patch_note — it is faster and safer than rewriting the full body.
+- Use update_note only for complete note rewrites.
 - Apply changes immediately without asking for confirmation or clarifying questions. Make your best judgment and act.
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
 ${selectionRulesBlock}`;
@@ -440,7 +443,8 @@ You have tools to interact with Joplin:
 - copy_note: Duplicate a note by ID (or the current note if no ID given). Fetches note content internally — do NOT call get_note first. Accepts an optional custom title for the copy.
 - get_note: Read a note's full content by ID. Only call this when you actually need to read or analyze the note's text. Do NOT call it before copy_note, delete_note, move_note, or other structural operations.
 - open_note: Open a note in Joplin's editor by ID. Use this when the user wants to navigate to or view a note. Prefer this over get_note when the user says "open", "go to", or "show" a note.
-- update_note: Update a note's title and/or body by ID, or the current note if no ID given.
+- patch_note: Surgically edit specific sections of a note without rewriting the full body. Use for targeted changes: adding lines, modifying a paragraph, inserting content. Pass an array of {search, replace} pairs — search must uniquely identify the location (include surrounding lines for context). Prefer this over update_note for all partial edits.
+- update_note: Replace the entire note body. Use ONLY for complete rewrites. For targeted edits, use patch_note.
 - delete_note: Delete a note by ID.
 - move_note: Move a note to a different notebook.
 - search_notes: Search notes using Joplin query syntax. Supports filters: title:, body:, tag:, notebook:, created:, updated:, type:, iscompleted:, and boolean operators (any:1 for OR, - prefix to negate). Construct queries using relevant filters when the user mentions specific notebooks, tags, dates, or note types.
@@ -459,8 +463,9 @@ TOOL USAGE RULES:
 - If the user provides enough information (e.g. title and content for a new note), call the tool right away.
 - When creating or moving a note, automatically select the most appropriate notebook based on the note's title and content. Do not ask the user which notebook to use unless ambiguous.
 - If the user asks a question that does not require any action, answer normally in Markdown without using tools.
-- Before calling update_note or create_note, write one short sentence describing what you are about to do (e.g. "Updating the note with a corrected introduction." or "Creating a new note titled 'Meeting notes'."). Then immediately call the tool.
-- When updating a note, copy unchanged lines character-for-character. Pay special attention to lines that consist of repeated characters (e.g. \`\*\*\*\*\*\*\`, \`------\`, \`______\`, signature blanks, table separators) — reproduce them with the exact same number of characters as in the original.
+- Before calling patch_note, update_note, or create_note, write one short sentence describing what you are about to do. Then immediately call the tool.
+- For targeted edits (add, remove, or change a specific section), always use patch_note — it is faster and safer than rewriting the full body.
+- Use update_note only for complete note rewrites.
 - STRUCTURAL OPERATIONS: When the user asks to copy, duplicate, delete, or move a note, call copy_note / delete_note / move_note DIRECTLY — do NOT call get_note, search_notes, or list_notebooks first. These tools work by note ID and fetch content internally. Never attempt to manually replicate a note by reading it and calling update_note.
 - STOP AFTER STRUCTURAL OPS: After copy_note, delete_note, move_note, or create_note succeeds, your task is complete. Return your response immediately — do NOT make any additional tool calls.
 ${selectionRulesBlock}`;
@@ -788,8 +793,9 @@ export const sendToAI = async (
 		currentNoteId: null,
 		currentNoteTitle: noteTitle,
 	};
-	const includeBody = await classifyNeedsNoteBody(provider, apiKey, model, userPrompt, noteTitle);
-	actionContext.onBodyDecision?.(includeBody);
+	const plan = await planUserRequest(provider, apiKey, model, userPrompt, noteTitle);
+	const includeBody = actionContext.workMode === 'edit' || plan.needsNoteBody;
+	actionContext.onBodyDecision?.(includeBody, plan.likelyTools);
 	const promptParts = buildSystemPromptParts({
 		noteTitle,
 		noteId: actionContext.currentNoteId ?? undefined,
@@ -848,7 +854,9 @@ export const sendToAI = async (
 	});
 	const traceCost = ct.getTraceCost(traceId);
 
-	const hasNoteUpdate = outcomes.some((o) => o.action === 'update_note' && o.success);
+	const hasNoteUpdate = outcomes.some(
+		(o) => (o.action === 'update_note' || o.action === 'patch_note') && o.success,
+	);
 
 	return {
 		content: text,

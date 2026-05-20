@@ -17,18 +17,19 @@ const mockWorkspaceOnNoteSelectionChange = jest.fn().mockResolvedValue(undefined
 const mockSettingsRegisterSection = jest.fn().mockResolvedValue(undefined);
 const mockSettingsRegisterSetting = jest.fn().mockResolvedValue(undefined);
 
-let capturedOnChange: (() => Promise<void>) | null = null;
-const mockSettingsOnChange = jest.fn().mockImplementation((cb: () => Promise<void>) => {
-    capturedOnChange = cb;
-    return Promise.resolve();
-});
+let capturedIntervalCallback: (() => Promise<void>) | null = null;
+jest.spyOn(global, 'setInterval').mockImplementation(((cb: () => void) => {
+	capturedIntervalCallback = cb as () => Promise<void>;
+	return 0 as unknown as ReturnType<typeof setInterval>;
+}) as typeof setInterval);
+const mockSettingsOnChange = jest.fn().mockResolvedValue(undefined);
 const mockSettingsGlobalValue = jest.fn().mockResolvedValue('');
 
 const mockExecuteWithSelection = jest.fn().mockResolvedValue(undefined);
 jest.mock('../panel', () => ({
-    initPanel: jest.fn().mockResolvedValue(undefined),
-    togglePanel: jest.fn().mockResolvedValue(undefined),
-    executeWithSelection: (...args: unknown[]) => mockExecuteWithSelection(...args),
+	initPanel: jest.fn().mockResolvedValue(undefined),
+	togglePanel: jest.fn().mockResolvedValue(undefined),
+	executeWithSelection: (...args: unknown[]) => mockExecuteWithSelection(...args),
 }));
 
 let capturedOnStart: (() => Promise<void>) | null = null;
@@ -210,24 +211,29 @@ describe('index onStart registration', () => {
 	});
 });
 
-describe('notion.askAI.request settings.onChange listener', () => {
+describe('notion.askAI.request polling listener', () => {
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		capturedOnChange = null;
+		capturedIntervalCallback = null;
 		mockPanelsCreate.mockResolvedValue('panel-handle-test');
-		// re-run onStart to register the listener fresh
+		// re-run onStart to register the interval fresh
 		await capturedOnStart!();
 	});
 
-	it('registers a settings.onChange listener during onStart', () => {
-		expect(mockSettingsOnChange).toHaveBeenCalledTimes(1);
+	it('registers a setInterval during onStart', () => {
+		expect(setInterval).toHaveBeenCalledTimes(1);
 	});
 
-	it('calls executeWithSelection when notion.askAI.request changes with valid payload', async () => {
-		const payload = JSON.stringify({ text: 'selected text', prompt: 'make it shorter', isSelection: true, ts: 1000 });
+	it('calls executeWithSelection when notion.askAI.request has valid payload', async () => {
+		const payload = JSON.stringify({
+			text: 'selected text',
+			prompt: 'make it shorter',
+			isSelection: true,
+			ts: 1000,
+		});
 		mockSettingsGlobalValue.mockResolvedValueOnce(payload);
 
-		await capturedOnChange!();
+		await capturedIntervalCallback!();
 
 		expect(mockExecuteWithSelection).toHaveBeenCalledWith('selected text', 'make it shorter');
 	});
@@ -236,9 +242,9 @@ describe('notion.askAI.request settings.onChange listener', () => {
 		const payload = JSON.stringify({ text: 'text', prompt: 'improve', ts: 1000 });
 		mockSettingsGlobalValue.mockResolvedValue(payload);
 
-		await capturedOnChange!();
+		await capturedIntervalCallback!();
 		mockExecuteWithSelection.mockClear();
-		await capturedOnChange!();
+		await capturedIntervalCallback!();
 
 		expect(mockExecuteWithSelection).not.toHaveBeenCalled();
 	});
@@ -247,7 +253,7 @@ describe('notion.askAI.request settings.onChange listener', () => {
 		const payload = JSON.stringify({ text: '', prompt: 'improve', ts: 2000 });
 		mockSettingsGlobalValue.mockResolvedValueOnce(payload);
 
-		await capturedOnChange!();
+		await capturedIntervalCallback!();
 
 		expect(mockExecuteWithSelection).not.toHaveBeenCalled();
 	});
@@ -256,7 +262,7 @@ describe('notion.askAI.request settings.onChange listener', () => {
 		const payload = JSON.stringify({ text: 'hello', prompt: '', ts: 3000 });
 		mockSettingsGlobalValue.mockResolvedValueOnce(payload);
 
-		await capturedOnChange!();
+		await capturedIntervalCallback!();
 
 		expect(mockExecuteWithSelection).not.toHaveBeenCalled();
 	});
@@ -264,7 +270,7 @@ describe('notion.askAI.request settings.onChange listener', () => {
 	it('ignores empty setting value', async () => {
 		mockSettingsGlobalValue.mockResolvedValueOnce('');
 
-		await capturedOnChange!();
+		await capturedIntervalCallback!();
 
 		expect(mockExecuteWithSelection).not.toHaveBeenCalled();
 	});

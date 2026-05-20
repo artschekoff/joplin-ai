@@ -28,8 +28,8 @@ jest.mock('../perplexity', () => ({
 	parseSonarToolCalls: jest.requireActual('../perplexity').parseSonarToolCalls,
 	buildSonarToolCallPrompt: jest.requireActual('../perplexity').buildSonarToolCallPrompt,
 }));
-jest.mock('../classifier', () => ({
-	classifyNeedsNoteBody: jest.fn().mockResolvedValue(false),
+jest.mock('../planner', () => ({
+	planUserRequest: jest.fn().mockResolvedValue({ needsNoteBody: false, likelyTools: [] }),
 }));
 jest.mock('../../actions/registry', () => ({
 	getActionHandlers: jest.fn(() => []),
@@ -53,7 +53,7 @@ import { sendOpenAIMessages, streamOpenAIMessages } from '../openai';
 import { sendClaudeMessages, streamClaudeMessages } from '../claude';
 import { sendPerplexityRequest, sendSonarChatRequest } from '../perplexity';
 import { executeAction } from '../../actions/registry';
-import { classifyNeedsNoteBody } from '../classifier';
+import { planUserRequest } from '../planner';
 
 const mockedSendOpenAI = sendOpenAIMessages as jest.MockedFunction<typeof sendOpenAIMessages>;
 const mockedStreamOpenAI = streamOpenAIMessages as jest.MockedFunction<typeof streamOpenAIMessages>;
@@ -66,7 +66,7 @@ const mockedSendSonarChat = sendSonarChatRequest as jest.MockedFunction<
 	typeof sendSonarChatRequest
 >;
 const mockedExecuteAction = executeAction as jest.MockedFunction<typeof executeAction>;
-const mockedClassify = classifyNeedsNoteBody as jest.MockedFunction<typeof classifyNeedsNoteBody>;
+const mockedPlan = planUserRequest as jest.MockedFunction<typeof planUserRequest>;
 
 describe('buildSystemPrompt', () => {
 	it('includes note title and body', () => {
@@ -1213,7 +1213,10 @@ describe('sendToAI', () => {
 	});
 
 	it('passes system prompt with note context to provider', async () => {
-		mockedClassify.mockResolvedValueOnce(true);
+		mockedPlan.mockResolvedValueOnce({
+			needsNoteBody: true,
+			likelyTools: ['get_note', 'update_note'],
+		});
 		mockedSendOpenAI.mockResolvedValue({
 			textContent: 'ok',
 			toolCalls: [],
@@ -1877,7 +1880,7 @@ describe('sendToAI', () => {
 		});
 
 		it('passes system prompt as instructions to Perplexity Agent API', async () => {
-			mockedClassify.mockResolvedValueOnce(true);
+			mockedPlan.mockResolvedValueOnce({ needsNoteBody: true, likelyTools: ['get_note'] });
 			mockedSendPerplexity.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],

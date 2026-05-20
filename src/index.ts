@@ -5,6 +5,10 @@ import { initPanel, togglePanel, executeWithSelection } from './panel';
 
 let lastProcessedAskAITs = 0;
 
+// Joplin stores plugin settings under plugin-${pluginId}.${key} internally.
+// globalValue() reads the key as-is (no prefix), so we must pass the full key.
+const NOTION_ASK_AI_REQUEST_KEY = 'plugin-net.roxl.joplin-notion.notion.askAI.request';
+
 joplin.plugins.register({
 	onStart: async function () {
 		try {
@@ -21,9 +25,11 @@ joplin.plugins.register({
 			console.error('AI Assistant: panel initialization failed:', msg);
 		}
 
-		await joplin.settings.onChange(async () => {
+		// settings.onChange only fires for this plugin's own settings, so we poll
+		// globalValue to detect requests written by joplin-notion.
+		setInterval(async () => {
 			try {
-				const raw = await joplin.settings.globalValue('notion.askAI.request');
+				const raw = await joplin.settings.globalValue(NOTION_ASK_AI_REQUEST_KEY);
 				if (!raw) return;
 				const parsed = JSON.parse(raw as string);
 				const { text, prompt, ts } = parsed as { text?: string; prompt?: string; ts?: number };
@@ -32,9 +38,9 @@ joplin.plugins.register({
 				lastProcessedAskAITs = ts;
 				await executeWithSelection(text, prompt);
 			} catch {
-				// ignore parse errors or missing setting
+				// ignore parse/read errors
 			}
-		});
+		}, 300);
 
 		await joplin.commands.register({
 			name: 'editWithAI',

@@ -5,6 +5,7 @@ import { ActionResult, ActionContext, ActionHandler } from './types';
 import { performWebSearch } from '../ai/web-search';
 import { performPerplexityWebSearch } from '../ai/perplexity';
 import { generateImage, downloadImageToFile } from '../ai/image-gen';
+import { applyPatches, SearchReplacePatch } from '../ai/patch';
 
 export const READ_ONLY_ACTIONS = new Set([
 	'get_note',
@@ -18,6 +19,7 @@ export const READ_ONLY_ACTIONS = new Set([
 export const EDIT_ACTIONS = new Set([
 	...READ_ONLY_ACTIONS,
 	'update_note',
+	'patch_note',
 	'copy_note',
 	'delete_note',
 	'move_note',
@@ -798,11 +800,98 @@ const removeResourceHandler: ActionHandler = {
 	},
 };
 
+const patchNoteHandler: ActionHandler = {
+	name: 'patch_note',
+	description:
+		'Surgically edit specific sections of a note using search-replace patches. ' +
+		'Use this instead of update_note for targeted changes (adding lines, modifying a paragraph, inserting content). ' +
+		'Each patch finds a unique text fragment and replaces it. ' +
+		'Include 2-3 surrounding lines in "search" to uniquely identify the location. ' +
+		'Multiple patches are applied in order.',
+	parameters: {
+		type: 'object',
+		properties: {
+			noteId: {
+				type: 'string',
+				description: 'ID of the note to patch. If omitted, patches the currently selected note.',
+			},
+			patches: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						search: {
+							type: 'string',
+							description:
+								'Exact text to find in the note. Must be unique in the document. Include surrounding lines for context.',
+						},
+						replace: {
+							type: 'string',
+							description: 'Text to replace the found text with.',
+						},
+					},
+					required: ['search', 'replace'],
+				},
+				description: 'Ordered list of search-replace operations.',
+			},
+		},
+		required: ['patches'],
+	},
+	execute: async (args, context): Promise<ActionResult> => {
+		const noteId = (args.noteId as string) || context.currentNoteId;
+		if (!noteId) {
+			return { success: false, message: 'No note ID provided and no note is selected' };
+		}
+		const rawPatches = args.patches as Array<{ search: string; replace: string }>;
+		if (!Array.isArray(rawPatches) || rawPatches.length === 0) {
+			return { success: false, message: 'No patches provided' };
+		}
+
+		const note = await joplin.data.get(['notes', noteId], { fields: ['title', 'body'] });
+		if (!note) {
+			return { success: false, message: 'Note not found' };
+		}
+
+		const oldBody = (note.body ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+		const patches: SearchReplacePatch[] = rawPatches.map((p) => ({
+			search: (p.search ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n'),
+			replace: (p.replace ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n'),
+		}));
+
+		const { body: newBody, applied } = applyPatches(oldBody, patches);
+		const failedCount = applied.filter((ok) => !ok).length;
+
+		const isPendingBodyEdit = !!context.onPendingEdit;
+		const noteTitle = note.title ?? noteId;
+
+		if (isPendingBodyEdit) {
+			context.onPendingEdit!({ noteId, noteTitle, oldBody, newBody });
+		} else {
+			await joplin.data.put(['notes', noteId], null, { body: newBody });
+		}
+
+		const appliedCount = applied.filter(Boolean).length;
+		const summary =
+			failedCount === 0
+				? `${appliedCount} patch${appliedCount !== 1 ? 'es' : ''} applied`
+				: `${appliedCount} applied, ${failedCount} not found`;
+
+		return {
+			success: failedCount < patches.length || appliedCount > 0,
+			message: isPendingBodyEdit
+				? `Note "${noteTitle}" — ${summary} — review the diff below`
+				: `Note "${noteTitle}" — ${summary}`,
+			data: { noteId, noteTitle, applied },
+		};
+	},
+};
+
 const handlers: ActionHandler[] = [
 	createNoteHandler,
 	getNoteHandler,
 	openNoteHandler,
 	updateNoteHandler,
+	patchNoteHandler,
 	copyNoteHandler,
 	deleteNoteHandler,
 	moveNoteHandler,

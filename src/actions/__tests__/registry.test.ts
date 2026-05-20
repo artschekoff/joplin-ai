@@ -52,6 +52,7 @@ describe('getActionHandlers', () => {
 			'get_note',
 			'open_note',
 			'update_note',
+			'patch_note',
 			'copy_note',
 			'delete_note',
 			'move_note',

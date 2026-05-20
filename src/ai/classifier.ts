@@ -5,8 +5,11 @@ import { sendPerplexityRequest } from './perplexity';
 
 const CLASSIFIER_SYSTEM = `You are a routing assistant for a Joplin notes AI. Given a user request and the title of their currently open note, decide whether the assistant needs to read the FULL TEXT CONTENT of that note to fulfill the request.
 
-Reply YES if the request involves: reading, summarizing, translating, analyzing, explaining, rewriting, fixing, improving, formatting, proofreading, or otherwise working with the note's text.
-Reply NO if the request involves: copying, duplicating, deleting, moving, renaming, tagging, searching, creating new notes, or any action that does not require reading the note's text content.
+Reply NO only if the request is clearly a structural operation that does not touch the note's text at all: copying, duplicating, deleting, moving, renaming, tagging, searching, or creating new notes.
+
+Reply YES for everything else — including adding information, editing, updating, modifying, inserting, appending, removing content, reformatting, translating, summarizing, explaining, fixing, or any request where knowing the current note content is needed to produce the correct output.
+
+When in doubt, reply YES.
 
 Reply with exactly one word: YES or NO.`;
 

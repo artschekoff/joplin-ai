@@ -3,6 +3,14 @@
 # Review and remove entries once upstream publishes a fix.
 version: v1.25.0
 ignore:
+  SNYK-JS-BRACEEXPANSION-16755174:
+    - '*':
+        reason: >-
+          Transitive dep of @joplin/utils@3.5.1 — fix requires upgrading glob
+          which requires upgrading @joplin/utils. Resource exhaustion not
+          exploitable in Joplin plugin context.
+        expires: 2026-10-11T00:00:00.000Z
+        created: 2026-05-20T00:00:00.000Z
   SNYK-JS-GLOB-14040952:
     - '@joplin/utils > glob':
         reason: >-
