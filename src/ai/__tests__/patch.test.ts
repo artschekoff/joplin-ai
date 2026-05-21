@@ -4,7 +4,9 @@ describe('applyPatches', () => {
 	describe('exact match', () => {
 		it('replaces exact match', () => {
 			const body = 'Hello world. Goodbye world.';
-			const { body: out, applied } = applyPatches(body, [{ search: 'Hello world', replace: 'Hi there' }]);
+			const { body: out, applied } = applyPatches(body, [
+				{ search: 'Hello world', replace: 'Hi there' },
+			]);
 			expect(out).toBe('Hi there. Goodbye world.');
 			expect(applied[0]).toBe(true);
 		});
@@ -40,7 +42,9 @@ describe('applyPatches', () => {
 	describe('whitespace-normalized match', () => {
 		it('matches with extra spaces', () => {
 			const body = 'Hello   world  here';
-			const { body: out, applied } = applyPatches(body, [{ search: 'Hello world here', replace: 'done' }]);
+			const { body: out, applied } = applyPatches(body, [
+				{ search: 'Hello world here', replace: 'done' },
+			]);
 			expect(applied[0]).toBe(true);
 			expect(out).toBe('done');
 		});
@@ -58,7 +62,8 @@ describe('applyPatches', () => {
 
 		it('returns applied=false (not found) for long unmatched pattern instead of throwing', () => {
 			const body = 'Short body.';
-			const longSearch = 'This is a search pattern that is definitely longer than thirty-two characters and does not appear in the body at all.';
+			const longSearch =
+				'This is a search pattern that is definitely longer than thirty-two characters and does not appear in the body at all.';
 			const { applied } = applyPatches(body, [{ search: longSearch, replace: 'x' }]);
 			expect(applied[0]).toBe(false);
 		});
