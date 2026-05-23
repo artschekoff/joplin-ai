@@ -53,7 +53,6 @@ export interface ActionContext {
 	/** Combined "provider:model" string for web search, e.g. "openai:gpt-4o-search-preview" or "perplexity:sonar-pro". */
 	webSearchModel?: string;
 	openaiApiKey?: string;
-	claudeCodeApiKey?: string;
 	perplexityApiKey?: string;
 	kieApiKey?: string;
 	imageGenModel?: string;
@@ -61,8 +60,10 @@ export interface ActionContext {
 	onThinkingStep?: (info: ThinkingStepInfo) => void;
 	onStreamChunk?: (text: string) => void;
 	onPendingEdit?: (info: PendingEditInfo) => void;
-	/** Called after the planning step. Provides body-inclusion decision and the tools the AI plans to use. */
-	onBodyDecision?: (included: boolean, likelyTools?: string[]) => void;
+	/** Called with the body-inclusion decision based on workMode gate. */
+	onBodyDecision?: (included: boolean) => void;
+	/** Called when a diff patch is sent instead of the full note body. */
+	onDiffSent?: (added: number, removed: number) => void;
 	/** When true, the note body passed to the AI is a user-selected fragment, not the full note. */
 	isSelection?: boolean;
 	/** The original selected text fragment. Used by update_note to replace only this portion of the full note body. */

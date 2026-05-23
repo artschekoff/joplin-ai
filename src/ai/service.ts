@@ -8,8 +8,8 @@ import {
 	TokenUsage,
 } from './types';
 import { computeNoteDiff } from './note-diff';
-import { sendOpenAIMessages, streamOpenAIMessages } from './openai';
-import { sendClaudeMessages, streamClaudeMessages } from './claude';
+import { streamOpenAIMessages } from './openai';
+import { streamClaudeMessages } from './claude';
 import {
 	sendPerplexityRequest,
 	PerplexityInputItem,
@@ -24,7 +24,6 @@ import { getOpenAITools, getClaudeTools, getPerplexityTools } from './tools';
 import { executeAction, READ_ONLY_ACTIONS, EDIT_ACTIONS } from '../actions/registry';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from '../actions/types';
 import { CostTracker, defaultCostTracker } from './cost-tracker';
-import { planUserRequest } from './planner';
 
 const MAX_TOOL_ROUNDS = 5;
 
@@ -238,6 +237,8 @@ export interface BuildSystemPromptOptions {
 	 * or cached (Edit), small diffs are annotated, large diffs fall back to full body.
 	 */
 	previousNoteBody?: string;
+	/** Kie.ai API key — when absent, generate_image is excluded from the tool list. */
+	kieApiKey?: string;
 }
 
 /**
@@ -252,6 +253,10 @@ export interface SystemPromptParts {
 	staticInstructions: string;
 	noteBodyContext: string;
 	dynamicContext: string;
+	/** True when the note's full body is embedded in noteBodyContext. */
+	bodyIncluded: boolean;
+	/** Set only when a diff-match-patch patch was emitted instead of the full body. */
+	diffStats?: { added: number; removed: number };
 }
 
 const buildWebSearchToolLine = (nativeWebSearch?: boolean): string => {
@@ -360,6 +365,7 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 		selectionText,
 		noteBodyOmitted,
 		previousNoteBody,
+		kieApiKey,
 	} = options;
 
 	const {
@@ -432,11 +438,17 @@ EDIT MODE RULES:
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
 ${selectionRulesBlock}`;
 		const dynamicContext = `${referencedSection}${attachedSection}`;
-		return { staticInstructions, noteBodyContext, dynamicContext };
+		return { staticInstructions, noteBodyContext, dynamicContext, bodyIncluded: !bodyOmitted };
 	}
 
+	const noteContextLine = bodyOmitted
+		? 'The current note title and ID are shown below. Call get_note with the note ID to read its content when needed.'
+		: 'The user\'s current note is provided below. The note is in Markdown format.';
+	const generateImageLine = kieApiKey?.trim()
+		? '- generate_image: Generate an image from a text description. Supports aspect ratio (1:1, 3:2, 2:3), quality (medium, high), and visual style. The image is downloaded at full quality and attached to the note as a resource.'
+		: '';
 	const staticInstructions = `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
-The user's current note is provided below. The note is in Markdown format.
+${noteContextLine}
 
 You have tools to interact with Joplin:
 - create_note: Create a new note (title, body, optional notebook).
@@ -453,7 +465,7 @@ You have tools to interact with Joplin:
 - add_tag / remove_tag: Add or remove a tag on a note.
 - list_tags: List tags globally or for a specific note.
 ${webSearchLine}
-- generate_image: Generate an image from a text description. Supports aspect ratio (1:1, 3:2, 2:3), quality (medium, high), and visual style. The image is downloaded at full quality and attached to the note as a resource.
+${generateImageLine}
 - remove_resource: Remove an image or attachment from a note. First use get_note to find the resource IDs (they appear as ![alt](:/RESOURCE_ID) in the note body), then call remove_resource with the resource ID to strip the reference and delete the resource. Always use this tool to remove images — never pass resource paths or filenames as a note ID.
 
 TOOL USAGE RULES:
@@ -470,7 +482,7 @@ TOOL USAGE RULES:
 - STOP AFTER STRUCTURAL OPS: After copy_note, delete_note, move_note, or create_note succeeds, your task is complete. Return your response immediately — do NOT make any additional tool calls.
 ${selectionRulesBlock}`;
 	const dynamicContext = `${notebookSection}${referencedSection}${attachedSection}`;
-	return { staticInstructions, noteBodyContext, dynamicContext };
+	return { staticInstructions, noteBodyContext, dynamicContext, bodyIncluded: !bodyOmitted };
 };
 
 export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => {
@@ -542,7 +554,7 @@ const runOpenAILoop = async (
 	context: ActionContext,
 	history?: ChatMessage[],
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
-	const tools = getOpenAITools(context.workMode);
+	const tools = getOpenAITools(context.workMode, context.kieApiKey);
 	const historyMessages = (history ?? []).map((m) => ({ role: m.role, content: m.content }));
 	const pdfParts = buildOpenAIPdfParts(context.attachedFiles ?? []);
 	const imageParts = buildOpenAIImageParts(context.attachedFiles ?? []);
@@ -562,12 +574,10 @@ const runOpenAILoop = async (
 	];
 	const allOutcomes: AIActionOutcome[] = [];
 	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-	const onChunk = context.onStreamChunk;
+	const onChunk = context.onStreamChunk ?? (() => {});
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		const response = onChunk
-			? await streamOpenAIMessages(apiKey, model, messages, onChunk, tools)
-			: await sendOpenAIMessages(apiKey, model, messages, tools);
+		const response = await streamOpenAIMessages(apiKey, model, messages, onChunk, tools);
 		totalUsage = accumulateUsage(totalUsage, response.usage);
 
 		if (response.toolCalls.length === 0) {
@@ -584,9 +594,7 @@ const runOpenAILoop = async (
 		}
 	}
 
-	const finalResponse = onChunk
-		? await streamOpenAIMessages(apiKey, model, messages, onChunk)
-		: await sendOpenAIMessages(apiKey, model, messages);
+	const finalResponse = await streamOpenAIMessages(apiKey, model, messages, onChunk);
 	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
 	return {
 		text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE,
@@ -603,7 +611,7 @@ const runClaudeLoop = async (
 	context: ActionContext,
 	history?: ChatMessage[],
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
-	const tools = getClaudeTools(context.workMode);
+	const tools = getClaudeTools(context.workMode, context.kieApiKey);
 	const historyMessages = (history ?? []).map((m) => ({ role: m.role, content: m.content }));
 	const pdfParts = buildClaudePdfParts(context.attachedFiles ?? []);
 	const imageParts = buildClaudeImageParts(context.attachedFiles ?? []);
@@ -618,16 +626,16 @@ const runClaudeLoop = async (
 	const systemBlocks: import('./claude').ClaudeSystemBlock[] = [
 		{ type: 'text', text: promptParts.staticInstructions, cache_control: { type: 'ephemeral' } },
 		{ type: 'text', text: promptParts.noteBodyContext, cache_control: { type: 'ephemeral' } },
-		{ type: 'text', text: promptParts.dynamicContext },
+		...(promptParts.dynamicContext
+			? [{ type: 'text' as const, text: promptParts.dynamicContext }]
+			: []),
 	];
 	const allOutcomes: AIActionOutcome[] = [];
 	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-	const onChunk = context.onStreamChunk;
+	const onChunk = context.onStreamChunk ?? (() => {});
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		const response = onChunk
-			? await streamClaudeMessages(apiKey, model, systemBlocks, messages, onChunk, tools)
-			: await sendClaudeMessages(apiKey, model, systemBlocks, messages, tools);
+		const response = await streamClaudeMessages(apiKey, model, systemBlocks, messages, onChunk, tools);
 		totalUsage = accumulateUsage(totalUsage, response.usage);
 
 		if (response.toolCalls.length === 0) {
@@ -647,9 +655,7 @@ const runClaudeLoop = async (
 		messages.push({ role: 'user', content: toolResultBlocks });
 	}
 
-	const finalResponse = onChunk
-		? await streamClaudeMessages(apiKey, model, systemBlocks, messages, onChunk)
-		: await sendClaudeMessages(apiKey, model, systemBlocks, messages);
+	const finalResponse = await streamClaudeMessages(apiKey, model, systemBlocks, messages, onChunk);
 	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
 	return {
 		text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE,
@@ -669,7 +675,7 @@ const runPerplexityLoop = async (
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const systemPrompt =
 		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
-	const tools = getPerplexityTools(context.workMode, nativeWebSearch);
+	const tools = getPerplexityTools(context.workMode, nativeWebSearch, context.kieApiKey);
 	const historyItems: PerplexityInputItem[] = (history ?? []).map((m) => ({
 		role: m.role,
 		content: m.content,
@@ -724,7 +730,7 @@ const runSonarLoop = async (
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const systemPrompt =
 		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
-	const tools = getPerplexityTools(context.workMode, nativeWebSearch);
+	const tools = getPerplexityTools(context.workMode, nativeWebSearch, context.kieApiKey);
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
 	const messages: SonarChatMessage[] = [
@@ -765,7 +771,7 @@ const runSonarLoop = async (
 		const resultSummary = results.map((r) => r.content).join('\n');
 		messages.push({ role: 'user', content: `[TOOL_RESULT]\n${resultSummary}\n[/TOOL_RESULT]` });
 	}
-	const finalResponse = await sendSonarChatRequest(apiKey, model, messages);
+	const finalResponse = await sendSonarChatRequest(apiKey, model, messages, context.onStreamChunk);
 	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
 	const finalText = finalResponse.textContent || '';
 	const parsed = parseSonarToolCalls(finalText);
@@ -793,9 +799,10 @@ export const sendToAI = async (
 		currentNoteId: null,
 		currentNoteTitle: noteTitle,
 	};
-	const plan = await planUserRequest(provider, apiKey, model, userPrompt, noteTitle);
-	const includeBody = actionContext.workMode === 'edit' || plan.needsNoteBody;
-	actionContext.onBodyDecision?.(includeBody, plan.likelyTools);
+	// workMode gate: only include note body in edit/ask modes; agent mode uses get_note on demand.
+	const includeBody =
+		actionContext.workMode === 'edit' || actionContext.workMode === 'ask';
+	actionContext.onBodyDecision?.(includeBody);
 	const promptParts = buildSystemPromptParts({
 		noteTitle,
 		noteId: actionContext.currentNoteId ?? undefined,
@@ -810,6 +817,7 @@ export const sendToAI = async (
 		selectionText: actionContext.selectionText,
 		noteBodyOmitted: !includeBody,
 		previousNoteBody: includeBody ? previousNoteBody : undefined,
+		kieApiKey: actionContext.kieApiKey,
 	});
 
 	const ct = tracker ?? defaultCostTracker;
@@ -841,7 +849,7 @@ export const sendToAI = async (
 				isNativeSearch,
 			);
 		}
-		if (provider === 'claude' || provider === 'claudecode') {
+		if (provider === 'claude') {
 			return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history);
 		}
 		return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history);

@@ -1,4 +1,4 @@
-export type AIProvider = 'openai' | 'claude' | 'claudecode' | 'perplexity';
+export type AIProvider = 'openai' | 'claude' | 'perplexity';
 
 export type WorkMode = 'ask' | 'agent' | 'edit';
 
@@ -11,6 +11,12 @@ export interface AgentRole {
 export interface ChatMessage {
 	role: 'user' | 'assistant';
 	content: string;
+}
+
+export interface NoteContextSnapshot {
+	noteId: string;
+	noteTitle: string;
+	noteBody: string;
 }
 
 export interface AIToolCall {
