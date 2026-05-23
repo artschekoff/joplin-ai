@@ -46,8 +46,8 @@ describe('getModelMaxTokens', () => {
 		expect(getModelMaxTokens('gpt-3.5-turbo')).toBe(16385);
 	});
 
-	it('should return 200000 for claude-sonnet-4-20250514', () => {
-		expect(getModelMaxTokens('claude-sonnet-4-20250514')).toBe(200000);
+	it('should return 200000 for claude-sonnet-4-6', () => {
+		expect(getModelMaxTokens('claude-sonnet-4-6')).toBe(200000);
 	});
 
 	it('should return 200000 for claude-3-5-sonnet-20241022', () => {
@@ -58,8 +58,8 @@ describe('getModelMaxTokens', () => {
 		expect(getModelMaxTokens('claude-3-haiku-20240307')).toBe(200000);
 	});
 
-	it('should return 200000 for claude-opus-4-20250514', () => {
-		expect(getModelMaxTokens('claude-opus-4-20250514')).toBe(200000);
+	it('should return 200000 for claude-opus-4-7', () => {
+		expect(getModelMaxTokens('claude-opus-4-7')).toBe(200000);
 	});
 
 	it('should return 200000 for codex-mini-latest', () => {
@@ -184,7 +184,7 @@ describe('computeContextUsage', () => {
 			systemPrompt: 'test',
 			history: [],
 			userPrompt: 'test',
-			model: 'claude-sonnet-4-20250514',
+			model: 'claude-sonnet-4-6',
 		});
 		expect(gptResult.maxTokens).toBe(16385);
 		expect(claudeResult.maxTokens).toBe(200000);

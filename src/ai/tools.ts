@@ -24,14 +24,24 @@ export interface PerplexityTool {
 	parameters: Record<string, unknown>;
 }
 
-const filterHandlers = (handlers: ActionHandler[], workMode?: WorkMode): ActionHandler[] => {
-	if (!workMode || workMode === 'agent') return handlers;
-	const allowed = workMode === 'ask' ? READ_ONLY_ACTIONS : EDIT_ACTIONS;
-	return handlers.filter((h) => allowed.has(h.name));
+const filterHandlers = (
+	handlers: ActionHandler[],
+	workMode?: WorkMode,
+	kieApiKey?: string,
+): ActionHandler[] => {
+	let filtered = handlers;
+	if (workMode && workMode !== 'agent') {
+		const allowed = workMode === 'ask' ? READ_ONLY_ACTIONS : EDIT_ACTIONS;
+		filtered = filtered.filter((h) => allowed.has(h.name));
+	}
+	if (!kieApiKey?.trim()) {
+		filtered = filtered.filter((h) => h.name !== 'generate_image');
+	}
+	return filtered;
 };
 
-export const getOpenAITools = (workMode?: WorkMode): OpenAITool[] =>
-	filterHandlers(getActionHandlers(), workMode).map((h) => ({
+export const getOpenAITools = (workMode?: WorkMode, kieApiKey?: string): OpenAITool[] =>
+	filterHandlers(getActionHandlers(), workMode, kieApiKey).map((h) => ({
 		type: 'function' as const,
 		function: {
 			name: h.name,
@@ -40,15 +50,19 @@ export const getOpenAITools = (workMode?: WorkMode): OpenAITool[] =>
 		},
 	}));
 
-export const getClaudeTools = (workMode?: WorkMode): ClaudeTool[] =>
-	filterHandlers(getActionHandlers(), workMode).map((h) => ({
+export const getClaudeTools = (workMode?: WorkMode, kieApiKey?: string): ClaudeTool[] =>
+	filterHandlers(getActionHandlers(), workMode, kieApiKey).map((h) => ({
 		name: h.name,
 		description: h.description,
 		input_schema: h.parameters,
 	}));
 
-export const getPerplexityTools = (workMode?: WorkMode, nativeWebSearch = true): PerplexityTool[] =>
-	filterHandlers(getActionHandlers(), workMode)
+export const getPerplexityTools = (
+	workMode?: WorkMode,
+	nativeWebSearch = true,
+	kieApiKey?: string,
+): PerplexityTool[] =>
+	filterHandlers(getActionHandlers(), workMode, kieApiKey)
 		.filter((h) => (nativeWebSearch ? h.name !== 'web_search' : true))
 		.map((h) => ({
 			type: 'function' as const,

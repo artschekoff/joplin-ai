@@ -354,41 +354,6 @@ describe('panel handleExecute', () => {
 		);
 	});
 
-	it('loads claudecode provider settings and passes them to sendToAI', async () => {
-		mockSettingsValues.mockResolvedValue({
-			[SETTING_KEYS.provider]: 'claudecode',
-			[SETTING_KEYS.openaiKey]: '',
-			[SETTING_KEYS.openaiModel]: 'gpt-4o',
-			[SETTING_KEYS.claudeKey]: '',
-			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
-			[SETTING_KEYS.claudeCodeKey]: 'sk-ant-code',
-			[SETTING_KEYS.claudeCodeModel]: 'claude-opus-4-20250514',
-			[SETTING_KEYS.perplexityKey]: '',
-			[SETTING_KEYS.perplexityModel]: 'sonar',
-		});
-		mockedSendToAI.mockResolvedValue({
-			content: 'ok',
-			isEdit: false,
-			editedBody: undefined,
-			actions: [],
-		});
-
-		await capturedOnMessageCallback({ type: 'execute', prompt: 'hello' });
-
-		expect(mockedSendToAI).toHaveBeenCalledWith(
-			'claudecode',
-			'sk-ant-code',
-			'claude-opus-4-20250514',
-			'hello',
-			'Test Note',
-			'Some existing content.',
-			expect.objectContaining({ currentNoteId: 'note-1', currentNoteTitle: 'Test Note' }),
-			undefined,
-			undefined,
-			undefined,
-		);
-	});
-
 	it('passes undefined history when message has no history field', async () => {
 		mockedSendToAI.mockResolvedValue({
 			content: 'ok',
@@ -1025,7 +990,7 @@ describe('panel handleExecute', () => {
 			[SETTING_KEYS.provider]: 'perplexity',
 			[SETTING_KEYS.openaiKey]: '',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
-			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-6',
 			[SETTING_KEYS.perplexityKey]: 'pplx-key',
 			[SETTING_KEYS.perplexityModel]: 'sonar-pro',
 		});
@@ -1054,7 +1019,7 @@ describe('panel handleExecute', () => {
 			[SETTING_KEYS.openaiKey]: '',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
 			[SETTING_KEYS.claudeKey]: 'sk-ant-key',
-			[SETTING_KEYS.claudeModel]: 'claude-opus-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-opus-4-7',
 			[SETTING_KEYS.perplexityModel]: 'sonar',
 		});
 
@@ -1071,7 +1036,7 @@ describe('panel handleExecute', () => {
 			MOCK_PANEL_HANDLE,
 			expect.objectContaining({
 				type: 'result',
-				modelName: 'Claude Opus 4',
+				modelName: 'Claude Opus 4.7',
 			}),
 		);
 	});
@@ -1789,7 +1754,7 @@ describe('settings message handlers', () => {
 			[SETTING_KEYS.openaiKey]: 'sk-test-key',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
 			[SETTING_KEYS.claudeKey]: '',
-			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-6',
 			[SETTING_KEYS.perplexityKey]: '',
 			[SETTING_KEYS.perplexityModel]: 'sonar',
 			[SETTING_KEYS.webSearchEnabled]: false,
@@ -1807,7 +1772,7 @@ describe('settings message handlers', () => {
 				type: 'settingsData',
 				provider: 'openai',
 				openaiModel: 'gpt-4o',
-				claudeModel: 'claude-sonnet-4-20250514',
+				claudeModel: 'claude-sonnet-4-6',
 				perplexityModel: 'sonar',
 				webSearchEnabled: false,
 			}),
@@ -1820,7 +1785,7 @@ describe('settings message handlers', () => {
 			[SETTING_KEYS.openaiKey]: 'sk-secret-key',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
 			[SETTING_KEYS.claudeKey]: 'sk-ant-secret',
-			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-6',
 			[SETTING_KEYS.perplexityKey]: '',
 			[SETTING_KEYS.perplexityModel]: 'sonar',
 			[SETTING_KEYS.webSearchEnabled]: true,
@@ -1852,15 +1817,12 @@ describe('settings message handlers', () => {
 			type: 'saveSettings',
 			settings: {
 				[SETTING_KEYS.provider]: 'claude',
-				[SETTING_KEYS.claudeModel]: 'claude-opus-4-20250514',
+				[SETTING_KEYS.claudeModel]: 'claude-opus-4-7',
 			},
 		});
 
 		expect(mockSettingsSetValue).toHaveBeenCalledWith(SETTING_KEYS.provider, 'claude');
-		expect(mockSettingsSetValue).toHaveBeenCalledWith(
-			SETTING_KEYS.claudeModel,
-			'claude-opus-4-20250514',
-		);
+		expect(mockSettingsSetValue).toHaveBeenCalledWith(SETTING_KEYS.claudeModel, 'claude-opus-4-7');
 	});
 
 	it('sends updated settingsData back after saving settings', async () => {
@@ -1869,7 +1831,7 @@ describe('settings message handlers', () => {
 			[SETTING_KEYS.openaiKey]: '',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
 			[SETTING_KEYS.claudeKey]: 'sk-ant-key',
-			[SETTING_KEYS.claudeModel]: 'claude-opus-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-opus-4-7',
 			[SETTING_KEYS.perplexityKey]: '',
 			[SETTING_KEYS.perplexityModel]: 'sonar',
 			[SETTING_KEYS.webSearchEnabled]: false,
@@ -1899,7 +1861,7 @@ describe('settings message handlers', () => {
 			[SETTING_KEYS.openaiKey]: '',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
 			[SETTING_KEYS.claudeKey]: '',
-			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-6',
 			[SETTING_KEYS.perplexityKey]: '',
 			[SETTING_KEYS.perplexityModel]: 'sonar',
 			[SETTING_KEYS.webSearchEnabled]: false,
@@ -1946,7 +1908,7 @@ describe('settings message handlers', () => {
 			type: 'saveSettings',
 			settings: {
 				[SETTING_KEYS.provider]: 'claude',
-				[SETTING_KEYS.claudeModel]: 'claude-opus-4-20250514',
+				[SETTING_KEYS.claudeModel]: 'claude-opus-4-7',
 			},
 		});
 
@@ -1967,7 +1929,7 @@ describe('settings message handlers', () => {
 			[SETTING_KEYS.openaiKey]: 'sk-key',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
 			[SETTING_KEYS.claudeKey]: '',
-			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-6',
 			[SETTING_KEYS.perplexityKey]: '',
 			[SETTING_KEYS.perplexityModel]: 'sonar',
 			[SETTING_KEYS.webSearchEnabled]: false,
@@ -2000,7 +1962,7 @@ describe('settings message handlers', () => {
 			[SETTING_KEYS.openaiKey]: '',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
 			[SETTING_KEYS.claudeKey]: '',
-			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-6',
 			[SETTING_KEYS.perplexityKey]: '',
 			[SETTING_KEYS.perplexityModel]: 'sonar',
 			[SETTING_KEYS.webSearchEnabled]: false,
@@ -2027,7 +1989,7 @@ describe('settings message handlers', () => {
 			[SETTING_KEYS.openaiKey]: '',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
 			[SETTING_KEYS.claudeKey]: '',
-			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-6',
 			[SETTING_KEYS.perplexityKey]: '',
 			[SETTING_KEYS.perplexityModel]: 'sonar',
 			[SETTING_KEYS.webSearchEnabled]: false,
@@ -2053,7 +2015,7 @@ describe('settings message handlers', () => {
 			[SETTING_KEYS.openaiKey]: '',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
 			[SETTING_KEYS.claudeKey]: '',
-			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-6',
 			[SETTING_KEYS.perplexityKey]: '',
 			[SETTING_KEYS.perplexityModel]: 'sonar',
 			[SETTING_KEYS.webSearchEnabled]: false,
@@ -2079,7 +2041,7 @@ describe('settings message handlers', () => {
 			[SETTING_KEYS.openaiKey]: '',
 			[SETTING_KEYS.openaiModel]: 'gpt-4o',
 			[SETTING_KEYS.claudeKey]: '',
-			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-20250514',
+			[SETTING_KEYS.claudeModel]: 'claude-sonnet-4-6',
 			[SETTING_KEYS.perplexityKey]: '',
 			[SETTING_KEYS.perplexityModel]: 'sonar',
 			[SETTING_KEYS.webSearchEnabled]: false,

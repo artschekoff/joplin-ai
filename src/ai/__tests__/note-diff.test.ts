@@ -1,4 +1,4 @@
-import { computeNoteDiff } from '../note-diff';
+import { computeNoteDiff, generateNotePatch } from '../note-diff';
 
 describe('computeNoteDiff', () => {
 	describe('identical bodies', () => {
@@ -145,5 +145,33 @@ describe('computeNoteDiff', () => {
 				expect(result.changeRatio).toBeLessThanOrEqual(1);
 			}
 		});
+	});
+});
+
+describe('generateNotePatch', () => {
+	it('returns empty patchText for identical bodies', () => {
+		const body = 'Same content\n';
+		const result = generateNotePatch(body, body);
+		expect(result.patchText).toBe('');
+		expect(result.added).toBe(0);
+		expect(result.removed).toBe(0);
+	});
+
+	it('detects a line replacement', () => {
+		const old = 'Hello world\nSecond line\n';
+		const updated = 'Hello world\nModified line\n';
+		const result = generateNotePatch(old, updated);
+		expect(result.patchText.length).toBeGreaterThan(0);
+		expect(result.removed).toBeGreaterThan(0);
+		expect(result.added).toBeGreaterThan(0);
+	});
+
+	it('counts only added chars when lines are appended', () => {
+		const old = 'Line one\n';
+		const updated = 'Line one\nLine two\n';
+		const result = generateNotePatch(old, updated);
+		expect(result.patchText.length).toBeGreaterThan(0);
+		expect(result.added).toBeGreaterThan(0);
+		expect(result.removed).toBe(0);
 	});
 });

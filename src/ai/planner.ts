@@ -20,14 +20,16 @@ web_search, generate_image, remove_resource
 Return JSON only — no explanation, no markdown:
 {"likelyTools": ["tool1", "tool2"], "needsNoteBody": boolean}
 
-needsNoteBody = true  → request involves reading or changing the CURRENT note's text in any way.
-                        This includes: add, edit, remove, translate, summarize, fix, reformat,
-                        insert, append, rewrite, write about X, improve, proofread, expand, shorten.
-                        When in doubt, use true.
-needsNoteBody = false → ONLY for purely structural actions that never touch the current note's text:
-                        copy, duplicate, delete, move, open, tag, search, list notebooks/tags.
-                        "create new note" is false ONLY when the user explicitly asks for a NEW note
-                        with a different topic (not modifying the current one).`;
+needsNoteBody = true  → request explicitly involves reading or changing the CURRENT note's text.
+                        This includes: edit, fix, improve, proofread, translate, summarize,
+                        reformat, rewrite, expand, shorten, insert, append content INTO the current note.
+needsNoteBody = false → request does NOT need the current note's text body. Use false when:
+                        - purely structural: copy, duplicate, delete, move, open, tag, search, list notebooks/tags.
+                        - web search only (web_search): "find", "search the internet", "look up".
+                        - creating new notes on a different topic (create_note): user asks to create one
+                          or more NEW notes/documents about external topics (not derived from the current note).
+                        - a combination of web_search + create_note for a new topic.
+                        When in doubt, use false.`;
 
 const parseResponse = (text: string): RequestPlan | null => {
 	try {
@@ -44,7 +46,7 @@ const parseResponse = (text: string): RequestPlan | null => {
 	}
 };
 
-const FALLBACK: RequestPlan = { needsNoteBody: true, likelyTools: [] };
+const FALLBACK: RequestPlan = { needsNoteBody: false, likelyTools: [] };
 
 export const planUserRequest = async (
 	provider: AIProvider,
@@ -62,7 +64,7 @@ export const planUserRequest = async (
 				{ role: 'user', content: userMsg },
 			]);
 			text = res.textContent;
-		} else if (provider === 'claude' || provider === 'claudecode') {
+		} else if (provider === 'claude') {
 			const res = await sendClaudeMessages(apiKey, model, PLANNER_SYSTEM, [
 				{ role: 'user', content: userMsg },
 			]);

@@ -28,9 +28,6 @@ jest.mock('../perplexity', () => ({
 	parseSonarToolCalls: jest.requireActual('../perplexity').parseSonarToolCalls,
 	buildSonarToolCallPrompt: jest.requireActual('../perplexity').buildSonarToolCallPrompt,
 }));
-jest.mock('../planner', () => ({
-	planUserRequest: jest.fn().mockResolvedValue({ needsNoteBody: false, likelyTools: [] }),
-}));
 jest.mock('../../actions/registry', () => ({
 	getActionHandlers: jest.fn(() => []),
 	executeAction: jest.fn(),
@@ -49,15 +46,12 @@ jest.mock('../tools', () => ({
 	getPerplexityTools: jest.fn(() => []),
 }));
 
-import { sendOpenAIMessages, streamOpenAIMessages } from '../openai';
-import { sendClaudeMessages, streamClaudeMessages } from '../claude';
+import { streamOpenAIMessages } from '../openai';
+import { streamClaudeMessages } from '../claude';
 import { sendPerplexityRequest, sendSonarChatRequest } from '../perplexity';
 import { executeAction } from '../../actions/registry';
-import { planUserRequest } from '../planner';
 
-const mockedSendOpenAI = sendOpenAIMessages as jest.MockedFunction<typeof sendOpenAIMessages>;
 const mockedStreamOpenAI = streamOpenAIMessages as jest.MockedFunction<typeof streamOpenAIMessages>;
-const mockedSendClaude = sendClaudeMessages as jest.MockedFunction<typeof sendClaudeMessages>;
 const mockedStreamClaude = streamClaudeMessages as jest.MockedFunction<typeof streamClaudeMessages>;
 const mockedSendPerplexity = sendPerplexityRequest as jest.MockedFunction<
 	typeof sendPerplexityRequest
@@ -66,7 +60,6 @@ const mockedSendSonarChat = sendSonarChatRequest as jest.MockedFunction<
 	typeof sendSonarChatRequest
 >;
 const mockedExecuteAction = executeAction as jest.MockedFunction<typeof executeAction>;
-const mockedPlan = planUserRequest as jest.MockedFunction<typeof planUserRequest>;
 
 describe('buildSystemPrompt', () => {
 	it('includes note title and body', () => {
@@ -1073,12 +1066,6 @@ describe('validateApiKey', () => {
 		expect(() => validateApiKey('claude', '   ')).toThrow('API key for claude is not configured');
 	});
 
-	it('throws for claudecode when API key is whitespace only', () => {
-		expect(() => validateApiKey('claudecode', '   ')).toThrow(
-			'API key for claudecode is not configured',
-		);
-	});
-
 	it('does not throw when API key is valid', () => {
 		expect(() => validateApiKey('openai', 'sk-valid-key')).not.toThrow();
 	});
@@ -1094,19 +1081,19 @@ describe('sendToAI', () => {
 			await expect(sendToAI('openai', '', 'gpt-4o', 'hello', 'Title', 'Body')).rejects.toThrow(
 				'API key for openai is not configured',
 			);
-			expect(mockedSendOpenAI).not.toHaveBeenCalled();
+			expect(mockedStreamOpenAI).not.toHaveBeenCalled();
 		});
 
 		it('throws when API key is whitespace only', async () => {
 			await expect(
-				sendToAI('claude', '   ', 'claude-sonnet-4-20250514', 'hello', 'Title', 'Body'),
+				sendToAI('claude', '   ', 'claude-sonnet-4-6', 'hello', 'Title', 'Body'),
 			).rejects.toThrow('API key for claude is not configured');
-			expect(mockedSendClaude).not.toHaveBeenCalled();
+			expect(mockedStreamClaude).not.toHaveBeenCalled();
 		});
 	});
 
 	it('routes to OpenAI when provider is "openai"', async () => {
-		mockedSendOpenAI.mockResolvedValue({
+		mockedStreamOpenAI.mockResolvedValue({
 			textContent: 'Plain answer from OpenAI',
 			toolCalls: [],
 			finishReason: 'stop',
@@ -1115,15 +1102,15 @@ describe('sendToAI', () => {
 
 		const result = await sendToAI('openai', 'sk-test', 'gpt-4o', 'What is this?', 'Title', 'Body');
 
-		expect(mockedSendOpenAI).toHaveBeenCalledTimes(1);
-		expect(mockedSendClaude).not.toHaveBeenCalled();
+		expect(mockedStreamOpenAI).toHaveBeenCalledTimes(1);
+		expect(mockedStreamClaude).not.toHaveBeenCalled();
 		expect(result.isEdit).toBe(false);
 		expect(result.content).toBe('Plain answer from OpenAI');
 		expect(result.actions).toEqual([]);
 	});
 
 	it('routes to Claude when provider is "claude"', async () => {
-		mockedSendClaude.mockResolvedValue({
+		mockedStreamClaude.mockResolvedValue({
 			textContent: 'Answer from Claude',
 			toolCalls: [],
 			finishReason: 'end_turn',
@@ -1133,43 +1120,21 @@ describe('sendToAI', () => {
 		const result = await sendToAI(
 			'claude',
 			'sk-ant-test',
-			'claude-sonnet-4-20250514',
+			'claude-sonnet-4-6',
 			'Explain',
 			'Title',
 			'Body',
 		);
 
-		expect(mockedSendClaude).toHaveBeenCalledTimes(1);
-		expect(mockedSendOpenAI).not.toHaveBeenCalled();
+		expect(mockedStreamClaude).toHaveBeenCalledTimes(1);
+		expect(mockedStreamOpenAI).not.toHaveBeenCalled();
 		expect(result.isEdit).toBe(false);
 		expect(result.content).toBe('Answer from Claude');
 		expect(result.actions).toEqual([]);
 	});
 
-	it('routes to Claude transport when provider is "claudecode"', async () => {
-		mockedSendClaude.mockResolvedValue({
-			textContent: 'Answer from Claude Code',
-			toolCalls: [],
-			finishReason: 'end_turn',
-			rawAssistantMessage: { role: 'assistant', content: [] },
-		});
-
-		const result = await sendToAI(
-			'claudecode',
-			'sk-ant-test',
-			'claude-sonnet-4-20250514',
-			'Explain',
-			'Title',
-			'Body',
-		);
-
-		expect(mockedSendClaude).toHaveBeenCalledTimes(1);
-		expect(mockedSendOpenAI).not.toHaveBeenCalled();
-		expect(result.content).toBe('Answer from Claude Code');
-	});
-
 	it('routes claude-opus-4 model to Claude provider', async () => {
-		mockedSendClaude.mockResolvedValue({
+		mockedStreamClaude.mockResolvedValue({
 			textContent: 'Answer from Claude Opus 4',
 			toolCalls: [],
 			finishReason: 'end_turn',
@@ -1179,19 +1144,19 @@ describe('sendToAI', () => {
 		const result = await sendToAI(
 			'claude',
 			'sk-ant-test',
-			'claude-opus-4-20250514',
+			'claude-opus-4-7',
 			'Explain',
 			'Title',
 			'Body',
 		);
 
-		expect(mockedSendClaude).toHaveBeenCalledTimes(1);
-		expect(mockedSendOpenAI).not.toHaveBeenCalled();
+		expect(mockedStreamClaude).toHaveBeenCalledTimes(1);
+		expect(mockedStreamOpenAI).not.toHaveBeenCalled();
 		expect(result.content).toBe('Answer from Claude Opus 4');
 	});
 
 	it('routes codex-mini-latest model to OpenAI provider', async () => {
-		mockedSendOpenAI.mockResolvedValue({
+		mockedStreamOpenAI.mockResolvedValue({
 			textContent: 'Answer from Codex',
 			toolCalls: [],
 			finishReason: 'stop',
@@ -1207,26 +1172,26 @@ describe('sendToAI', () => {
 			'Body',
 		);
 
-		expect(mockedSendOpenAI).toHaveBeenCalledTimes(1);
-		expect(mockedSendClaude).not.toHaveBeenCalled();
+		expect(mockedStreamOpenAI).toHaveBeenCalledTimes(1);
+		expect(mockedStreamClaude).not.toHaveBeenCalled();
 		expect(result.content).toBe('Answer from Codex');
 	});
 
 	it('passes system prompt with note context to provider', async () => {
-		mockedPlan.mockResolvedValueOnce({
-			needsNoteBody: true,
-			likelyTools: ['get_note', 'update_note'],
-		});
-		mockedSendOpenAI.mockResolvedValue({
+		mockedStreamOpenAI.mockResolvedValue({
 			textContent: 'ok',
 			toolCalls: [],
 			finishReason: 'stop',
 			rawAssistantMessage: { content: 'ok' },
 		});
 
-		await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'My Title', 'My Body');
+		await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'My Title', 'My Body', {
+			currentNoteId: 'n1',
+			currentNoteTitle: 'My Title',
+			workMode: 'ask',
+		});
 
-		const messages = mockedSendOpenAI.mock.calls[0][2];
+		const messages = mockedStreamOpenAI.mock.calls[0][2];
 		const fullSystem = messages
 			.filter((m: { role: string }) => m.role === 'system')
 			.map((m: { content?: string | null }) => m.content ?? '')
@@ -1236,7 +1201,7 @@ describe('sendToAI', () => {
 	});
 
 	it('executes tool calls and returns action outcomes', async () => {
-		mockedSendOpenAI
+		mockedStreamOpenAI
 			.mockResolvedValueOnce({
 				textContent: null,
 				toolCalls: [
@@ -1302,7 +1267,7 @@ describe('sendToAI', () => {
 	});
 
 	it('sets isEdit=true when update_note tool succeeds', async () => {
-		mockedSendClaude
+		mockedStreamClaude
 			.mockResolvedValueOnce({
 				textContent: null,
 				toolCalls: [
@@ -1340,7 +1305,7 @@ describe('sendToAI', () => {
 		const result = await sendToAI(
 			'claude',
 			'sk-ant-test',
-			'claude-sonnet-4-20250514',
+			'claude-sonnet-4-6',
 			'rewrite the note',
 			'My Note',
 			'old body',
@@ -1352,7 +1317,7 @@ describe('sendToAI', () => {
 	});
 
 	it('handles multiple tool calls in a single round', async () => {
-		mockedSendOpenAI
+		mockedStreamOpenAI
 			.mockResolvedValueOnce({
 				textContent: null,
 				toolCalls: [
@@ -1398,7 +1363,7 @@ describe('sendToAI', () => {
 	});
 
 	it('handles multi-round tool calling', async () => {
-		mockedSendOpenAI
+		mockedStreamOpenAI
 			.mockResolvedValueOnce({
 				textContent: null,
 				toolCalls: [{ id: 'tc_1', name: 'search_notes', args: { query: 'draft' } }],
@@ -1440,7 +1405,7 @@ describe('sendToAI', () => {
 			{ currentNoteId: 'n1', currentNoteTitle: 'Title' },
 		);
 
-		expect(mockedSendOpenAI).toHaveBeenCalledTimes(3);
+		expect(mockedStreamOpenAI).toHaveBeenCalledTimes(3);
 		expect(mockedExecuteAction).toHaveBeenCalledTimes(2);
 		expect(result.actions).toHaveLength(2);
 		expect(result.actions[0].action).toBe('search_notes');
@@ -1449,7 +1414,7 @@ describe('sendToAI', () => {
 	});
 
 	it('isEdit=false when no update_note action', async () => {
-		mockedSendOpenAI
+		mockedStreamOpenAI
 			.mockResolvedValueOnce({
 				textContent: null,
 				toolCalls: [{ id: 'tc_1', name: 'add_tag', args: { tag: 'important' } }],
@@ -1483,7 +1448,7 @@ describe('sendToAI', () => {
 	});
 
 	it('propagates errors from the provider', async () => {
-		mockedSendOpenAI.mockRejectedValue(new Error('Rate limit exceeded'));
+		mockedStreamOpenAI.mockRejectedValue(new Error('Rate limit exceeded'));
 
 		await expect(sendToAI('openai', 'sk-test', 'gpt-4o', 'test', 'T', 'B')).rejects.toThrow(
 			'Rate limit exceeded',
@@ -1501,7 +1466,7 @@ describe('sendToAI', () => {
 		};
 
 		it('includes notebooks in the system prompt passed to OpenAI', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -1518,7 +1483,7 @@ describe('sendToAI', () => {
 				notebookContext,
 			);
 
-			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const messages = mockedStreamOpenAI.mock.calls[0][2];
 			const fullSystem = messages
 				.filter((m: { role: string }) => m.role === 'system')
 				.map((m: { content?: string | null }) => m.content ?? '')
@@ -1530,7 +1495,7 @@ describe('sendToAI', () => {
 		});
 
 		it('includes notebooks in the system prompt passed to Claude', async () => {
-			mockedSendClaude.mockResolvedValue({
+			mockedStreamClaude.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
 				finishReason: 'end_turn',
@@ -1540,14 +1505,14 @@ describe('sendToAI', () => {
 			await sendToAI(
 				'claude',
 				'sk-ant-test',
-				'claude-sonnet-4-20250514',
+				'claude-sonnet-4-6',
 				'create a note about work',
 				'Title',
 				'Body',
 				notebookContext,
 			);
 
-			const systemParam = mockedSendClaude.mock.calls[0][2];
+			const systemParam = mockedStreamClaude.mock.calls[0][2];
 			const systemText = Array.isArray(systemParam)
 				? systemParam.map((b: { text: string }) => b.text).join('')
 				: (systemParam as string);
@@ -1558,7 +1523,7 @@ describe('sendToAI', () => {
 		});
 
 		it('does not include notebook section when context has no notebooks', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -1570,7 +1535,7 @@ describe('sendToAI', () => {
 				currentNoteTitle: 'Title',
 			});
 
-			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const messages = mockedStreamOpenAI.mock.calls[0][2];
 			const systemMessage = messages.find((m: { role: string }) => m.role === 'system') as {
 				content: string;
 			};
@@ -1580,7 +1545,7 @@ describe('sendToAI', () => {
 
 	describe('with agent role in context', () => {
 		it('includes agent role prompt in system prompt for OpenAI', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -1593,7 +1558,7 @@ describe('sendToAI', () => {
 				agentRolePrompt: 'You are a creative writer',
 			});
 
-			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const messages = mockedStreamOpenAI.mock.calls[0][2];
 			const systemMessage = messages.find((m: { role: string }) => m.role === 'system') as {
 				content: string;
 			};
@@ -1601,28 +1566,20 @@ describe('sendToAI', () => {
 		});
 
 		it('includes agent role prompt in system prompt for Claude', async () => {
-			mockedSendClaude.mockResolvedValue({
+			mockedStreamClaude.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
 				finishReason: 'end_turn',
 				rawAssistantMessage: { role: 'assistant', content: [] },
 			});
 
-			await sendToAI(
-				'claude',
-				'sk-ant-test',
-				'claude-sonnet-4-20250514',
-				'hello',
-				'Title',
-				'Body',
-				{
-					currentNoteId: 'n1',
-					currentNoteTitle: 'Title',
-					agentRolePrompt: 'You are a creative writer',
-				},
-			);
+			await sendToAI('claude', 'sk-ant-test', 'claude-sonnet-4-6', 'hello', 'Title', 'Body', {
+				currentNoteId: 'n1',
+				currentNoteTitle: 'Title',
+				agentRolePrompt: 'You are a creative writer',
+			});
 
-			const systemParam = mockedSendClaude.mock.calls[0][2];
+			const systemParam = mockedStreamClaude.mock.calls[0][2];
 			const systemText = Array.isArray(systemParam)
 				? systemParam.map((b: { text: string }) => b.text).join('')
 				: (systemParam as string);
@@ -1630,7 +1587,7 @@ describe('sendToAI', () => {
 		});
 
 		it('does not include agent role section when context has no agentRolePrompt', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -1642,7 +1599,7 @@ describe('sendToAI', () => {
 				currentNoteTitle: 'Title',
 			});
 
-			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const messages = mockedStreamOpenAI.mock.calls[0][2];
 			const systemMessage = messages.find((m: { role: string }) => m.role === 'system') as {
 				content: string;
 			};
@@ -1652,7 +1609,7 @@ describe('sendToAI', () => {
 
 	describe('base64 PDF multimodal messages', () => {
 		it('sends multimodal user message to OpenAI when attachedFiles include base64 PDF', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'I read the PDF.',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -1673,7 +1630,7 @@ describe('sendToAI', () => {
 				],
 			});
 
-			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const messages = mockedStreamOpenAI.mock.calls[0][2];
 			const userMsg = messages[messages.length - 1];
 			expect(userMsg.role).toBe('user');
 			expect(Array.isArray(userMsg.content)).toBe(true);
@@ -1686,7 +1643,7 @@ describe('sendToAI', () => {
 		});
 
 		it('sends multimodal user message to Claude when attachedFiles include base64 PDF', async () => {
-			mockedSendClaude.mockResolvedValue({
+			mockedStreamClaude.mockResolvedValue({
 				textContent: 'I read the PDF.',
 				toolCalls: [],
 				finishReason: 'end_turn',
@@ -1696,7 +1653,7 @@ describe('sendToAI', () => {
 			await sendToAI(
 				'claude',
 				'sk-ant-test',
-				'claude-sonnet-4-20250514',
+				'claude-sonnet-4-6',
 				'summarize this',
 				'Title',
 				'Body',
@@ -1715,7 +1672,7 @@ describe('sendToAI', () => {
 				},
 			);
 
-			const messages = mockedSendClaude.mock.calls[0][3];
+			const messages = mockedStreamClaude.mock.calls[0][3];
 			const userMsg = messages[messages.length - 1];
 			expect(userMsg.role).toBe('user');
 			expect(Array.isArray(userMsg.content)).toBe(true);
@@ -1728,7 +1685,7 @@ describe('sendToAI', () => {
 		});
 
 		it('sends plain text user message when attachedFiles have no base64 PDFs', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -1748,7 +1705,7 @@ describe('sendToAI', () => {
 				],
 			});
 
-			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const messages = mockedStreamOpenAI.mock.calls[0][2];
 			const userMsg = messages[messages.length - 1];
 			expect(userMsg.role).toBe('user');
 			expect(typeof userMsg.content).toBe('string');
@@ -1763,7 +1720,7 @@ describe('sendToAI', () => {
 		];
 
 		it('prepends history messages before user prompt for OpenAI', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'I remember our conversation.',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -1781,7 +1738,7 @@ describe('sendToAI', () => {
 				mockHistory,
 			);
 
-			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const messages = mockedStreamOpenAI.mock.calls[0][2];
 			expect(messages[0].role).toBe('system');
 			expect(messages[1].role).toBe('system');
 			expect(messages[2].role).toBe('system');
@@ -1791,7 +1748,7 @@ describe('sendToAI', () => {
 		});
 
 		it('prepends history messages before user prompt for Claude', async () => {
-			mockedSendClaude.mockResolvedValue({
+			mockedStreamClaude.mockResolvedValue({
 				textContent: 'I recall you said hello.',
 				toolCalls: [],
 				finishReason: 'end_turn',
@@ -1801,7 +1758,7 @@ describe('sendToAI', () => {
 			await sendToAI(
 				'claude',
 				'sk-ant-test',
-				'claude-sonnet-4-20250514',
+				'claude-sonnet-4-6',
 				'What did I say?',
 				'Title',
 				'Body',
@@ -1809,14 +1766,14 @@ describe('sendToAI', () => {
 				mockHistory,
 			);
 
-			const messages = mockedSendClaude.mock.calls[0][3];
+			const messages = mockedStreamClaude.mock.calls[0][3];
 			expect(messages[0]).toEqual({ role: 'user', content: 'Hello' });
 			expect(messages[1]).toEqual({ role: 'assistant', content: 'Hi there!' });
 			expect(messages[2]).toEqual({ role: 'user', content: 'What did I say?' });
 		});
 
 		it('works without history (backward compatible)', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -1825,7 +1782,7 @@ describe('sendToAI', () => {
 
 			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'Title', 'Body');
 
-			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const messages = mockedStreamOpenAI.mock.calls[0][2];
 			expect(messages).toHaveLength(4);
 			expect(messages[0].role).toBe('system');
 			expect(messages[1].role).toBe('system');
@@ -1834,7 +1791,7 @@ describe('sendToAI', () => {
 		});
 
 		it('works with empty history array', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -1843,7 +1800,7 @@ describe('sendToAI', () => {
 
 			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'Title', 'Body', undefined, []);
 
-			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const messages = mockedStreamOpenAI.mock.calls[0][2];
 			expect(messages).toHaveLength(4);
 			expect(messages[0].role).toBe('system');
 			expect(messages[1].role).toBe('system');
@@ -1872,15 +1829,14 @@ describe('sendToAI', () => {
 
 			expect(mockedSendPerplexity).toHaveBeenCalledTimes(1);
 			expect(mockedSendSonarChat).not.toHaveBeenCalled();
-			expect(mockedSendOpenAI).not.toHaveBeenCalled();
-			expect(mockedSendClaude).not.toHaveBeenCalled();
+			expect(mockedStreamOpenAI).not.toHaveBeenCalled();
+			expect(mockedStreamClaude).not.toHaveBeenCalled();
 			expect(result.isEdit).toBe(false);
 			expect(result.content).toBe('Answer from Perplexity');
 			expect(result.actions).toEqual([]);
 		});
 
 		it('passes system prompt as instructions to Perplexity Agent API', async () => {
-			mockedPlan.mockResolvedValueOnce({ needsNoteBody: true, likelyTools: ['get_note'] });
 			mockedSendPerplexity.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
@@ -1888,7 +1844,11 @@ describe('sendToAI', () => {
 				rawAssistantMessage: [],
 			});
 
-			await sendToAI('perplexity', 'pplx-test-key', 'sonar', 'hello', 'My Title', 'My Body');
+			await sendToAI('perplexity', 'pplx-test-key', 'sonar', 'hello', 'My Title', 'My Body', {
+				currentNoteId: 'n1',
+				currentNoteTitle: 'My Title',
+				workMode: 'ask',
+			});
 
 			const instructions = mockedSendPerplexity.mock.calls[0][3] as string;
 			expect(instructions).toContain('Current note title: My Title');
@@ -2038,7 +1998,7 @@ describe('sendToAI', () => {
 		});
 
 		it('passes web_search bullet in system prompt for OpenAI (not native)', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'ok',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -2047,7 +2007,7 @@ describe('sendToAI', () => {
 
 			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'My Title', 'My Body');
 
-			const messages = mockedSendOpenAI.mock.calls[0][2];
+			const messages = mockedStreamOpenAI.mock.calls[0][2];
 			const systemMessage = messages.find((m: { role: string }) => m.role === 'system') as {
 				content: string;
 			};
@@ -2471,7 +2431,7 @@ describe('sendToAI', () => {
 
 		describe('onThinkingStep callback', () => {
 			it('calls onThinkingStep with tool name when OpenAI makes tool calls', async () => {
-				mockedSendOpenAI
+				mockedStreamOpenAI
 					.mockResolvedValueOnce({
 						textContent: null,
 						toolCalls: [{ id: 'call_1', name: 'search_notes', args: { query: 'test' } }],
@@ -2509,7 +2469,7 @@ describe('sendToAI', () => {
 			});
 
 			it('calls onThinkingStep with a human-readable label', async () => {
-				mockedSendOpenAI
+				mockedStreamOpenAI
 					.mockResolvedValueOnce({
 						textContent: null,
 						toolCalls: [{ id: 'call_1', name: 'search_notes', args: { query: 'test' } }],
@@ -2538,7 +2498,7 @@ describe('sendToAI', () => {
 			});
 
 			it('calls onThinkingStep for each tool call when multiple are made', async () => {
-				mockedSendOpenAI
+				mockedStreamOpenAI
 					.mockResolvedValueOnce({
 						textContent: null,
 						toolCalls: [
@@ -2576,7 +2536,7 @@ describe('sendToAI', () => {
 			});
 
 			it('calls onThinkingStep when Claude makes tool calls', async () => {
-				mockedSendClaude
+				mockedStreamClaude
 					.mockResolvedValueOnce({
 						textContent: null,
 						toolCalls: [{ id: 'tc_1', name: 'update_note', args: { body: 'new body' } }],
@@ -2601,7 +2561,7 @@ describe('sendToAI', () => {
 				await sendToAI(
 					'claude',
 					'sk-ant-test',
-					'claude-sonnet-4-20250514',
+					'claude-sonnet-4-6',
 					'update the note',
 					'Title',
 					'Body',
@@ -2614,7 +2574,7 @@ describe('sendToAI', () => {
 			});
 
 			it('does not throw when onThinkingStep is not provided', async () => {
-				mockedSendOpenAI
+				mockedStreamOpenAI
 					.mockResolvedValueOnce({
 						textContent: null,
 						toolCalls: [{ id: 'call_1', name: 'search_notes', args: { query: 'test' } }],
@@ -2808,7 +2768,6 @@ describe('sendToAI', () => {
 			});
 
 			expect(mockedStreamOpenAI).toHaveBeenCalledTimes(2);
-			expect(mockedSendOpenAI).not.toHaveBeenCalled();
 		});
 
 		it('uses streaming for follow-up rounds after tool calls with Claude', async () => {
@@ -2834,26 +2793,17 @@ describe('sendToAI', () => {
 			mockedExecuteAction.mockResolvedValue({ success: true, message: 'Note updated' });
 
 			const onChunk = jest.fn();
-			await sendToAI(
-				'claude',
-				'sk-ant-test',
-				'claude-sonnet-4-20250514',
-				'update note',
-				'Title',
-				'Body',
-				{
-					currentNoteId: 'n1',
-					currentNoteTitle: 'Title',
-					onStreamChunk: onChunk,
-				},
-			);
+			await sendToAI('claude', 'sk-ant-test', 'claude-sonnet-4-6', 'update note', 'Title', 'Body', {
+				currentNoteId: 'n1',
+				currentNoteTitle: 'Title',
+				onStreamChunk: onChunk,
+			});
 
 			expect(mockedStreamClaude).toHaveBeenCalledTimes(2);
-			expect(mockedSendClaude).not.toHaveBeenCalled();
 		});
 
-		it('falls back to non-streaming when onStreamChunk is not provided', async () => {
-			mockedSendOpenAI.mockResolvedValue({
+		it('uses streaming even when onStreamChunk is not provided', async () => {
+			mockedStreamOpenAI.mockResolvedValue({
 				textContent: 'Plain answer',
 				toolCalls: [],
 				finishReason: 'stop',
@@ -2862,8 +2812,7 @@ describe('sendToAI', () => {
 
 			await sendToAI('openai', 'sk-test', 'gpt-4o', 'hello', 'Title', 'Body');
 
-			expect(mockedSendOpenAI).toHaveBeenCalledTimes(1);
-			expect(mockedStreamOpenAI).not.toHaveBeenCalled();
+			expect(mockedStreamOpenAI).toHaveBeenCalledTimes(1);
 		});
 	});
 
@@ -2871,7 +2820,7 @@ describe('sendToAI', () => {
 		it('executes independent tool calls concurrently', async () => {
 			const executionOrder: string[] = [];
 
-			mockedSendOpenAI
+			mockedStreamOpenAI
 				.mockResolvedValueOnce({
 					textContent: null,
 					toolCalls: [

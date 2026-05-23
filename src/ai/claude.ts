@@ -152,7 +152,28 @@ const makeClaudeStreamRequest = (apiKey: string, body: string): Promise<NodeJS.R
 				},
 			},
 			(res) => {
-				resolve(res);
+				if (res.statusCode && res.statusCode >= 400) {
+					const decoder = new StringDecoder('utf8');
+					let errorData = '';
+					res.on('data', (chunk: Buffer) => {
+						errorData += decoder.write(chunk);
+					});
+					res.on('end', () => {
+						errorData += decoder.end();
+						try {
+							const parsed = JSON.parse(errorData);
+							const msg =
+								(parsed.error as { message?: string } | undefined)?.message ||
+								(parsed.message as string | undefined) ||
+								`Claude API error ${res.statusCode}`;
+							reject(new Error(msg));
+						} catch {
+							reject(new Error(`Claude API error ${res.statusCode}`));
+						}
+					});
+				} else {
+					resolve(res);
+				}
 			},
 		);
 		req.on('error', (e: Error) => reject(new Error(`Claude request failed: ${e.message}`)));

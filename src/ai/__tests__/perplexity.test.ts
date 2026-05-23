@@ -5,6 +5,7 @@ import {
 	callPerplexity,
 	sendSonarChatRequest,
 	isSonarApiModel,
+	getTimeoutMs,
 	parseSonarToolCalls,
 	buildSonarToolCallPrompt,
 } from '../perplexity';
@@ -553,20 +554,24 @@ describe('isSonarApiModel', () => {
 	});
 });
 
-/** Helper to build a Sonar chat completions response. */
-const sonarChatResponse = (text: string) =>
-	JSON.stringify({
+/** Build an SSE response body for a Sonar streaming response. */
+function sonarSseResponse(
+	text: string,
+	usage?: { prompt_tokens: number; completion_tokens: number },
+): string {
+	const lines: string[] = [
+		`data: ${JSON.stringify({ id: 'chat_1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }] })}`,
+	];
+	const finalChunk: Record<string, unknown> = {
 		id: 'chat_1',
-		model: 'sonar-pro',
-		created: 1234567890,
-		choices: [
-			{
-				index: 0,
-				message: { role: 'assistant', content: text },
-				finish_reason: 'stop',
-			},
-		],
-	});
+		object: 'chat.completion.chunk',
+		choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+	};
+	if (usage) finalChunk.usage = usage;
+	lines.push(`data: ${JSON.stringify(finalChunk)}`);
+	lines.push('data: [DONE]');
+	return lines.join('\n') + '\n';
+}
 
 describe('sendSonarChatRequest', () => {
 	const mockedRequest = https.request as jest.MockedFunction<typeof https.request>;
@@ -577,7 +582,7 @@ describe('sendSonarChatRequest', () => {
 
 	it('sends requests to /v1/sonar on api.perplexity.ai', async () => {
 		const mockReq = createMockRequest();
-		const mockRes = createMockResponse(200, sonarChatResponse('Hello'));
+		const mockRes = createMockResponse(200, sonarSseResponse('Hello'));
 
 		mockedRequest.mockImplementation((opts: any, callback: any) => {
 			callback(mockRes);
@@ -593,9 +598,9 @@ describe('sendSonarChatRequest', () => {
 		expect(opts.headers['Authorization']).toBe('Bearer pplx-key');
 	});
 
-	it('sends model and messages in chat completions format', async () => {
+	it('sends model, messages, and stream:true in request body', async () => {
 		const mockReq = createMockRequest();
-		const mockRes = createMockResponse(200, sonarChatResponse('ok'));
+		const mockRes = createMockResponse(200, sonarSseResponse('ok'));
 
 		mockedRequest.mockImplementation((_opts: any, callback: any) => {
 			callback(mockRes);
@@ -612,13 +617,14 @@ describe('sendSonarChatRequest', () => {
 		const writtenBody = JSON.parse((mockReq as any).write.mock.calls[0][0]);
 		expect(writtenBody.model).toBe('sonar-pro');
 		expect(writtenBody.messages).toEqual(messages);
+		expect(writtenBody.stream).toBe(true);
 		expect(writtenBody.input).toBeUndefined();
 		expect(writtenBody.instructions).toBeUndefined();
 	});
 
-	it('returns text content from a successful response', async () => {
+	it('returns text content accumulated from SSE chunks', async () => {
 		const mockReq = createMockRequest();
-		const mockRes = createMockResponse(200, sonarChatResponse('Sonar answer'));
+		const mockRes = createMockResponse(200, sonarSseResponse('Sonar answer'));
 
 		mockedRequest.mockImplementation((_opts: any, callback: any) => {
 			callback(mockRes);
@@ -634,22 +640,57 @@ describe('sendSonarChatRequest', () => {
 		expect(result.finishReason).toBe('stop');
 	});
 
-	it('returns token usage from API response', async () => {
+	it('accumulates text from multiple SSE chunks', async () => {
+		const mockReq = createMockRequest();
+		const multiChunkBody =
+			[
+				`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hello' } }] })}`,
+				`data: ${JSON.stringify({ choices: [{ delta: { content: ' world' } }] })}`,
+				`data: ${JSON.stringify({ choices: [{ delta: { content: '!' } }] })}`,
+				'data: [DONE]',
+			].join('\n') + '\n';
+		const mockRes = createMockResponse(200, multiChunkBody);
+
+		mockedRequest.mockImplementation((_opts: any, callback: any) => {
+			callback(mockRes);
+			return mockReq as any;
+		});
+
+		const result = await sendSonarChatRequest('pplx-key', 'sonar-pro', [
+			{ role: 'user', content: 'test' },
+		]);
+
+		expect(result.textContent).toBe('Hello world!');
+	});
+
+	it('calls onChunk for each text delta', async () => {
+		const mockReq = createMockRequest();
+		const multiChunkBody =
+			[
+				`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hello' } }] })}`,
+				`data: ${JSON.stringify({ choices: [{ delta: { content: ' world' } }] })}`,
+				'data: [DONE]',
+			].join('\n') + '\n';
+		const mockRes = createMockResponse(200, multiChunkBody);
+
+		mockedRequest.mockImplementation((_opts: any, callback: any) => {
+			callback(mockRes);
+			return mockReq as any;
+		});
+
+		const chunks: string[] = [];
+		await sendSonarChatRequest('pplx-key', 'sonar-pro', [{ role: 'user', content: 'test' }], (c) =>
+			chunks.push(c),
+		);
+
+		expect(chunks).toEqual(['Hello', ' world']);
+	});
+
+	it('returns token usage from SSE usage chunk', async () => {
 		const mockReq = createMockRequest();
 		const mockRes = createMockResponse(
 			200,
-			JSON.stringify({
-				id: 'chat_1',
-				model: 'sonar-pro',
-				choices: [
-					{
-						index: 0,
-						message: { role: 'assistant', content: 'Hello' },
-						finish_reason: 'stop',
-					},
-				],
-				usage: { prompt_tokens: 150, completion_tokens: 42 },
-			}),
+			sonarSseResponse('Hello', { prompt_tokens: 150, completion_tokens: 42 }),
 		);
 
 		mockedRequest.mockImplementation((_opts: any, callback: any) => {
@@ -664,9 +705,9 @@ describe('sendSonarChatRequest', () => {
 		expect(result.usage).toEqual({ inputTokens: 150, outputTokens: 42 });
 	});
 
-	it('returns zero usage when API response has no usage field', async () => {
+	it('returns zero usage when SSE response has no usage chunk', async () => {
 		const mockReq = createMockRequest();
-		const mockRes = createMockResponse(200, sonarChatResponse('Hello'));
+		const mockRes = createMockResponse(200, sonarSseResponse('Hello'));
 
 		mockedRequest.mockImplementation((_opts: any, callback: any) => {
 			callback(mockRes);
@@ -680,9 +721,9 @@ describe('sendSonarChatRequest', () => {
 		expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
 	});
 
-	it('rejects when response has empty choices', async () => {
+	it('rejects when SSE stream produces no text content', async () => {
 		const mockReq = createMockRequest();
-		const mockRes = createMockResponse(200, JSON.stringify({ choices: [] }));
+		const mockRes = createMockResponse(200, 'data: [DONE]\n');
 
 		mockedRequest.mockImplementation((_opts: any, callback: any) => {
 			callback(mockRes);
@@ -694,11 +735,11 @@ describe('sendSonarChatRequest', () => {
 		).rejects.toThrow('Empty response from Perplexity Sonar');
 	});
 
-	it('rejects when API returns error', async () => {
+	it('rejects when SSE stream contains an error payload', async () => {
 		const mockReq = createMockRequest();
 		const mockRes = createMockResponse(
 			401,
-			JSON.stringify({ error: { message: 'Invalid API key' } }),
+			`data: ${JSON.stringify({ error: { message: 'Invalid API key' } })}\n`,
 		);
 
 		mockedRequest.mockImplementation((_opts: any, callback: any) => {
@@ -713,7 +754,7 @@ describe('sendSonarChatRequest', () => {
 
 	it('passes conversation history in messages array', async () => {
 		const mockReq = createMockRequest();
-		const mockRes = createMockResponse(200, sonarChatResponse('I recall'));
+		const mockRes = createMockResponse(200, sonarSseResponse('I recall'));
 
 		mockedRequest.mockImplementation((_opts: any, callback: any) => {
 			callback(mockRes);
@@ -731,6 +772,28 @@ describe('sendSonarChatRequest', () => {
 
 		const writtenBody = JSON.parse((mockReq as any).write.mock.calls[0][0]);
 		expect(writtenBody.messages).toEqual(messages);
+	});
+});
+
+describe('getTimeoutMs', () => {
+	it('returns 120s for sonar-pro', () => {
+		expect(getTimeoutMs('sonar-pro')).toBe(120_000);
+	});
+
+	it('returns 120s for sonar-reasoning-pro', () => {
+		expect(getTimeoutMs('sonar-reasoning-pro')).toBe(120_000);
+	});
+
+	it('returns 300s for sonar-deep-research', () => {
+		expect(getTimeoutMs('sonar-deep-research')).toBe(300_000);
+	});
+
+	it('returns 60s for sonar (basic model)', () => {
+		expect(getTimeoutMs('sonar')).toBe(60_000);
+	});
+
+	it('returns 60s for unknown models', () => {
+		expect(getTimeoutMs('gpt-4o')).toBe(60_000);
 	});
 });
 

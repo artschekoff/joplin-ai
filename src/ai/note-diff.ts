@@ -1,3 +1,5 @@
+import { diff_match_patch } from 'diff-match-patch';
+
 export interface NoteDiff {
 	isIdentical: boolean;
 	/** 0.0 = identical, 1.0 = completely different. Based on line-level comparison. */
@@ -100,4 +102,31 @@ export const computeNoteDiff = (oldBody: string, newBody: string): NoteDiff => {
 		changeRatio: Math.min(1, changeRatio),
 		summary: parts.join(', '),
 	};
+};
+
+/**
+ * Generate a patch string from oldBody to newBody using diff-match-patch.
+ * Also counts the total characters added and removed.
+ */
+export const generateNotePatch = (
+	oldBody: string,
+	newBody: string,
+): { patchText: string; added: number; removed: number } => {
+	if (oldBody === newBody) {
+		return { patchText: '', added: 0, removed: 0 };
+	}
+
+	const dmp = new diff_match_patch();
+	const diffs = dmp.diff_main(oldBody, newBody);
+	dmp.diff_cleanupSemantic(diffs);
+
+	let added = 0;
+	let removed = 0;
+	for (const [op, text] of diffs) {
+		if (op === 1) added += text.length;
+		if (op === -1) removed += text.length;
+	}
+
+	const patches = dmp.patch_make(oldBody, diffs);
+	return { patchText: dmp.patch_toText(patches), added, removed };
 };

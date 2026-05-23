@@ -443,7 +443,7 @@ ${selectionRulesBlock}`;
 
 	const noteContextLine = bodyOmitted
 		? 'The current note title and ID are shown below. Call get_note with the note ID to read its content when needed.'
-		: 'The user\'s current note is provided below. The note is in Markdown format.';
+		: "The user's current note is provided below. The note is in Markdown format.";
 	const generateImageLine = kieApiKey?.trim()
 		? '- generate_image: Generate an image from a text description. Supports aspect ratio (1:1, 3:2, 2:3), quality (medium, high), and visual style. The image is downloaded at full quality and attached to the note as a resource.'
 		: '';
@@ -635,7 +635,14 @@ const runClaudeLoop = async (
 	const onChunk = context.onStreamChunk ?? (() => {});
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		const response = await streamClaudeMessages(apiKey, model, systemBlocks, messages, onChunk, tools);
+		const response = await streamClaudeMessages(
+			apiKey,
+			model,
+			systemBlocks,
+			messages,
+			onChunk,
+			tools,
+		);
 		totalUsage = accumulateUsage(totalUsage, response.usage);
 
 		if (response.toolCalls.length === 0) {
@@ -800,8 +807,7 @@ export const sendToAI = async (
 		currentNoteTitle: noteTitle,
 	};
 	// workMode gate: only include note body in edit/ask modes; agent mode uses get_note on demand.
-	const includeBody =
-		actionContext.workMode === 'edit' || actionContext.workMode === 'ask';
+	const includeBody = actionContext.workMode === 'edit' || actionContext.workMode === 'ask';
 	actionContext.onBodyDecision?.(includeBody);
 	const promptParts = buildSystemPromptParts({
 		noteTitle,

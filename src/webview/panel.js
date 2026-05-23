@@ -1491,8 +1491,6 @@ function initPanel() {
 		html += buildSelectHtml('settingsOpenaiModel', 'OpenAI Model', data.openaiModelOptions || {}, data.openaiModel);
 		html += buildKeyInputHtml('settingsClaudeKey', 'Claude API Key', data.claudeKeySet, 'sk-ant-...');
 		html += buildSelectHtml('settingsClaudeModel', 'Claude Model', data.claudeModelOptions || {}, data.claudeModel);
-		html += buildKeyInputHtml('settingsClaudeCodeKey', 'Claude Code API Key', data.claudeCodeKeySet, 'sk-ant-...');
-		html += buildSelectHtml('settingsClaudeCodeModel', 'Claude Code Model', data.claudeCodeModelOptions || {}, data.claudeCodeModel);
 		html += buildKeyInputHtml('settingsPerplexityKey', 'Perplexity API Key', data.perplexityKeySet, 'pplx-...');
 		html += buildSelectHtml('settingsPerplexityModel', 'Perplexity Model', data.perplexityModelOptions || {}, data.perplexityModel);
 		html += '</div>';
@@ -1533,9 +1531,6 @@ function initPanel() {
 			var claudeKey = document.getElementById('settingsClaudeKey').value.trim();
 			if (claudeKey) settings.claudeApiKey = claudeKey;
 			settings.claudeModel = document.getElementById('settingsClaudeModel').value;
-			var claudeCodeKey = document.getElementById('settingsClaudeCodeKey').value.trim();
-			if (claudeCodeKey) settings.claudeCodeApiKey = claudeCodeKey;
-			settings.claudeCodeModel = document.getElementById('settingsClaudeCodeModel').value;
 			var perplexityKey = document.getElementById('settingsPerplexityKey').value.trim();
 			if (perplexityKey) settings.perplexityApiKey = perplexityKey;
 			settings.perplexityModel = document.getElementById('settingsPerplexityModel').value;
@@ -1557,8 +1552,6 @@ function initPanel() {
 			{ prefix: 'OpenaiModel', providers: ['openai'] },
 			{ prefix: 'ClaudeKey', providers: ['claude'] },
 			{ prefix: 'ClaudeModel', providers: ['claude'] },
-			{ prefix: 'ClaudeCodeKey', providers: ['claudecode'] },
-			{ prefix: 'ClaudeCodeModel', providers: ['claudecode'] },
 			{ prefix: 'PerplexityKey', providers: ['perplexity'] },
 			{ prefix: 'PerplexityModel', providers: ['perplexity'] },
 		];
@@ -1661,6 +1654,10 @@ function initPanel() {
 	});
 
 	clearHistoryBtn.addEventListener('click', function () {
+		webviewApi.postMessage({ type: 'abortRequest' });
+		showLoading(false);
+		streamingMsgDiv = null;
+		streamingText = '';
 		messagesEl.innerHTML = '';
 		chatHistory = [];
 		savedMessages = [];

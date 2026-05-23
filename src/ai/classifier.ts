@@ -34,7 +34,7 @@ export const classifyNeedsNoteBody = async (
 			]);
 			return /^y/i.test((res.textContent ?? '').trim());
 		}
-		if (provider === 'claude' || provider === 'claudecode') {
+		if (provider === 'claude') {
 			const res = await sendClaudeMessages(apiKey, model, CLASSIFIER_SYSTEM, [
 				{ role: 'user', content: userMsg },
 			]);

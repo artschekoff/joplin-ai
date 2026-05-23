@@ -5,7 +5,16 @@ import { PerplexityTool } from './tools';
 
 export type PerplexityInputItem = Record<string, unknown>;
 
-const REQUEST_TIMEOUT_MS = 60_000;
+const TIMEOUT_DEFAULT_MS = 60_000;
+const TIMEOUT_SONAR_PRO_MS = 120_000;
+const TIMEOUT_DEEP_RESEARCH_MS = 300_000;
+
+export const getTimeoutMs = (model: string): number => {
+	const base = model.replace('perplexity/', '');
+	if (base === 'sonar-deep-research') return TIMEOUT_DEEP_RESEARCH_MS;
+	if (base === 'sonar-pro' || base === 'sonar-reasoning-pro') return TIMEOUT_SONAR_PRO_MS;
+	return TIMEOUT_DEFAULT_MS;
+};
 
 const makeRequest = (
 	apiKey: string,
@@ -44,7 +53,85 @@ const makeRequest = (
 				});
 			},
 		);
-		req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+		req.setTimeout(TIMEOUT_DEFAULT_MS, () => {
+			req.destroy();
+			reject(new Error('Perplexity request timed out'));
+		});
+		req.on('error', (e: Error) => reject(new Error(`Perplexity request failed: ${e.message}`)));
+		req.write(body);
+		req.end();
+	});
+
+/**
+ * Stream a Sonar API request using SSE. Keeps the socket active during long model responses
+ * (sonar-pro, sonar-reasoning-pro, sonar-deep-research) — prevents the inactivity timeout
+ * from firing before the server sends its first chunk.
+ */
+const makeStreamingRequest = (
+	apiKey: string,
+	path: string,
+	body: string,
+	timeoutMs: number,
+	onChunk?: (text: string) => void,
+): Promise<{ text: string; inputTokens: number; outputTokens: number }> =>
+	new Promise((resolve, reject) => {
+		const req = https.request(
+			{
+				hostname: 'api.perplexity.ai',
+				path,
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${apiKey}`,
+				},
+			},
+			(res) => {
+				const decoder = new StringDecoder('utf8');
+				let accumulated = '';
+				let inputTokens = 0;
+				let outputTokens = 0;
+				let buffer = '';
+
+				const processLine = (line: string) => {
+					const trimmed = line.trim();
+					if (!trimmed.startsWith('data: ')) return;
+					const payload = trimmed.slice(6);
+					if (payload === '[DONE]') return;
+					try {
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						const parsed = JSON.parse(payload) as Record<string, any>;
+						if (parsed.error) {
+							reject(new Error(parsed.error.message || 'Perplexity API error'));
+							return;
+						}
+						const delta: string = parsed.choices?.[0]?.delta?.content ?? '';
+						if (delta) {
+							accumulated += delta;
+							onChunk?.(delta);
+						}
+						if (parsed.usage) {
+							inputTokens = parsed.usage.prompt_tokens ?? 0;
+							outputTokens = parsed.usage.completion_tokens ?? 0;
+						}
+					} catch {
+						// malformed SSE line — skip
+					}
+				};
+
+				res.on('data', (chunk: Buffer) => {
+					buffer += decoder.write(chunk);
+					const lines = buffer.split('\n');
+					buffer = lines.pop() ?? '';
+					for (const line of lines) processLine(line);
+				});
+
+				res.on('end', () => {
+					if (buffer) processLine(buffer);
+					resolve({ text: accumulated, inputTokens, outputTokens });
+				});
+			},
+		);
+		req.setTimeout(timeoutMs, () => {
 			req.destroy();
 			reject(new Error('Perplexity request timed out'));
 		});
@@ -139,33 +226,36 @@ export interface SonarChatMessage {
 	content: string;
 }
 
-/** Send a request to Perplexity's Sonar chat completions API (no tool calling). */
+/**
+ * Send a request to Perplexity's Sonar chat completions API using SSE streaming.
+ * Streaming keeps the socket active and prevents timeout on slow models (sonar-pro,
+ * sonar-reasoning-pro, sonar-deep-research). When onChunk is provided, text deltas
+ * are forwarded in real time for streaming UX.
+ */
 export const sendSonarChatRequest = async (
 	apiKey: string,
 	model: string,
 	messages: SonarChatMessage[],
+	onChunk?: (text: string) => void,
 ): Promise<AIProviderResponse> => {
-	const requestBody: Record<string, unknown> = { model, messages };
-	const parsed = await makeRequest(apiKey, SONAR_API_PATH, JSON.stringify(requestBody));
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const choices = parsed.choices as any[];
-	if (!choices?.length) {
+	const timeoutMs = getTimeoutMs(model);
+	const requestBody: Record<string, unknown> = { model, messages, stream: true };
+	const { text, inputTokens, outputTokens } = await makeStreamingRequest(
+		apiKey,
+		SONAR_API_PATH,
+		JSON.stringify(requestBody),
+		timeoutMs,
+		onChunk,
+	);
+	if (!text) {
 		throw new Error('Empty response from Perplexity Sonar');
 	}
-	const content = choices[0].message?.content ?? null;
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const rawUsage = parsed.usage as
-		| { prompt_tokens?: number; completion_tokens?: number }
-		| undefined;
 	return {
-		textContent: content || null,
+		textContent: text,
 		toolCalls: [],
-		finishReason: choices[0].finish_reason ?? 'stop',
-		rawAssistantMessage: choices[0].message,
-		usage: {
-			inputTokens: rawUsage?.prompt_tokens ?? 0,
-			outputTokens: rawUsage?.completion_tokens ?? 0,
-		},
+		finishReason: 'stop',
+		rawAssistantMessage: undefined,
+		usage: { inputTokens, outputTokens },
 	};
 };
 

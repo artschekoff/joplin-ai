@@ -1,6 +1,6 @@
 import joplin from 'api';
 import { MenuItemLocation, ToolbarButtonLocation } from 'api/types';
-import { initSettings } from './settings';
+import { initSettings, SETTING_KEYS } from './settings';
 import { initPanel, togglePanel, executeWithSelection } from './panel';
 
 let lastProcessedAskAITs = 0;
@@ -16,6 +16,14 @@ joplin.plugins.register({
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			console.error('AI Assistant: settings registration failed:', msg);
+		}
+
+		try {
+			lastProcessedAskAITs = Number(
+				(await joplin.settings.value(SETTING_KEYS.lastNotionAskAITs)) ?? 0,
+			);
+		} catch {
+			// ignore — use default 0
 		}
 
 		try {
@@ -36,6 +44,7 @@ joplin.plugins.register({
 				if (!ts || ts <= lastProcessedAskAITs) return;
 				if (!text?.trim() || !prompt?.trim()) return;
 				lastProcessedAskAITs = ts;
+				joplin.settings.setValue(SETTING_KEYS.lastNotionAskAITs, ts).catch(() => {});
 				await executeWithSelection(text, prompt);
 			} catch {
 				// ignore parse/read errors

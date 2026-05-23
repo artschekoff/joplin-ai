@@ -5,7 +5,6 @@ import {
 	PROVIDER_OPTIONS,
 	OPENAI_MODEL_OPTIONS,
 	CLAUDE_MODEL_OPTIONS,
-	CLAUDECODE_MODEL_OPTIONS,
 	PERPLEXITY_MODEL_OPTIONS,
 	WEB_SEARCH_MODEL_OPTIONS,
 	IMAGE_GEN_MODEL_OPTIONS,
@@ -170,8 +169,8 @@ const MODEL_DISPLAY_NAMES: Record<string, string> = {
 	'gpt-4-turbo': 'GPT-4 Turbo',
 	'gpt-3.5-turbo': 'GPT-3.5 Turbo',
 	'codex-mini-latest': 'Codex Mini',
-	'claude-opus-4-20250514': 'Claude Opus 4',
-	'claude-sonnet-4-20250514': 'Claude Sonnet 4',
+	'claude-opus-4-7': 'Claude Opus 4.7',
+	'claude-sonnet-4-6': 'Claude Sonnet 4.6',
 	'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet',
 	'claude-3-haiku-20240307': 'Claude 3 Haiku',
 	sonar: 'Sonar',
@@ -187,12 +186,10 @@ const getModelFromSettings = async (): Promise<string> => {
 		SETTING_KEYS.provider,
 		SETTING_KEYS.openaiModel,
 		SETTING_KEYS.claudeModel,
-		SETTING_KEYS.claudeCodeModel,
 		SETTING_KEYS.perplexityModel,
 	]);
 	const provider = (settings[SETTING_KEYS.provider] as string) ?? 'openai';
 	if (provider === 'perplexity') return settings[SETTING_KEYS.perplexityModel] as string;
-	if (provider === 'claudecode') return settings[SETTING_KEYS.claudeCodeModel] as string;
 	return provider === 'openai'
 		? (settings[SETTING_KEYS.openaiModel] as string)
 		: (settings[SETTING_KEYS.claudeModel] as string);
@@ -347,8 +344,6 @@ const sendSettings = async (handle: ViewHandle) => {
 		SETTING_KEYS.openaiModel,
 		SETTING_KEYS.claudeKey,
 		SETTING_KEYS.claudeModel,
-		SETTING_KEYS.claudeCodeKey,
-		SETTING_KEYS.claudeCodeModel,
 		SETTING_KEYS.perplexityKey,
 		SETTING_KEYS.perplexityModel,
 		SETTING_KEYS.webSearchEnabled,
@@ -361,8 +356,7 @@ const sendSettings = async (handle: ViewHandle) => {
 		type: 'settingsData',
 		provider: vals[SETTING_KEYS.provider] ?? 'openai',
 		openaiModel: vals[SETTING_KEYS.openaiModel] ?? 'gpt-4o',
-		claudeModel: vals[SETTING_KEYS.claudeModel] ?? 'claude-sonnet-4-20250514',
-		claudeCodeModel: vals[SETTING_KEYS.claudeCodeModel] ?? 'claude-sonnet-4-20250514',
+		claudeModel: vals[SETTING_KEYS.claudeModel] ?? 'claude-sonnet-4-6',
 		perplexityModel: vals[SETTING_KEYS.perplexityModel] ?? 'sonar',
 		webSearchEnabled: !!vals[SETTING_KEYS.webSearchEnabled],
 		webSearchModel: vals[SETTING_KEYS.webSearchModel] ?? 'openai:gpt-4o-search-preview',
@@ -370,13 +364,11 @@ const sendSettings = async (handle: ViewHandle) => {
 		fileMaxSizeMb: vals[SETTING_KEYS.fileMaxSizeMb] ?? 10,
 		openaiKeySet: !!((vals[SETTING_KEYS.openaiKey] as string) ?? '').trim(),
 		claudeKeySet: !!((vals[SETTING_KEYS.claudeKey] as string) ?? '').trim(),
-		claudeCodeKeySet: !!((vals[SETTING_KEYS.claudeCodeKey] as string) ?? '').trim(),
 		perplexityKeySet: !!((vals[SETTING_KEYS.perplexityKey] as string) ?? '').trim(),
 		kieKeySet: !!((vals[SETTING_KEYS.kieApiKey] as string) ?? '').trim(),
 		providerOptions: PROVIDER_OPTIONS,
 		openaiModelOptions: OPENAI_MODEL_OPTIONS,
 		claudeModelOptions: CLAUDE_MODEL_OPTIONS,
-		claudeCodeModelOptions: CLAUDECODE_MODEL_OPTIONS,
 		perplexityModelOptions: PERPLEXITY_MODEL_OPTIONS,
 		webSearchModelOptions: WEB_SEARCH_MODEL_OPTIONS,
 		imageGenModelOptions: IMAGE_GEN_MODEL_OPTIONS,
@@ -413,7 +405,6 @@ interface ProviderConfig {
 	webSearchEnabled: boolean;
 	webSearchModel: string;
 	openaiApiKey: string;
-	claudeCodeApiKey: string;
 	perplexityApiKey: string;
 	kieApiKey?: string;
 	imageGenModel?: string;
@@ -426,8 +417,6 @@ const loadProviderConfig = async (): Promise<ProviderConfig> => {
 		SETTING_KEYS.openaiModel,
 		SETTING_KEYS.claudeKey,
 		SETTING_KEYS.claudeModel,
-		SETTING_KEYS.claudeCodeKey,
-		SETTING_KEYS.claudeCodeModel,
 		SETTING_KEYS.perplexityKey,
 		SETTING_KEYS.perplexityModel,
 		SETTING_KEYS.webSearchEnabled,
@@ -439,13 +428,11 @@ const loadProviderConfig = async (): Promise<ProviderConfig> => {
 	const apiKeyMap: Record<string, string> = {
 		openai: settings[SETTING_KEYS.openaiKey] as string,
 		claude: settings[SETTING_KEYS.claudeKey] as string,
-		claudecode: settings[SETTING_KEYS.claudeCodeKey] as string,
 		perplexity: settings[SETTING_KEYS.perplexityKey] as string,
 	};
 	const modelMap: Record<string, string> = {
 		openai: settings[SETTING_KEYS.openaiModel] as string,
 		claude: settings[SETTING_KEYS.claudeModel] as string,
-		claudecode: settings[SETTING_KEYS.claudeCodeModel] as string,
 		perplexity: settings[SETTING_KEYS.perplexityModel] as string,
 	};
 	return {
@@ -456,7 +443,6 @@ const loadProviderConfig = async (): Promise<ProviderConfig> => {
 		webSearchModel:
 			(settings[SETTING_KEYS.webSearchModel] as string) || 'openai:gpt-4o-search-preview',
 		openaiApiKey: settings[SETTING_KEYS.openaiKey] as string,
-		claudeCodeApiKey: settings[SETTING_KEYS.claudeCodeKey] as string,
 		perplexityApiKey: settings[SETTING_KEYS.perplexityKey] as string,
 		kieApiKey: (settings[SETTING_KEYS.kieApiKey] as string) || undefined,
 		imageGenModel: (settings[SETTING_KEYS.imageGenModel] as string) || undefined,
@@ -664,7 +650,6 @@ const handleExecute = async (
 			webSearchEnabled: config.webSearchEnabled && !isNativePerplexitySearch,
 			webSearchModel: config.webSearchModel,
 			openaiApiKey: config.openaiApiKey,
-			claudeCodeApiKey: config.claudeCodeApiKey,
 			perplexityApiKey: config.perplexityApiKey,
 			kieApiKey: config.kieApiKey,
 			imageGenModel: config.imageGenModel,

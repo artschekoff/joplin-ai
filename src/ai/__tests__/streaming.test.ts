@@ -203,7 +203,7 @@ describe('streamClaudeMessages', () => {
 		const chunks: string[] = [];
 		const result = await streamClaudeMessages(
 			'sk-ant-test',
-			'claude-sonnet-4-20250514',
+			'claude-sonnet-4-6',
 			'system prompt',
 			[{ role: 'user', content: 'hi' }],
 			(chunk) => chunks.push(chunk),
@@ -232,7 +232,7 @@ describe('streamClaudeMessages', () => {
 
 		await streamClaudeMessages(
 			'sk-ant-test',
-			'claude-sonnet-4-20250514',
+			'claude-sonnet-4-6',
 			'sys',
 			[{ role: 'user', content: 'hi' }],
 			() => {},
@@ -261,7 +261,7 @@ describe('streamClaudeMessages', () => {
 
 		const result = await streamClaudeMessages(
 			'sk-ant-test',
-			'claude-sonnet-4-20250514',
+			'claude-sonnet-4-6',
 			'sys',
 			[{ role: 'user', content: 'hi' }],
 			() => {},
@@ -290,7 +290,7 @@ describe('streamClaudeMessages', () => {
 
 		const result = await streamClaudeMessages(
 			'sk-ant-test',
-			'claude-sonnet-4-20250514',
+			'claude-sonnet-4-6',
 			'sys',
 			[{ role: 'user', content: 'search' }],
 			() => {},

@@ -96,13 +96,13 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
 		outputPer1M: 6.0,
 		pricingUrl: 'https://platform.openai.com/docs/pricing',
 	},
-	'claude-opus-4-20250514': {
+	'claude-opus-4-7': {
 		provider: 'claude',
 		inputPer1M: 15.0,
 		outputPer1M: 75.0,
 		pricingUrl: 'https://docs.anthropic.com/en/about-claude/pricing',
 	},
-	'claude-sonnet-4-20250514': {
+	'claude-sonnet-4-6': {
 		provider: 'claude',
 		inputPer1M: 3.0,
 		outputPer1M: 15.0,

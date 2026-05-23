@@ -42,12 +42,7 @@ describe('callClaude', () => {
 			return mockReq as any;
 		});
 
-		const result = await callClaude(
-			'sk-ant-test',
-			'claude-sonnet-4-20250514',
-			'system',
-			'user prompt',
-		);
+		const result = await callClaude('sk-ant-test', 'claude-sonnet-4-6', 'system', 'user prompt');
 		expect(result).toBe('Hello from Claude');
 	});
 
@@ -95,7 +90,7 @@ describe('callClaude', () => {
 			return mockReq as any;
 		});
 
-		await expect(callClaude('bad-key', 'claude-sonnet-4-20250514', 'sys', 'usr')).rejects.toThrow(
+		await expect(callClaude('bad-key', 'claude-sonnet-4-6', 'sys', 'usr')).rejects.toThrow(
 			'Invalid x-api-key',
 		);
 	});
@@ -109,7 +104,7 @@ describe('callClaude', () => {
 			return mockReq as any;
 		});
 
-		await expect(callClaude('sk-test', 'claude-sonnet-4-20250514', 'sys', 'usr')).rejects.toThrow(
+		await expect(callClaude('sk-test', 'claude-sonnet-4-6', 'sys', 'usr')).rejects.toThrow(
 			'Empty response from Claude',
 		);
 	});
@@ -123,7 +118,7 @@ describe('callClaude', () => {
 			return mockReq as any;
 		});
 
-		await expect(callClaude('sk-test', 'claude-sonnet-4-20250514', 'sys', 'usr')).rejects.toThrow(
+		await expect(callClaude('sk-test', 'claude-sonnet-4-6', 'sys', 'usr')).rejects.toThrow(
 			'Failed to parse Claude response',
 		);
 	});
@@ -136,7 +131,7 @@ describe('callClaude', () => {
 			return mockReq as any;
 		});
 
-		await expect(callClaude('sk-test', 'claude-sonnet-4-20250514', 'sys', 'usr')).rejects.toThrow(
+		await expect(callClaude('sk-test', 'claude-sonnet-4-6', 'sys', 'usr')).rejects.toThrow(
 			'Claude request failed: ETIMEDOUT',
 		);
 	});

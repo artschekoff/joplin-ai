@@ -32,8 +32,8 @@ describe('MODEL_PRICING', () => {
 
 	it('contains pricing for all Claude models', () => {
 		const expectedModels = [
-			'claude-opus-4-20250514',
-			'claude-sonnet-4-20250514',
+			'claude-opus-4-7',
+			'claude-sonnet-4-6',
 			'claude-3-5-sonnet-20241022',
 			'claude-3-haiku-20240307',
 		];
@@ -90,7 +90,7 @@ describe('calculateRequestCost', () => {
 	});
 
 	it('calculates cost correctly for Claude Sonnet 4', () => {
-		const result = calculateRequestCost('claude-sonnet-4-20250514', 2000, 1000);
+		const result = calculateRequestCost('claude-sonnet-4-6', 2000, 1000);
 		expect(result).not.toBeNull();
 		expect(result!.inputCost).toBeCloseTo(0.006, 4);
 		expect(result!.outputCost).toBeCloseTo(0.015, 4);
