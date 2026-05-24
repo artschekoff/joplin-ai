@@ -1785,6 +1785,7 @@ function initPanel() {
 		}
 
 		if (message.type === 'noteContextUpdate') {
+			if (!message.noteId) return;
 			currentNoteContext = {
 				noteId: message.noteId,
 				noteTitle: message.noteTitle,
@@ -1794,6 +1795,7 @@ function initPanel() {
 			return;
 		}
 
+		// Diff indicator cards are ephemeral — not saved to history
 		if (message.type === 'noteDiffSent') {
 			var diffLabel = '+' + (message.added || 0) + '/-' + (message.removed || 0) + ' chars';
 			addMessage(
