@@ -418,7 +418,7 @@ The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELE
 The user's current note is provided below. The note is in Markdown format.
 
 You have tools to interact with Joplin:
-- patch_note: Surgically edit specific sections of the current note. Pass patches: [{search, replace}]. Include surrounding lines in search. Do not pass a noteId — defaults to the current note. Prefer this for all targeted edits.
+- patch_note: Surgically edit specific sections of the current note. Pass patches: [{search, replace}]. Use the shortest unique fragment (1-2 lines) for search. Pass ALL patches for this note in ONE call — do not make multiple patch_note calls. Do not pass a noteId — defaults to the current note. Prefer this for all targeted edits.
 - update_note: Replace the entire note body. Use ONLY for complete rewrites. Do not pass a noteId.
 - copy_note: Duplicate a note by ID (or the current note if no ID given). Fetches content internally — do NOT call get_note first.
 - delete_note: Delete a note by ID.
@@ -439,6 +439,7 @@ EDIT MODE RULES:
 - Never pass a noteId to update_note — it must always target the current note.
 - Apply the exact change the user requests — nothing else. Do not make additional edits beyond what was asked.
 - For targeted edits (add, remove, or change a specific section), always use patch_note — it is faster and safer than rewriting the full body.
+- When making multiple edits to the same note, pass ALL patches in a SINGLE patch_note call. Never make multiple separate patch_note calls for the same note.
 - Use update_note only for complete note rewrites.
 - Apply changes immediately without asking for confirmation or clarifying questions. Make your best judgment and act.
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
@@ -465,7 +466,7 @@ You have tools to interact with Joplin:
 - copy_note: Duplicate a note by ID (or the current note if no ID given). Fetches note content internally — do NOT call get_note first. Accepts an optional custom title for the copy.
 - get_note: Read a note's full content by ID. Only call this when you actually need to read or analyze the note's text. Do NOT call it before copy_note, delete_note, move_note, or other structural operations.
 - open_note: Open a note in Joplin's editor by ID. Use this when the user wants to navigate to or view a note. Prefer this over get_note when the user says "open", "go to", or "show" a note.
-- patch_note: Surgically edit specific sections of a note without rewriting the full body. Use for targeted changes: adding lines, modifying a paragraph, inserting content. Pass an array of {search, replace} pairs — search must uniquely identify the location (include surrounding lines for context). Prefer this over update_note for all partial edits.
+- patch_note: Surgically edit specific sections of a note without rewriting the full body. Use for targeted changes: adding lines, modifying a paragraph, inserting content. Pass an array of {search, replace} pairs — use the shortest unique fragment (1-2 lines) for each search. Pass ALL patches for the same note in ONE call. Prefer this over update_note for all partial edits.
 - update_note: Replace the entire note body. Use ONLY for complete rewrites. For targeted edits, use patch_note.
 - delete_note: Delete a note by ID.
 - move_note: Move a note to a different notebook.
@@ -487,6 +488,7 @@ TOOL USAGE RULES:
 - If the user asks a question that does not require any action, answer normally in Markdown without using tools.
 - Before calling patch_note, update_note, or create_note, write one short sentence describing what you are about to do. Then immediately call the tool.
 - For targeted edits (add, remove, or change a specific section), always use patch_note — it is faster and safer than rewriting the full body.
+- When making multiple edits to the same note, pass ALL patches in a SINGLE patch_note call. Never make multiple separate patch_note calls for the same note.
 - Use update_note only for complete note rewrites.
 - STRUCTURAL OPERATIONS: When the user asks to copy, duplicate, delete, or move a note, call copy_note / delete_note / move_note DIRECTLY — do NOT call get_note, search_notes, or list_notebooks first. These tools work by note ID and fetch content internally. Never attempt to manually replicate a note by reading it and calling update_note.
 - STOP AFTER STRUCTURAL OPS: After copy_note, delete_note, move_note, or create_note succeeds, your task is complete. Return your response immediately — do NOT make any additional tool calls.
@@ -586,38 +588,54 @@ const runOpenAILoop = async (
 					{ role: 'assistant', content: 'Note context received.' },
 				]
 			: [];
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const messages: any[] = [
-		{ role: 'system', content: promptParts.staticInstructions },
-		{ role: 'system', content: promptParts.noteBodyContext },
-		{ role: 'system', content: promptParts.dynamicContext },
-		...noteContextPair,
-		...historyMessages,
-		userMessage,
+	const userMessageTextOnly = { role: 'user' as const, content: userPrompt };
+	const systemMsgs = [
+		{ role: 'system' as const, content: promptParts.staticInstructions },
+		{ role: 'system' as const, content: promptParts.noteBodyContext },
+		{ role: 'system' as const, content: promptParts.dynamicContext },
 	];
 	const allOutcomes: AIActionOutcome[] = [];
 	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 	const onChunk = context.onStreamChunk ?? (() => {});
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const toolRoundMsgs: any[] = [];
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		const response = await streamOpenAIMessages(apiKey, model, messages, onChunk, tools);
+		const effectiveUserMsg = round > 0 && mediaParts.length > 0 ? userMessageTextOnly : userMessage;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const sendMessages: any[] = [
+			...systemMsgs,
+			...noteContextPair,
+			...historyMessages,
+			effectiveUserMsg,
+			...toolRoundMsgs,
+		];
+		const response = await streamOpenAIMessages(apiKey, model, sendMessages, onChunk, tools);
 		totalUsage = accumulateUsage(totalUsage, response.usage);
 
 		if (response.toolCalls.length === 0) {
 			return { text: response.textContent || '', outcomes: allOutcomes, usage: totalUsage };
 		}
 
-		messages.push(response.rawAssistantMessage);
+		toolRoundMsgs.push(response.rawAssistantMessage);
 
 		const { outcomes, results } = await runToolCalls(response.toolCalls, context);
 		allOutcomes.push(...outcomes);
 
 		for (const r of results) {
-			messages.push({ role: 'tool', tool_call_id: r.toolCallId, content: r.content });
+			toolRoundMsgs.push({ role: 'tool', tool_call_id: r.toolCallId, content: r.content });
 		}
 	}
 
-	const finalResponse = await streamOpenAIMessages(apiKey, model, messages, onChunk);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const finalSendMessages: any[] = [
+		...systemMsgs,
+		...noteContextPair,
+		...historyMessages,
+		userMessageTextOnly,
+		...toolRoundMsgs,
+	];
+	const finalResponse = await streamOpenAIMessages(apiKey, model, finalSendMessages, onChunk);
 	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
 	return {
 		text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE,
@@ -655,8 +673,8 @@ const runClaudeLoop = async (
 					{ role: 'assistant' as const, content: 'Note context received.' },
 				]
 			: [];
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const messages: any[] = [...noteContextPair, ...historyMessages, userMessage];
+	// Text-only fallback for user message used in follow-up rounds (images already seen in round 0)
+	const userMessageTextOnly = { role: 'user' as const, content: userPrompt };
 	const systemBlocks: import('./claude').ClaudeSystemBlock[] = [
 		{ type: 'text', text: promptParts.staticInstructions, cache_control: { type: 'ephemeral' } },
 		{ type: 'text', text: promptParts.noteBodyContext, cache_control: { type: 'ephemeral' } },
@@ -667,13 +685,25 @@ const runClaudeLoop = async (
 	const allOutcomes: AIActionOutcome[] = [];
 	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 	const onChunk = context.onStreamChunk ?? (() => {});
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const toolRoundMsgs: any[] = [];
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+		// Drop base64 media from the user message on follow-up rounds — Claude already saw the
+		// images in round 0; re-sending them wastes tokens and shrinks the output budget.
+		const effectiveUserMsg = round > 0 && mediaParts.length > 0 ? userMessageTextOnly : userMessage;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const sendMessages: any[] = [
+			...noteContextPair,
+			...historyMessages,
+			effectiveUserMsg,
+			...toolRoundMsgs,
+		];
 		const response = await streamClaudeMessages(
 			apiKey,
 			model,
 			systemBlocks,
-			messages,
+			sendMessages,
 			onChunk,
 			tools,
 		);
@@ -694,7 +724,7 @@ const runClaudeLoop = async (
 			};
 		}
 
-		messages.push(response.rawAssistantMessage);
+		toolRoundMsgs.push(response.rawAssistantMessage);
 
 		const { outcomes, results } = await runToolCalls(response.toolCalls, context);
 		allOutcomes.push(...outcomes);
@@ -704,10 +734,17 @@ const runClaudeLoop = async (
 			tool_use_id: r.toolCallId,
 			content: r.content,
 		}));
-		messages.push({ role: 'user', content: toolResultBlocks });
+		toolRoundMsgs.push({ role: 'user', content: toolResultBlocks });
 	}
 
-	const finalResponse = await streamClaudeMessages(apiKey, model, systemBlocks, messages, onChunk);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const finalSendMessages: any[] = [
+		...noteContextPair,
+		...historyMessages,
+		userMessageTextOnly,
+		...toolRoundMsgs,
+	];
+	const finalResponse = await streamClaudeMessages(apiKey, model, systemBlocks, finalSendMessages, onChunk);
 	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
 	return {
 		text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE,

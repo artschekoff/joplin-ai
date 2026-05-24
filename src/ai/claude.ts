@@ -54,6 +54,14 @@ const makeRequest = (apiKey: string, body: string): Promise<Record<string, unkno
 		req.end();
 	});
 
+// claude-3-7 supports up to 64k output; claude-3-5-* supports 8192; others 4096
+const claudeMaxOutputTokens = (model: string, hasTools: boolean): number => {
+	if (!hasTools) return 4096;
+	if (model.includes('claude-3-7')) return 16384;
+	if (model.includes('claude-3-5')) return 8192;
+	return 4096;
+};
+
 export const sendClaudeMessages = async (
 	apiKey: string,
 	model: string,
@@ -63,7 +71,7 @@ export const sendClaudeMessages = async (
 ): Promise<AIProviderResponse> => {
 	const requestBody: Record<string, unknown> = {
 		model,
-		max_tokens: tools?.length ? 8192 : 4096,
+		max_tokens: claudeMaxOutputTokens(model, !!tools?.length),
 		system,
 		messages,
 	};
@@ -191,7 +199,7 @@ export const streamClaudeMessages = async (
 ): Promise<AIProviderResponse> => {
 	const requestBody: Record<string, unknown> = {
 		model,
-		max_tokens: tools?.length ? 8192 : 4096,
+		max_tokens: claudeMaxOutputTokens(model, !!tools?.length),
 		system,
 		messages,
 		stream: true,

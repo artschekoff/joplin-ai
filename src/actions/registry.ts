@@ -806,8 +806,8 @@ const patchNoteHandler: ActionHandler = {
 		'Surgically edit specific sections of a note using search-replace patches. ' +
 		'Use this instead of update_note for targeted changes (adding lines, modifying a paragraph, inserting content). ' +
 		'Each patch finds a unique text fragment and replaces it. ' +
-		'Include 2-3 surrounding lines in "search" to uniquely identify the location. ' +
-		'Multiple patches are applied in order.',
+		'Use the shortest unique fragment (1-2 lines) in "search" to identify the location. ' +
+		'Pass ALL patches for the note in ONE call. Multiple patches are applied in order.',
 	parameters: {
 		type: 'object',
 		properties: {
@@ -823,7 +823,7 @@ const patchNoteHandler: ActionHandler = {
 						search: {
 							type: 'string',
 							description:
-								'Exact text to find in the note. Must be unique in the document. Include surrounding lines for context.',
+								'Exact text to find in the note. Must be unique in the document. Use the shortest unique fragment (1-2 lines); avoid copying large blocks.',
 						},
 						replace: {
 							type: 'string',
