@@ -2989,3 +2989,73 @@ describe('buildSystemPrompt with noteBodyOmitted', () => {
 		expect(prompt).not.toContain('Current note body:');
 	});
 });
+
+describe('sendToAI note-context message injection', () => {
+	const noteCtx: NoteContextSnapshot = {
+		noteId: 'n1',
+		noteTitle: 'Test Note',
+		noteBody: 'Body content\n',
+	};
+	const history: ChatMessage[] = [
+		{ role: 'user', content: 'hello' },
+		{ role: 'assistant', content: 'hi' },
+	];
+
+	beforeEach(() => {
+		jest.clearAllMocks();
+		mockedStreamClaude.mockResolvedValue({
+			textContent: 'response',
+			toolCalls: [],
+			finishReason: 'end_turn',
+			rawAssistantMessage: { role: 'assistant', content: [{ type: 'text', text: 'response' }] },
+			usage: { inputTokens: 10, outputTokens: 5 },
+		});
+	});
+
+	it('prepends synthetic note-context pair when noteContext matches current note (claude)', async () => {
+		await sendToAI(
+			'claude',
+			'test-key',
+			'claude-sonnet-4-6',
+			'user question',
+			'Test Note',
+			'Body content\n',
+			{ currentNoteId: 'n1', currentNoteTitle: 'Test Note', workMode: 'ask' },
+			history,
+			undefined,
+			noteCtx,
+		);
+		const calls = mockedStreamClaude.mock.calls;
+		expect(calls.length).toBeGreaterThan(0);
+		// 4th arg to streamClaudeMessages is messages array
+		const messages = calls[0][3] as any[];
+		expect(messages[0]).toMatchObject({
+			role: 'user',
+			content: expect.stringContaining('[NOTE_CONTEXT]'),
+		});
+		expect(messages[1]).toMatchObject({
+			role: 'assistant',
+			content: 'Note context received.',
+		});
+		// real history follows
+		expect(messages[2]).toMatchObject({ role: 'user', content: 'hello' });
+	});
+
+	it('does NOT inject when noteId differs', async () => {
+		await sendToAI(
+			'claude',
+			'test-key',
+			'claude-sonnet-4-6',
+			'user question',
+			'Other Note',
+			'Different body\n',
+			{ currentNoteId: 'n2', currentNoteTitle: 'Other Note', workMode: 'ask' },
+			history,
+			undefined,
+			{ noteId: 'n1', noteTitle: 'Test Note', noteBody: 'Body content\n' },
+		);
+		const messages = mockedStreamClaude.mock.calls[0][3] as any[];
+		// first message should be real history, not the context pair
+		expect(messages[0]).toMatchObject({ role: 'user', content: 'hello' });
+	});
+});

@@ -357,7 +357,10 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 			};
 		} else {
 			const patch = generateNotePatch(noteContextInHistory.noteBody, noteBody);
-			if (patch.patchText.length > 0 && patch.patchText.length <= Math.max(noteBody.length * 0.5, 200)) {
+			if (
+				patch.patchText.length > 0 &&
+				patch.patchText.length <= Math.max(noteBody.length * 0.5, 200)
+			) {
 				noteContextOverride = {
 					noteBodyContext: `\nCurrent note title: ${noteTitle}\n${noteIdLine}[NOTE CHANGED]\nThe note has changed since the start of this conversation. Apply this patch to your memory of the original note:\n\n${patch.patchText}\n`,
 					bodyIncluded: false,
@@ -405,8 +408,8 @@ The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELE
 	const noteBodyContext = noteContextOverride
 		? noteContextOverride.noteBodyContext
 		: bodyOmitted
-		? `\nCurrent note title: ${noteTitle}\n${noteIdLine}`
-		: `\nCurrent note title: ${noteTitle}\n${noteIdLine}${contentLabel}\n${bodyText}`;
+			? `\nCurrent note title: ${noteTitle}\n${noteIdLine}`
+			: `\nCurrent note title: ${noteTitle}\n${noteIdLine}${contentLabel}\n${bodyText}`;
 	const bodyIncluded = noteContextOverride ? noteContextOverride.bodyIncluded : !bodyOmitted;
 	const diffStats = noteContextOverride?.diffStats;
 
@@ -449,8 +452,8 @@ ${selectionRulesBlock}`;
 			? 'The note has been modified. A patch is provided below — apply it to your memory of the note.'
 			: 'The note content was provided at the start of this conversation.'
 		: bodyOmitted
-		? 'The current note title and ID are shown below.'
-		: "The user's current note is provided below. The note is in Markdown format.";
+			? 'The current note title and ID are shown below.'
+			: "The user's current note is provided below. The note is in Markdown format.";
 	const generateImageLine = kieApiKey?.trim()
 		? '- generate_image: Generate an image from a text description. Supports aspect ratio (1:1, 3:2, 2:3), quality (medium, high), and visual style. The image is downloaded at full quality and attached to the note as a resource.'
 		: '';
@@ -560,6 +563,7 @@ const runOpenAILoop = async (
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
+	noteContext?: NoteContextSnapshot,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const tools = getOpenAITools(context.workMode, context.kieApiKey);
 	const historyMessages = (history ?? []).map((m) => ({ role: m.role, content: m.content }));
@@ -572,10 +576,22 @@ const runOpenAILoop = async (
 			? { role: 'user', content: [...mediaParts, { type: 'text', text: userPrompt }] }
 			: { role: 'user', content: userPrompt };
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const noteContextPair: any[] =
+		noteContext && noteContext.noteId === context.currentNoteId
+			? [
+					{
+						role: 'user',
+						content: `[NOTE_CONTEXT]\nTitle: ${noteContext.noteTitle}\n\n${noteContext.noteBody}`,
+					},
+					{ role: 'assistant', content: 'Note context received.' },
+				]
+			: [];
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const messages: any[] = [
 		{ role: 'system', content: promptParts.staticInstructions },
 		{ role: 'system', content: promptParts.noteBodyContext },
 		{ role: 'system', content: promptParts.dynamicContext },
+		...noteContextPair,
 		...historyMessages,
 		userMessage,
 	];
@@ -617,6 +633,7 @@ const runClaudeLoop = async (
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
+	noteContext?: NoteContextSnapshot,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const tools = getClaudeTools(context.workMode, context.kieApiKey);
 	const historyMessages = (history ?? []).map((m) => ({ role: m.role, content: m.content }));
@@ -628,8 +645,18 @@ const runClaudeLoop = async (
 		mediaParts.length > 0
 			? { role: 'user', content: [...mediaParts, { type: 'text', text: userPrompt }] }
 			: { role: 'user', content: userPrompt };
+	const noteContextPair =
+		noteContext && noteContext.noteId === context.currentNoteId
+			? [
+					{
+						role: 'user' as const,
+						content: `[NOTE_CONTEXT]\nTitle: ${noteContext.noteTitle}\n\n${noteContext.noteBody}`,
+					},
+					{ role: 'assistant' as const, content: 'Note context received.' },
+				]
+			: [];
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const messages: any[] = [...historyMessages, userMessage];
+	const messages: any[] = [...noteContextPair, ...historyMessages, userMessage];
 	const systemBlocks: import('./claude').ClaudeSystemBlock[] = [
 		{ type: 'text', text: promptParts.staticInstructions, cache_control: { type: 'ephemeral' } },
 		{ type: 'text', text: promptParts.noteBodyContext, cache_control: { type: 'ephemeral' } },
@@ -686,16 +713,29 @@ const runPerplexityLoop = async (
 	context: ActionContext,
 	history?: ChatMessage[],
 	nativeWebSearch = true,
+	noteContext?: NoteContextSnapshot,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const systemPrompt =
 		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch, context.kieApiKey);
+	const noteContextItems: PerplexityInputItem[] =
+		noteContext && noteContext.noteId === context.currentNoteId
+			? [
+					{
+						role: 'user',
+						content: `[NOTE_CONTEXT]\nTitle: ${noteContext.noteTitle}\n\n${noteContext.noteBody}`,
+					},
+					{ role: 'assistant', content: 'Note context received.' },
+				]
+			: [];
 	const historyItems: PerplexityInputItem[] = (history ?? []).map((m) => ({
 		role: m.role,
 		content: m.content,
 	}));
 	let input: string | PerplexityInputItem[] =
-		historyItems.length > 0 ? [...historyItems, { role: 'user', content: userPrompt }] : userPrompt;
+		noteContextItems.length > 0 || historyItems.length > 0
+			? [...noteContextItems, ...historyItems, { role: 'user', content: userPrompt }]
+			: userPrompt;
 	const allOutcomes: AIActionOutcome[] = [];
 	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
@@ -741,14 +781,26 @@ const runSonarLoop = async (
 	context: ActionContext,
 	history?: ChatMessage[],
 	nativeWebSearch = true,
+	noteContext?: NoteContextSnapshot,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const systemPrompt =
 		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch, context.kieApiKey);
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
+	const noteContextPair: SonarChatMessage[] =
+		noteContext && noteContext.noteId === context.currentNoteId
+			? [
+					{
+						role: 'user',
+						content: `[NOTE_CONTEXT]\nTitle: ${noteContext.noteTitle}\n\n${noteContext.noteBody}`,
+					},
+					{ role: 'assistant', content: 'Note context received.' },
+				]
+			: [];
 	const messages: SonarChatMessage[] = [
 		{ role: 'system', content: enhancedSystemPrompt },
+		...noteContextPair,
 		...(history ?? []).map((m) => ({ role: m.role, content: m.content })),
 		{ role: 'user', content: userPrompt },
 	];
@@ -806,6 +858,7 @@ export const sendToAI = async (
 	context?: ActionContext,
 	history?: ChatMessage[],
 	tracker?: CostTracker,
+	noteContext?: NoteContextSnapshot,
 ): Promise<AIResponse> => {
 	validateApiKey(provider, apiKey);
 	const actionContext: ActionContext = context ?? {
@@ -827,7 +880,7 @@ export const sendToAI = async (
 		isSelection: actionContext.isSelection,
 		selectionText: actionContext.selectionText,
 		noteBodyOmitted: !includeBody,
-		noteContextInHistory: undefined,
+		noteContextInHistory: includeBody ? noteContext : undefined,
 		kieApiKey: actionContext.kieApiKey,
 	});
 	if (promptParts.diffStats) {
@@ -843,7 +896,7 @@ export const sendToAI = async (
 
 	const runLoop = () => {
 		if (provider === 'openai')
-			return runOpenAILoop(apiKey, model, promptParts, userPrompt, actionContext, history);
+			return runOpenAILoop(apiKey, model, promptParts, userPrompt, actionContext, history, noteContext);
 		if (provider === 'perplexity') {
 			if (isSonarApiModel(model))
 				return runSonarLoop(
@@ -854,6 +907,7 @@ export const sendToAI = async (
 					actionContext,
 					history,
 					isNativeSearch,
+					noteContext,
 				);
 			return runPerplexityLoop(
 				apiKey,
@@ -863,12 +917,13 @@ export const sendToAI = async (
 				actionContext,
 				history,
 				isNativeSearch,
+				noteContext,
 			);
 		}
 		if (provider === 'claude') {
-			return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history);
+			return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history, noteContext);
 		}
-		return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history);
+		return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history, noteContext);
 	};
 	const { text, outcomes, usage } = await runLoop();
 
