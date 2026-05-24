@@ -6,8 +6,9 @@ import {
 	ChatMessage,
 	WorkMode,
 	TokenUsage,
+	NoteContextSnapshot,
 } from './types';
-import { computeNoteDiff } from './note-diff';
+import { generateNotePatch } from './note-diff';
 import { streamOpenAIMessages } from './openai';
 import { streamClaudeMessages } from './claude';
 import {
@@ -231,12 +232,8 @@ export interface BuildSystemPromptOptions {
 	selectionText?: string;
 	/** When true, the note body is intentionally excluded from the prompt to save tokens. A placeholder is shown instead. */
 	noteBodyOmitted?: boolean;
-	/**
-	 * The note body that was sent in the previous request for this note.
-	 * When provided, enables diff-based optimization: unchanged bodies are omitted (Ask/Agent)
-	 * or cached (Edit), small diffs are annotated, large diffs fall back to full body.
-	 */
-	previousNoteBody?: string;
+	/** When set, the AI already has this note body in its message history (injected as synthetic pair). */
+	noteContextInHistory?: NoteContextSnapshot;
 	/** Kie.ai API key — when absent, generate_image is excluded from the tool list. */
 	kieApiKey?: string;
 }
@@ -283,25 +280,19 @@ const embedSelectionMarkers = (fullBody: string, selectionText: string): string 
 	);
 };
 
-/** Threshold below which a partial diff annotation is used instead of a full body re-send. */
-const DIFF_SMALL_CHANGE_THRESHOLD = 0.15;
-
 /**
  * Resolve the note body content for the prompt given diff state.
- * Returns `{ bodyContent, contentLabel, noteBodyOmittedEffective }` so callers can build
+ * Returns `{ bodyText, contentLabel, omitted }` so callers can build
  * `noteBodyContext` without repeating this logic.
  */
 const resolveNoteBodyContent = ({
 	noteBody,
 	noteBodyOmitted,
-	previousNoteBody,
-	workMode,
 	isSelection,
 	selectionText,
 }: {
 	noteBody: string;
 	noteBodyOmitted?: boolean;
-	previousNoteBody?: string;
 	workMode?: WorkMode;
 	isSelection?: boolean;
 	selectionText?: string;
@@ -320,33 +311,6 @@ const resolveNoteBodyContent = ({
 			? markedBody.substring(0, MAX_NOTE_BODY_LENGTH) + '\n\n[... note truncated due to length ...]'
 			: markedBody;
 
-	// Diff-based optimization when a previous body snapshot is available
-	if (previousNoteBody !== undefined && previousNoteBody !== null) {
-		const diff = computeNoteDiff(previousNoteBody, noteBody);
-
-		if (diff.isIdentical) {
-			if (workMode !== 'edit') {
-				return { bodyText: '', contentLabel: '', omitted: true };
-			}
-			// Edit: include full body so update_note has complete content, but it will benefit
-			// from provider-level prompt caching since the text is identical
-			return { bodyText: truncated, contentLabel: 'Current note content:', omitted: false };
-		}
-
-		if (diff.changeRatio < DIFF_SMALL_CHANGE_THRESHOLD) {
-			if (workMode !== 'edit') {
-				return { bodyText: '', contentLabel: '', omitted: true };
-			}
-			// Edit small diff: send full body with a diff annotation so model knows what changed
-			return {
-				bodyText: `[Recent changes: ${diff.summary}]\n\n${truncated}`,
-				contentLabel: 'Current note content:',
-				omitted: false,
-			};
-		}
-	}
-
-	// Large diff, first turn, or no previous snapshot — send full body
 	return { bodyText: truncated, contentLabel: 'Current note content:', omitted: false };
 };
 
@@ -364,9 +328,45 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 		isSelection,
 		selectionText,
 		noteBodyOmitted,
-		previousNoteBody,
+		noteContextInHistory,
 		kieApiKey,
 	} = options;
+
+	// ── Note-context-in-history optimisation ──────────────────────────────────
+	// Skip or diff the note body when the AI already has it in message history.
+	// Edit mode always gets the full body so update_note has complete content.
+	let noteContextOverride: {
+		noteBodyContext: string;
+		bodyIncluded: boolean;
+		diffStats?: { added: number; removed: number };
+	} | null = null;
+
+	if (
+		!noteBodyOmitted &&
+		noteContextInHistory &&
+		noteContextInHistory.noteId === noteId &&
+		workMode !== 'edit'
+	) {
+		const noteIdLine = noteId ? `Current note ID: ${noteId}\n` : '';
+
+		if (noteContextInHistory.noteBody === noteBody) {
+			// Unchanged — AI already has it in history
+			noteContextOverride = {
+				noteBodyContext: `\nCurrent note title: ${noteTitle}\n${noteIdLine}The note content was provided at the start of this conversation. Refer to your conversation context.\n`,
+				bodyIncluded: false,
+			};
+		} else {
+			const patch = generateNotePatch(noteContextInHistory.noteBody, noteBody);
+			if (patch.patchText.length > 0 && patch.patchText.length <= Math.max(noteBody.length * 0.5, 200)) {
+				noteContextOverride = {
+					noteBodyContext: `\nCurrent note title: ${noteTitle}\n${noteIdLine}[NOTE CHANGED]\nThe note has changed since the start of this conversation. Apply this patch to your memory of the original note:\n\n${patch.patchText}\n`,
+					bodyIncluded: false,
+					diffStats: { added: patch.added, removed: patch.removed },
+				};
+			}
+			// else: patch too large → fall through to full body
+		}
+	}
 
 	const {
 		bodyText,
@@ -375,7 +375,6 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 	} = resolveNoteBodyContent({
 		noteBody,
 		noteBodyOmitted,
-		previousNoteBody,
 		workMode,
 		isSelection,
 		selectionText,
@@ -403,9 +402,13 @@ The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELE
 		: '';
 
 	const noteIdLine = noteId ? `Current note ID: ${noteId}\n` : '';
-	const noteBodyContext = bodyOmitted
+	const noteBodyContext = noteContextOverride
+		? noteContextOverride.noteBodyContext
+		: bodyOmitted
 		? `\nCurrent note title: ${noteTitle}\n${noteIdLine}`
 		: `\nCurrent note title: ${noteTitle}\n${noteIdLine}${contentLabel}\n${bodyText}`;
+	const bodyIncluded = noteContextOverride ? noteContextOverride.bodyIncluded : !bodyOmitted;
+	const diffStats = noteContextOverride?.diffStats;
 
 	if (workMode === 'edit') {
 		const staticInstructions = `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
@@ -438,11 +441,15 @@ EDIT MODE RULES:
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
 ${selectionRulesBlock}`;
 		const dynamicContext = `${referencedSection}${attachedSection}`;
-		return { staticInstructions, noteBodyContext, dynamicContext, bodyIncluded: !bodyOmitted };
+		return { staticInstructions, noteBodyContext, dynamicContext, bodyIncluded, diffStats };
 	}
 
-	const noteContextLine = bodyOmitted
-		? 'The current note title and ID are shown below. Call get_note with the note ID to read its content when needed.'
+	const noteContextLine = noteContextOverride
+		? noteContextOverride.noteBodyContext.includes('[NOTE CHANGED]')
+			? 'The note has been modified. A patch is provided below — apply it to your memory of the note.'
+			: 'The note content was provided at the start of this conversation.'
+		: bodyOmitted
+		? 'The current note title and ID are shown below.'
 		: "The user's current note is provided below. The note is in Markdown format.";
 	const generateImageLine = kieApiKey?.trim()
 		? '- generate_image: Generate an image from a text description. Supports aspect ratio (1:1, 3:2, 2:3), quality (medium, high), and visual style. The image is downloaded at full quality and attached to the note as a resource.'
@@ -482,7 +489,7 @@ TOOL USAGE RULES:
 - STOP AFTER STRUCTURAL OPS: After copy_note, delete_note, move_note, or create_note succeeds, your task is complete. Return your response immediately — do NOT make any additional tool calls.
 ${selectionRulesBlock}`;
 	const dynamicContext = `${notebookSection}${referencedSection}${attachedSection}`;
-	return { staticInstructions, noteBodyContext, dynamicContext, bodyIncluded: !bodyOmitted };
+	return { staticInstructions, noteBodyContext, dynamicContext, bodyIncluded, diffStats };
 };
 
 export const buildSystemPrompt = (options: BuildSystemPromptOptions): string => {
@@ -799,7 +806,6 @@ export const sendToAI = async (
 	context?: ActionContext,
 	history?: ChatMessage[],
 	tracker?: CostTracker,
-	previousNoteBody?: string,
 ): Promise<AIResponse> => {
 	validateApiKey(provider, apiKey);
 	const actionContext: ActionContext = context ?? {
@@ -808,7 +814,6 @@ export const sendToAI = async (
 	};
 	// workMode gate: only include note body in edit/ask modes; agent mode uses get_note on demand.
 	const includeBody = actionContext.workMode === 'edit' || actionContext.workMode === 'ask';
-	actionContext.onBodyDecision?.(includeBody);
 	const promptParts = buildSystemPromptParts({
 		noteTitle,
 		noteId: actionContext.currentNoteId ?? undefined,
@@ -822,9 +827,14 @@ export const sendToAI = async (
 		isSelection: actionContext.isSelection,
 		selectionText: actionContext.selectionText,
 		noteBodyOmitted: !includeBody,
-		previousNoteBody: includeBody ? previousNoteBody : undefined,
+		noteContextInHistory: undefined,
 		kieApiKey: actionContext.kieApiKey,
 	});
+	if (promptParts.diffStats) {
+		actionContext.onDiffSent?.(promptParts.diffStats.added, promptParts.diffStats.removed);
+	} else {
+		actionContext.onBodyDecision?.(promptParts.bodyIncluded);
+	}
 
 	const ct = tracker ?? defaultCostTracker;
 	const traceId = `trace-${Date.now()}`;

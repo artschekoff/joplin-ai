@@ -513,7 +513,7 @@ const sendUpdatedContextSize = (
 		workMode: opts.workMode,
 		referencedNotes: opts.referencedNotes,
 		attachedFiles: opts.attachedFiles,
-		previousNoteBody: opts.previousNoteBody,
+		noteContextInHistory: undefined,
 	});
 	const usage = computeContextUsage({
 		staticInstructions: parts.staticInstructions,
@@ -681,8 +681,6 @@ const handleExecute = async (
 			note.body,
 			context,
 			history,
-			undefined,
-			previousNoteBody,
 		);
 		if (myRequestId !== activeRequestId) return;
 		lastSentNoteId = note.id;

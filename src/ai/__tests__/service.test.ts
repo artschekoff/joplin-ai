@@ -1,5 +1,6 @@
 import {
 	buildSystemPrompt,
+	buildSystemPromptParts,
 	sendToAI,
 	validateApiKey,
 	buildOpenAIPdfParts,
@@ -7,7 +8,7 @@ import {
 	buildOpenAIImageParts,
 	buildClaudeImageParts,
 } from '../service';
-import { ChatMessage } from '../types';
+import { ChatMessage, NoteContextSnapshot } from '../types';
 
 jest.mock('../openai', () => ({
 	callOpenAI: jest.fn(),
@@ -1054,6 +1055,77 @@ describe('buildSystemPrompt', () => {
 			expect(prompt).toContain('Current note content');
 			expect(prompt).not.toContain('>>>SELECTED<<<');
 		});
+	});
+});
+
+describe('buildSystemPromptParts with noteContextInHistory', () => {
+	const snapshot: NoteContextSnapshot = {
+		noteId: 'note-1',
+		noteTitle: 'My Note',
+		noteBody: 'Original content\nLine two\n',
+	};
+
+	it('omits body when note unchanged (ask mode)', () => {
+		const parts = buildSystemPromptParts({
+			noteTitle: 'My Note',
+			noteId: 'note-1',
+			noteBody: 'Original content\nLine two\n',
+			noteContextInHistory: snapshot,
+			workMode: 'ask',
+		});
+		expect(parts.bodyIncluded).toBe(false);
+		expect(parts.diffStats).toBeUndefined();
+		expect(parts.noteBodyContext).not.toContain('Original content');
+		expect(parts.noteBodyContext).toContain('conversation context');
+	});
+
+	it('sends diff when note changed (small diff, ask mode)', () => {
+		const parts = buildSystemPromptParts({
+			noteTitle: 'My Note',
+			noteId: 'note-1',
+			noteBody: 'Original content\nLine two updated\n',
+			noteContextInHistory: snapshot,
+			workMode: 'ask',
+		});
+		expect(parts.bodyIncluded).toBe(false);
+		expect(parts.diffStats).toBeDefined();
+		expect(parts.diffStats!.added).toBeGreaterThan(0);
+		expect(parts.noteBodyContext).toContain('[NOTE CHANGED]');
+	});
+
+	it('includes full body in edit mode even when unchanged', () => {
+		const parts = buildSystemPromptParts({
+			noteTitle: 'My Note',
+			noteId: 'note-1',
+			noteBody: 'Original content\nLine two\n',
+			noteContextInHistory: snapshot,
+			workMode: 'edit',
+		});
+		expect(parts.bodyIncluded).toBe(true);
+		expect(parts.noteBodyContext).toContain('Original content');
+	});
+
+	it('sends full body when noteId differs', () => {
+		const parts = buildSystemPromptParts({
+			noteTitle: 'Different Note',
+			noteId: 'note-2',
+			noteBody: 'Different content\n',
+			noteContextInHistory: snapshot,
+			workMode: 'ask',
+		});
+		expect(parts.bodyIncluded).toBe(true);
+		expect(parts.noteBodyContext).toContain('Different content');
+	});
+
+	it('sends full body when no noteContextInHistory', () => {
+		const parts = buildSystemPromptParts({
+			noteTitle: 'My Note',
+			noteId: 'note-1',
+			noteBody: 'Original content\nLine two\n',
+			workMode: 'ask',
+		});
+		expect(parts.bodyIncluded).toBe(true);
+		expect(parts.noteBodyContext).toContain('Original content');
 	});
 });
 
