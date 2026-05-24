@@ -63,7 +63,7 @@ export const sendClaudeMessages = async (
 ): Promise<AIProviderResponse> => {
 	const requestBody: Record<string, unknown> = {
 		model,
-		max_tokens: 4096,
+		max_tokens: tools?.length ? 8192 : 4096,
 		system,
 		messages,
 	};
@@ -191,7 +191,7 @@ export const streamClaudeMessages = async (
 ): Promise<AIProviderResponse> => {
 	const requestBody: Record<string, unknown> = {
 		model,
-		max_tokens: 4096,
+		max_tokens: tools?.length ? 8192 : 4096,
 		system,
 		messages,
 		stream: true,
@@ -291,7 +291,10 @@ export const streamClaudeMessages = async (
 					try {
 						parsedInput = JSON.parse(block.inputJson ?? '{}');
 					} catch {
-						/* empty */
+						// JSON incomplete — likely hit max_tokens mid-generation
+						console.error(
+							`[claude] tool_use JSON parse failed for "${block.name}" (inputJson length: ${block.inputJson?.length ?? 0}). finishReason will be max_tokens.`,
+						);
 					}
 					contentBlocks.push({
 						type: 'tool_use',

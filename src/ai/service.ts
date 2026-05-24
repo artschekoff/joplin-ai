@@ -683,6 +683,17 @@ const runClaudeLoop = async (
 			return { text: response.textContent || '', outcomes: allOutcomes, usage: totalUsage };
 		}
 
+		if (response.finishReason === 'max_tokens') {
+			return {
+				text:
+					(response.textContent || '') +
+					'\n\n⚠️ The response was cut short (output token limit reached). ' +
+					'Try breaking your request into smaller steps or use a shorter note.',
+				outcomes: allOutcomes,
+				usage: totalUsage,
+			};
+		}
+
 		messages.push(response.rawAssistantMessage);
 
 		const { outcomes, results } = await runToolCalls(response.toolCalls, context);
