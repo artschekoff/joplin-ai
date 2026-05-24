@@ -1106,6 +1106,42 @@ describe('buildSystemPrompt', () => {
 			const prompt = parts.staticInstructions + parts.noteBodyContext + parts.dynamicContext;
 			expect(prompt).toContain('>>>SELECTED<<<');
 		});
+
+		it('skips noteContextOverride when selection-only mode is active', () => {
+			const body = 'Intro\n\nSelected fragment here.\n\nConclusion';
+			const parts = buildSystemPromptParts({
+				noteTitle: 'Note',
+				noteId: 'n1',
+				noteBody: body,
+				workMode: 'edit',
+				isSelection: true,
+				selectionText: 'Selected fragment here.',
+				noteContextInHistory: { noteId: 'n1', noteTitle: 'Note', noteBody: body },
+			});
+			// noteContextOverride is skipped — selection IS the body context
+			expect(parts.noteBodyContext).toContain('Selected fragment here.');
+			expect(parts.noteBodyContext).not.toContain('conversation context');
+			expect(parts.noteBodyContext).not.toContain('[NOTE CHANGED]');
+			// Selection is in system prompt, so bodyIncluded signals presence
+			expect(parts.bodyIncluded).toBe(true);
+		});
+
+		it('skips noteContextOverride even when note changed since last run (selection-only)', () => {
+			const oldBody = 'Intro\n\nSelected fragment here.\n\nConclusion';
+			const newBody = 'Intro MODIFIED\n\nSelected fragment here.\n\nConclusion';
+			const parts = buildSystemPromptParts({
+				noteTitle: 'Note',
+				noteId: 'n1',
+				noteBody: newBody,
+				workMode: 'edit',
+				isSelection: true,
+				selectionText: 'Selected fragment here.',
+				noteContextInHistory: { noteId: 'n1', noteTitle: 'Note', noteBody: oldBody },
+			});
+			// Still shows selection, not diff
+			expect(parts.noteBodyContext).toContain('Selected fragment here.');
+			expect(parts.noteBodyContext).not.toContain('[NOTE CHANGED]');
+		});
 	});
 });
 

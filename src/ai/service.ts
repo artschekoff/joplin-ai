@@ -356,7 +356,9 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 		diffStats?: { added: number; removed: number };
 	} | null = null;
 
-	if (!noteBodyOmitted && noteContextInHistory && noteContextInHistory.noteId === noteId) {
+	const isSelectionOnlyMode = isSelection && !!selectionText && workMode === 'edit';
+
+	if (!noteBodyOmitted && noteContextInHistory && noteContextInHistory.noteId === noteId && !isSelectionOnlyMode) {
 		const noteIdLine = noteId ? `Current note ID: ${noteId}\n` : '';
 
 		if (noteContextInHistory.noteBody === noteBody) {
