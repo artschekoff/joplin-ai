@@ -1,4 +1,4 @@
-import { computeNoteDiff, generateNotePatch } from '../note-diff';
+import { computeNoteDiff, generateNotePatch, generateLLMFriendlyDiff } from '../note-diff';
 
 describe('computeNoteDiff', () => {
 	describe('identical bodies', () => {
@@ -145,6 +145,66 @@ describe('computeNoteDiff', () => {
 				expect(result.changeRatio).toBeLessThanOrEqual(1);
 			}
 		});
+	});
+});
+
+describe('generateLLMFriendlyDiff', () => {
+	it('returns empty string for identical bodies', () => {
+		expect(generateLLMFriendlyDiff('same', 'same')).toBe('');
+	});
+
+	it('marks a single line replacement with - and +', () => {
+		const old = 'line A\nline B\nline C';
+		const updated = 'line A\nline X\nline C';
+		const result = generateLLMFriendlyDiff(old, updated);
+		expect(result).toContain('-line B');
+		expect(result).toContain('+line X');
+	});
+
+	it('includes context lines from surrounding unchanged hunks', () => {
+		const old = 'ctx1\nctx2\nOLD\nctx3\nctx4';
+		const updated = 'ctx1\nctx2\nNEW\nctx3\nctx4';
+		const result = generateLLMFriendlyDiff(old, updated, 2);
+		expect(result).toContain(' ctx2');
+		expect(result).toContain(' ctx3');
+	});
+
+	it('includes nearest heading in @@ line when present', () => {
+		const old = '## Introduction\nSome text\nOLD paragraph';
+		const updated = '## Introduction\nSome text\nNEW paragraph';
+		const result = generateLLMFriendlyDiff(old, updated);
+		expect(result).toContain('@@ near "Introduction" @@');
+	});
+
+	it('omits near clause when no heading exists before the change', () => {
+		const old = 'first line\nOLD';
+		const updated = 'first line\nNEW';
+		const result = generateLLMFriendlyDiff(old, updated);
+		expect(result).toMatch(/^@@/m);
+		expect(result).not.toContain('near "');
+	});
+
+	it('separates multiple change blocks with a blank line', () => {
+		const old = 'A\nB\nC\nD\nE\nF';
+		const updated = 'A\nX\nC\nD\nY\nF';
+		const result = generateLLMFriendlyDiff(old, updated);
+		const blocks = result.split('\n\n').filter((b) => b.startsWith('@@'));
+		expect(blocks.length).toBe(2);
+	});
+
+	it('handles added lines at end', () => {
+		const old = 'line1\nline2';
+		const updated = 'line1\nline2\nline3';
+		const result = generateLLMFriendlyDiff(old, updated);
+		expect(result).toContain('+line3');
+		expect(result).not.toContain('-line3');
+	});
+
+	it('handles removed lines', () => {
+		const old = 'line1\nline2\nline3';
+		const updated = 'line1\nline3';
+		const result = generateLLMFriendlyDiff(old, updated);
+		expect(result).toContain('-line2');
 	});
 });
 

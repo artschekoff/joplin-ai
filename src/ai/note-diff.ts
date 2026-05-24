@@ -1,4 +1,5 @@
 import { diff_match_patch } from 'diff-match-patch';
+import { computeDiffHunks } from './diff-lines';
 
 export interface NoteDiff {
 	isIdentical: boolean;
@@ -129,4 +130,76 @@ export const generateNotePatch = (
 
 	const patches = dmp.patch_make(oldBody, diffs);
 	return { patchText: dmp.patch_toText(patches), added, removed };
+};
+
+/**
+ * Generate a unified-diff-style string optimised for LLM consumption.
+ *
+ * Each change block is headed by `@@ near "<heading>" @@` (or just `@@` when
+ * no Markdown heading precedes the change).  Context lines are prefixed with a
+ * space, removed lines with `-`, added lines with `+`.  Multiple blocks are
+ * separated by a blank line.
+ */
+export const generateLLMFriendlyDiff = (
+	oldBody: string,
+	newBody: string,
+	contextLines = 2,
+): string => {
+	if (oldBody === newBody) return '';
+
+	const oldLines = oldBody === '' ? [] : oldBody.split('\n');
+	const hunks = computeDiffHunks(oldBody, newBody);
+
+	const blocks: string[] = [];
+	let oldLineIdx = 0; // tracks position in oldLines as we walk hunks
+
+	let i = 0;
+	while (i < hunks.length) {
+		if (hunks[i].type === 'unchanged') {
+			oldLineIdx += hunks[i].lines.length;
+			i++;
+			continue;
+		}
+
+		// Collect consecutive removed/added hunks into one change group
+		const startOldIdx = oldLineIdx;
+		const removedLines: string[] = [];
+		const addedLines: string[] = [];
+
+		while (i < hunks.length && hunks[i].type !== 'unchanged') {
+			const h = hunks[i];
+			if (h.type === 'removed') {
+				removedLines.push(...h.lines);
+				oldLineIdx += h.lines.length;
+			} else {
+				// added — does not advance old line pointer
+				addedLines.push(...h.lines);
+			}
+			i++;
+		}
+
+		// Context before: last N lines of the preceding unchanged block
+		const ctxBeforeStart = Math.max(0, startOldIdx - contextLines);
+		const ctxBefore = oldLines.slice(ctxBeforeStart, startOldIdx);
+
+		// Context after: first N lines of the next unchanged hunk (if any)
+		let ctxAfter: string[] = [];
+		if (i < hunks.length && hunks[i].type === 'unchanged') {
+			ctxAfter = hunks[i].lines.slice(0, contextLines);
+		}
+
+		// Find nearest heading by scanning backwards from startOldIdx
+		const heading = findNearestHeading(oldLines, startOldIdx - 1);
+		const atLine = heading ? `@@ near "${heading}" @@` : '@@';
+
+		const diffLines: string[] = [atLine];
+		for (const l of ctxBefore) diffLines.push(` ${l}`);
+		for (const l of removedLines) diffLines.push(`-${l}`);
+		for (const l of addedLines) diffLines.push(`+${l}`);
+		for (const l of ctxAfter) diffLines.push(` ${l}`);
+
+		blocks.push(diffLines.join('\n'));
+	}
+
+	return blocks.join('\n\n');
 };
