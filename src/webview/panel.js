@@ -3,6 +3,7 @@ var STORAGE_KEY_MESSAGES = 'joplin-ai-messages';
 var STORAGE_KEY_MODE = 'joplin-ai-mode';
 var STORAGE_KEY_ROLE = 'joplin-ai-applied-role';
 var STORAGE_KEY_TOTAL_COST = 'joplin-ai-total-cost';
+var STORAGE_KEY_NOTE_CONTEXT = 'joplin-ai-note-context';
 
 function initPanel() {
 	const messagesEl = document.getElementById('messages');
@@ -34,6 +35,11 @@ function initPanel() {
 	let currentMode = modeSelect ? modeSelect.value : 'agent';
 	var noteBodyLength = 0;
 	var selectionLength = 0;
+	var currentNoteContext = null;
+	try {
+		var _nc = localStorage.getItem(STORAGE_KEY_NOTE_CONTEXT);
+		if (_nc) currentNoteContext = JSON.parse(_nc);
+	} catch (_e) {}
 
 	function persistHistory() {
 		try {
@@ -1307,6 +1313,9 @@ function initPanel() {
 		if (noteId) {
 			msg.noteId = noteId;
 		}
+		if (currentNoteContext) {
+			msg.noteContext = currentNoteContext;
+		}
 		if (rolePrompt) {
 			msg.agentRolePrompt = rolePrompt;
 		}
@@ -1667,6 +1676,8 @@ function initPanel() {
 		renderQueue();
 		clearPersistedHistory();
 		try { localStorage.removeItem(STORAGE_KEY_TOTAL_COST); } catch (_e) {}
+		currentNoteContext = null;
+		try { localStorage.removeItem(STORAGE_KEY_NOTE_CONTEXT); } catch (_e) {}
 		updateSessionCostDisplay();
 		if (emptyState) {
 			messagesEl.appendChild(emptyState);
@@ -1679,6 +1690,10 @@ function initPanel() {
 		if (!message) return;
 
 		if (message.type === 'noteInfo') {
+			if (currentNoteContext && message.noteId && currentNoteContext.noteId !== message.noteId) {
+				currentNoteContext = null;
+				try { localStorage.removeItem(STORAGE_KEY_NOTE_CONTEXT); } catch (_e) {}
+			}
 			currentNoteId = message.noteId || null;
 			noteBodyLength = message.bodyLength || 0;
 			if (message.title) {
@@ -1767,6 +1782,27 @@ function initPanel() {
 				'Content of "' + escapeHtml(message.noteTitle) + '" included in context' + charLabel,
 				null, null, false
 			);
+		}
+
+		if (message.type === 'noteContextUpdate') {
+			currentNoteContext = {
+				noteId: message.noteId,
+				noteTitle: message.noteTitle,
+				noteBody: message.noteBody,
+			};
+			try { localStorage.setItem(STORAGE_KEY_NOTE_CONTEXT, JSON.stringify(currentNoteContext)); } catch (_e) {}
+			return;
+		}
+
+		if (message.type === 'noteDiffSent') {
+			var diffLabel = '+' + (message.added || 0) + '/-' + (message.removed || 0) + ' chars';
+			addMessage(
+				'action-info',
+				svgIcon('fileText', '14') + ' Note diff sent to AI',
+				'Changes in "' + escapeHtml(message.noteTitle) + '" included in context (' + diffLabel + ')',
+				null, null, false
+			);
+			return;
 		}
 
 		if (message.type === 'imageProgress') {

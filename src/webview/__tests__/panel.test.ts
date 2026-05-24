@@ -4240,3 +4240,162 @@ describe('thinking timer in loading indicator', () => {
 		expect(timerEl!.textContent).toBe('0:00');
 	});
 });
+
+describe('panel.js noteContextUpdate message handling', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+	let promptInput: HTMLTextAreaElement;
+
+	beforeEach(() => {
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+		promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+		localStorage.clear();
+	});
+
+	it('stores noteContext in localStorage when noteContextUpdate is received', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteContextUpdate',
+			noteId: 'note-123',
+			noteTitle: 'My Note',
+			noteBody: 'Body content',
+		});
+
+		const stored = localStorage.getItem('joplin-ai-note-context');
+		expect(stored).not.toBeNull();
+		const parsed = JSON.parse(stored!);
+		expect(parsed.noteId).toBe('note-123');
+		expect(parsed.noteTitle).toBe('My Note');
+		expect(parsed.noteBody).toBe('Body content');
+	});
+
+	it('includes noteContext in subsequent execute messages', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteContextUpdate',
+			noteId: 'note-123',
+			noteTitle: 'My Note',
+			noteBody: 'Body content',
+		});
+
+		promptInput.value = 'Follow-up question';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+
+		const executeCall = mockApi.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'execute',
+		);
+		expect(executeCall).toBeDefined();
+		expect(executeCall![0].noteContext).toEqual({
+			noteId: 'note-123',
+			noteTitle: 'My Note',
+			noteBody: 'Body content',
+		});
+	});
+
+	it('clears noteContext when clearHistoryBtn is clicked', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteContextUpdate',
+			noteId: 'note-123',
+			noteTitle: 'My Note',
+			noteBody: 'Body',
+		});
+
+		expect(localStorage.getItem('joplin-ai-note-context')).not.toBeNull();
+
+		const clearHistoryBtn = document.getElementById('clearHistoryBtn') as HTMLButtonElement;
+		clearHistoryBtn.click();
+
+		expect(localStorage.getItem('joplin-ai-note-context')).toBeNull();
+
+		promptInput.value = 'New question';
+		promptInput.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+		);
+
+		const executeCall = mockApi.postMessage.mock.calls.find(
+			(call: any[]) => call[0]?.type === 'execute',
+		);
+		expect(executeCall).toBeDefined();
+		expect(executeCall![0].noteContext).toBeUndefined();
+	});
+
+	it('clears noteContext when noteInfo arrives with a different noteId', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteContextUpdate',
+			noteId: 'note-A',
+			noteTitle: 'Note A',
+			noteBody: 'Body A',
+		});
+
+		messageHandler({ type: 'noteInfo', noteId: 'note-B', title: 'Note B' });
+
+		expect(localStorage.getItem('joplin-ai-note-context')).toBeNull();
+	});
+
+	it('keeps noteContext when noteInfo arrives with the same noteId', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteContextUpdate',
+			noteId: 'note-A',
+			noteTitle: 'Note A',
+			noteBody: 'Body A',
+		});
+
+		messageHandler({ type: 'noteInfo', noteId: 'note-A', title: 'Note A' });
+
+		const stored = localStorage.getItem('joplin-ai-note-context');
+		expect(stored).not.toBeNull();
+	});
+});
+
+describe('panel.js noteDiffSent message handling', () => {
+	let mockApi: ReturnType<typeof createMockWebviewApi>;
+
+	beforeEach(() => {
+		buildDOM();
+		mockApi = createMockWebviewApi();
+		initPanel(mockApi);
+	});
+
+	afterEach(() => {
+		delete (window as any).webviewApi;
+	});
+
+	it('shows a diff-sent card when noteDiffSent is received', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteDiffSent',
+			noteTitle: 'My Note',
+			added: 120,
+			removed: 30,
+		});
+
+		const actionInfo = document.querySelector('.message-action-info') as HTMLElement;
+		expect(actionInfo).not.toBeNull();
+		expect(actionInfo.textContent).toContain('Note diff sent to AI');
+	});
+
+	it('includes note title and diff stats in the card body', () => {
+		const messageHandler = mockApi.onMessage.mock.calls[0][0];
+		messageHandler({
+			type: 'noteDiffSent',
+			noteTitle: 'Important Note',
+			added: 50,
+			removed: 10,
+		});
+
+		const actionInfo = document.querySelector('.message-action-info') as HTMLElement;
+		expect(actionInfo).not.toBeNull();
+		expect(actionInfo.textContent).toContain('Important Note');
+		expect(actionInfo.textContent).toContain('+50/-10 chars');
+	});
+});
