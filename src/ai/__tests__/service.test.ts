@@ -3154,9 +3154,9 @@ describe('noteContextOverride with LLM-friendly diff', () => {
 			workMode: 'ask',
 			noteContextInHistory: { noteId: 'n1', noteTitle: 'Test', noteBody: oldBody },
 		});
-		// 'universe' (8) added, 'world' (5) removed
+		// diff is line-level: '-Hello world' (11 chars removed), '+Hello universe' (14 chars added)
 		expect(parts.diffStats).toBeDefined();
-		expect(parts.diffStats!.added).toBeGreaterThan(0);
-		expect(parts.diffStats!.removed).toBeGreaterThan(0);
+		expect(parts.diffStats!.removed).toBe(11);
+		expect(parts.diffStats!.added).toBe(14);
 	});
 });

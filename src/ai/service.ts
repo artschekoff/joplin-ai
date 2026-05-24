@@ -8,7 +8,7 @@ import {
 	TokenUsage,
 	NoteContextSnapshot,
 } from './types';
-import { generateNotePatch, generateLLMFriendlyDiff } from './note-diff';
+import { generateLLMFriendlyDiff } from './note-diff';
 import { streamOpenAIMessages } from './openai';
 import { streamClaudeMessages } from './claude';
 import {
@@ -320,6 +320,16 @@ const resolveNoteBodyContent = ({
 	return { bodyText: truncated, contentLabel: 'Current note content:', omitted: false };
 };
 
+const countDiffChars = (diffText: string): { added: number; removed: number } => {
+	let added = 0;
+	let removed = 0;
+	for (const line of diffText.split('\n')) {
+		if (line.startsWith('+') && !line.startsWith('+++')) added += line.length - 1;
+		else if (line.startsWith('-') && !line.startsWith('---')) removed += line.length - 1;
+	}
+	return { added, removed };
+};
+
 export const buildSystemPromptParts = (options: BuildSystemPromptOptions): SystemPromptParts => {
 	const {
 		noteTitle,
@@ -362,16 +372,13 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 				bodyIncluded: false,
 			};
 		} else {
-			const patch = generateNotePatch(noteContextInHistory.noteBody, noteBody); // char counts only
 			const diffText = generateLLMFriendlyDiff(noteContextInHistory.noteBody, noteBody);
-			if (
-				diffText.length > 0 &&
-				diffText.length <= Math.max(noteBody.length * 0.5, 200)
-			) {
+			if (diffText.length > 0 && diffText.length <= Math.max(noteBody.length * 0.5, 200)) {
+				const { added, removed } = countDiffChars(diffText);
 				noteContextOverride = {
 					noteBodyContext: `\nCurrent note title: ${noteTitle}\n${noteIdLine}[NOTE CHANGED]\nThe note has changed since the start of this conversation. Apply these changes to your memory:\n\n${diffText}\n`,
 					bodyIncluded: false,
-					diffStats: { added: patch.added, removed: patch.removed },
+					diffStats: { added, removed },
 				};
 			}
 			// else: diff too large → fall through to full body
