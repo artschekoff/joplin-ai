@@ -288,6 +288,7 @@ const embedSelectionMarkers = (fullBody: string, selectionText: string): string 
 const resolveNoteBodyContent = ({
 	noteBody,
 	noteBodyOmitted,
+	workMode,
 	isSelection,
 	selectionText,
 }: {
@@ -299,6 +300,11 @@ const resolveNoteBodyContent = ({
 }): { bodyText: string; contentLabel: string; omitted: boolean } => {
 	if (noteBodyOmitted) {
 		return { bodyText: '', contentLabel: '', omitted: true };
+	}
+
+	if (isSelection && selectionText && workMode === 'edit') {
+		const cleanSelection = sanitizeContent(selectionText);
+		return { bodyText: cleanSelection, contentLabel: 'Selected fragment:', omitted: false };
 	}
 
 	const cleanBody = sanitizeContent(noteBody);
@@ -384,7 +390,8 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 	});
 
 	const cleanBody = sanitizeContent(noteBody);
-	const hasSelectionMarkers = isSelection && selectionText && cleanBody.includes(selectionText);
+	const hasSelectionMarkers =
+		isSelection && selectionText && workMode !== 'edit' && cleanBody.includes(selectionText);
 	const notebookSection = notebooks?.length ? buildNotebookSection(notebooks) : '';
 	const referencedSection = referencedNotes?.length
 		? buildReferencedNotesSection(referencedNotes)
@@ -395,14 +402,15 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 		: '';
 	const modeSection = buildWorkModeSection(workMode, noteTitle);
 	const webSearchLine = buildWebSearchToolLine(nativeWebSearch);
-	const selectionRulesBlock = hasSelectionMarkers
-		? `\nSELECTION RULES:
-The user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.
-- Modify ONLY the text between the markers. Keep all other content unchanged.
-- Use a SINGLE patch_note call (NOT update_note): set search to the COMPLETE text between the markers (verbatim, without the markers themselves), and set replace to your complete modified version of that selected text. Do not split into multiple patches.
-- Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in search or replace.
-`
-		: '';
+	const selectionRulesBlock = (() => {
+		if (!isSelection || !selectionText) return '';
+		if (workMode === 'edit') {
+			return `\nSELECTION RULES:\nThe note content below IS the selected fragment from the user's note. The full note body is not shown.\n- Modify ONLY this fragment per the user's instruction. Preserve formatting, language, and style.\n- Use a SINGLE patch_note call: set search to the COMPLETE text of the fragment below (verbatim), set replace to your complete modified version.\n- Do NOT include any surrounding note content in search or replace.\n`;
+		}
+		// ask/agent mode: full note with markers (only when markers are present)
+		if (!hasSelectionMarkers) return '';
+		return `\nSELECTION RULES:\nThe user selected a specific fragment marked with >>>SELECTED<<< and <<<END_SELECTED>>> in the note body below.\n- Modify ONLY the text between the markers. Keep all other content unchanged.\n- Use a SINGLE patch_note call (NOT update_note): set search to the COMPLETE text between the markers (verbatim, without the markers themselves), and set replace to your complete modified version of that selected text. Do not split into multiple patches.\n- Do NOT include the >>>SELECTED<<< / <<<END_SELECTED>>> markers in search or replace.\n`;
+	})();
 
 	const noteIdLine = noteId ? `Current note ID: ${noteId}\n` : '';
 	const noteBodyContext = noteContextOverride
@@ -744,7 +752,13 @@ const runClaudeLoop = async (
 		userMessageTextOnly,
 		...toolRoundMsgs,
 	];
-	const finalResponse = await streamClaudeMessages(apiKey, model, systemBlocks, finalSendMessages, onChunk);
+	const finalResponse = await streamClaudeMessages(
+		apiKey,
+		model,
+		systemBlocks,
+		finalSendMessages,
+		onChunk,
+	);
 	totalUsage = accumulateUsage(totalUsage, finalResponse.usage);
 	return {
 		text: (finalResponse.textContent || '') + TOOL_LIMIT_NOTICE,

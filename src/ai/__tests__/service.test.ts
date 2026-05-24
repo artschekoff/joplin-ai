@@ -1023,7 +1023,7 @@ describe('buildSystemPrompt', () => {
 				workMode: 'edit',
 			});
 			expect(prompt).toContain('SELECTION RULES');
-			expect(prompt).toContain('>>>SELECTED<<<\nSelected paragraph\n<<<END_SELECTED>>>');
+			expect(prompt).toContain('IS the selected fragment');
 		});
 
 		it('does not add markers when selectionText is not in the body', () => {
@@ -1054,6 +1054,57 @@ describe('buildSystemPrompt', () => {
 			});
 			expect(prompt).toContain('Current note content');
 			expect(prompt).not.toContain('>>>SELECTED<<<');
+		});
+	});
+
+	describe('selection-only mode (edit)', () => {
+		const baseOpts = {
+			noteTitle: 'My Note',
+			noteId: 'note-1',
+			noteBody: 'Intro paragraph\n\nSelected fragment here.\n\nConclusion paragraph.',
+			workMode: 'edit' as const,
+			isSelection: true,
+			selectionText: 'Selected fragment here.',
+		};
+
+		it('sends only the selection as note body, not the full note', () => {
+			const parts = buildSystemPromptParts(baseOpts);
+			const prompt = parts.staticInstructions + parts.noteBodyContext + parts.dynamicContext;
+			expect(prompt).toContain('Selected fragment here.');
+			expect(prompt).not.toContain('Intro paragraph');
+			expect(prompt).not.toContain('Conclusion paragraph');
+		});
+
+		it('includes "Selected fragment:" label in noteBodyContext', () => {
+			const parts = buildSystemPromptParts(baseOpts);
+			expect(parts.noteBodyContext).toContain('Selected fragment:');
+		});
+
+		it('does NOT embed >>>SELECTED<<< markers', () => {
+			const parts = buildSystemPromptParts(baseOpts);
+			const prompt = parts.staticInstructions + parts.noteBodyContext + parts.dynamicContext;
+			expect(prompt).not.toContain('>>>SELECTED<<<');
+			expect(prompt).not.toContain('<<<END_SELECTED>>>');
+		});
+
+		it('includes selection-only SELECTION RULES text', () => {
+			const parts = buildSystemPromptParts(baseOpts);
+			const prompt = parts.staticInstructions + parts.noteBodyContext + parts.dynamicContext;
+			expect(prompt).toContain('SELECTION RULES');
+			expect(prompt).toContain('IS the selected fragment');
+		});
+
+		it('preserves full-note-with-markers behavior in ask mode', () => {
+			const parts = buildSystemPromptParts({ ...baseOpts, workMode: 'ask' });
+			const prompt = parts.staticInstructions + parts.noteBodyContext + parts.dynamicContext;
+			expect(prompt).toContain('>>>SELECTED<<<');
+			expect(prompt).toContain('Intro paragraph');
+		});
+
+		it('preserves full-note-with-markers behavior in agent mode', () => {
+			const parts = buildSystemPromptParts({ ...baseOpts, workMode: 'agent' });
+			const prompt = parts.staticInstructions + parts.noteBodyContext + parts.dynamicContext;
+			expect(prompt).toContain('>>>SELECTED<<<');
 		});
 	});
 });
