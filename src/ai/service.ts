@@ -8,7 +8,7 @@ import {
 	TokenUsage,
 	NoteContextSnapshot,
 } from './types';
-import { generateNotePatch } from './note-diff';
+import { generateNotePatch, generateLLMFriendlyDiff } from './note-diff';
 import { streamOpenAIMessages } from './openai';
 import { streamClaudeMessages } from './claude';
 import {
@@ -362,18 +362,19 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 				bodyIncluded: false,
 			};
 		} else {
-			const patch = generateNotePatch(noteContextInHistory.noteBody, noteBody);
+			const patch = generateNotePatch(noteContextInHistory.noteBody, noteBody); // char counts only
+			const diffText = generateLLMFriendlyDiff(noteContextInHistory.noteBody, noteBody);
 			if (
-				patch.patchText.length > 0 &&
-				patch.patchText.length <= Math.max(noteBody.length * 0.5, 200)
+				diffText.length > 0 &&
+				diffText.length <= Math.max(noteBody.length * 0.5, 200)
 			) {
 				noteContextOverride = {
-					noteBodyContext: `\nCurrent note title: ${noteTitle}\n${noteIdLine}[NOTE CHANGED]\nThe note has changed since the start of this conversation. Apply this patch to your memory of the original note:\n\n${patch.patchText}\n`,
+					noteBodyContext: `\nCurrent note title: ${noteTitle}\n${noteIdLine}[NOTE CHANGED]\nThe note has changed since the start of this conversation. Apply these changes to your memory:\n\n${diffText}\n`,
 					bodyIncluded: false,
 					diffStats: { added: patch.added, removed: patch.removed },
 				};
 			}
-			// else: patch too large → fall through to full body
+			// else: diff too large → fall through to full body
 		}
 	}
 
@@ -458,7 +459,7 @@ ${selectionRulesBlock}`;
 
 	const noteContextLine = noteContextOverride
 		? noteContextOverride.noteBodyContext.includes('[NOTE CHANGED]')
-			? 'The note has been modified. A patch is provided below — apply it to your memory of the note.'
+			? 'The note has been modified. A diff is provided below — apply the changes to your memory of the note.'
 			: 'The note content was provided at the start of this conversation.'
 		: bodyOmitted
 			? 'The current note title and ID are shown below.'

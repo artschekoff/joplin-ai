@@ -3110,3 +3110,53 @@ describe('sendToAI note-context message injection', () => {
 		expect(messages[0]).toMatchObject({ role: 'user', content: 'hello' });
 	});
 });
+
+describe('noteContextOverride with LLM-friendly diff', () => {
+	it('noteBodyContext contains unified diff markers when note changed slightly', () => {
+		const oldBody = '## Section\nOriginal text\n';
+		const newBody = '## Section\nModified text\n';
+		const parts = buildSystemPromptParts({
+			noteTitle: 'Test',
+			noteId: 'n1',
+			noteBody: newBody,
+			workMode: 'ask',
+			noteContextInHistory: { noteId: 'n1', noteTitle: 'Test', noteBody: oldBody },
+		});
+		expect(parts.noteBodyContext).toContain('[NOTE CHANGED]');
+		// Should contain human-readable diff lines
+		expect(parts.noteBodyContext).toContain('-Original text');
+		expect(parts.noteBodyContext).toContain('+Modified text');
+		// Should NOT contain URL-encoded patch characters
+		expect(parts.noteBodyContext).not.toMatch(/%[0-9A-F]{2}/i);
+	});
+
+	it('falls back to full body when diff is too large', () => {
+		const oldBody = 'Short original';
+		const newBody = 'A'.repeat(10000);
+		const parts = buildSystemPromptParts({
+			noteTitle: 'Test',
+			noteId: 'n1',
+			noteBody: newBody,
+			workMode: 'ask',
+			noteContextInHistory: { noteId: 'n1', noteTitle: 'Test', noteBody: oldBody },
+		});
+		expect(parts.bodyIncluded).toBe(true);
+		expect(parts.noteBodyContext).not.toContain('[NOTE CHANGED]');
+	});
+
+	it('diffStats still has correct added/removed char counts', () => {
+		const oldBody = 'Hello world';
+		const newBody = 'Hello universe';
+		const parts = buildSystemPromptParts({
+			noteTitle: 'Test',
+			noteId: 'n1',
+			noteBody: newBody,
+			workMode: 'ask',
+			noteContextInHistory: { noteId: 'n1', noteTitle: 'Test', noteBody: oldBody },
+		});
+		// 'universe' (8) added, 'world' (5) removed
+		expect(parts.diffStats).toBeDefined();
+		expect(parts.diffStats!.added).toBeGreaterThan(0);
+		expect(parts.diffStats!.removed).toBeGreaterThan(0);
+	});
+});
