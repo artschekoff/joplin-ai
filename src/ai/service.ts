@@ -577,7 +577,7 @@ const runOpenAILoop = async (
 			: { role: 'user', content: userPrompt };
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const noteContextPair: any[] =
-		noteContext && noteContext.noteId === context.currentNoteId
+		noteContext && noteContext.noteId === context.currentNoteId && context.workMode !== 'edit'
 			? [
 					{
 						role: 'user',
@@ -646,7 +646,7 @@ const runClaudeLoop = async (
 			? { role: 'user', content: [...mediaParts, { type: 'text', text: userPrompt }] }
 			: { role: 'user', content: userPrompt };
 	const noteContextPair =
-		noteContext && noteContext.noteId === context.currentNoteId
+		noteContext && noteContext.noteId === context.currentNoteId && context.workMode !== 'edit'
 			? [
 					{
 						role: 'user' as const,
@@ -719,7 +719,7 @@ const runPerplexityLoop = async (
 		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch, context.kieApiKey);
 	const noteContextItems: PerplexityInputItem[] =
-		noteContext && noteContext.noteId === context.currentNoteId
+		noteContext && noteContext.noteId === context.currentNoteId && context.workMode !== 'edit'
 			? [
 					{
 						role: 'user',
@@ -789,7 +789,7 @@ const runSonarLoop = async (
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
 	const noteContextPair: SonarChatMessage[] =
-		noteContext && noteContext.noteId === context.currentNoteId
+		noteContext && noteContext.noteId === context.currentNoteId && context.workMode !== 'edit'
 			? [
 					{
 						role: 'user',
@@ -896,7 +896,15 @@ export const sendToAI = async (
 
 	const runLoop = () => {
 		if (provider === 'openai')
-			return runOpenAILoop(apiKey, model, promptParts, userPrompt, actionContext, history, noteContext);
+			return runOpenAILoop(
+				apiKey,
+				model,
+				promptParts,
+				userPrompt,
+				actionContext,
+				history,
+				noteContext,
+			);
 		if (provider === 'perplexity') {
 			if (isSonarApiModel(model))
 				return runSonarLoop(
@@ -921,9 +929,25 @@ export const sendToAI = async (
 			);
 		}
 		if (provider === 'claude') {
-			return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history, noteContext);
+			return runClaudeLoop(
+				apiKey,
+				model,
+				promptParts,
+				userPrompt,
+				actionContext,
+				history,
+				noteContext,
+			);
 		}
-		return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history, noteContext);
+		return runClaudeLoop(
+			apiKey,
+			model,
+			promptParts,
+			userPrompt,
+			actionContext,
+			history,
+			noteContext,
+		);
 	};
 	const { text, outcomes, usage } = await runLoop();
 
