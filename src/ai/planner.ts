@@ -64,7 +64,7 @@ export const planUserRequest = async (
 				{ role: 'user', content: userMsg },
 			]);
 			text = res.textContent;
-		} else if (provider === 'claude' || provider === 'claudecode') {
+		} else if (provider === 'claude') {
 			const res = await sendClaudeMessages(apiKey, model, PLANNER_SYSTEM, [
 				{ role: 'user', content: userMsg },
 			]);
