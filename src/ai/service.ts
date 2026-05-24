@@ -464,7 +464,7 @@ ${editHistoryNote}${selectionRulesBlock}`;
 	}
 
 	const noteContextLine = noteContextOverride
-		? noteContextOverride.noteBodyContext.includes('[NOTE CHANGED]')
+		? noteContextOverride.diffStats != null
 			? 'The note has been modified. A diff is provided below — apply the changes to your memory of the note.'
 			: 'The note content was provided at the start of this conversation.'
 		: bodyOmitted
@@ -594,7 +594,9 @@ const runOpenAILoop = async (
 			: { role: 'user', content: userPrompt };
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const noteContextPair: any[] =
-		noteContext && noteContext.noteId === context.currentNoteId && (context.workMode !== 'edit' || !promptParts.bodyIncluded)
+		noteContext &&
+		noteContext.noteId === context.currentNoteId &&
+		(context.workMode !== 'edit' || !promptParts.bodyIncluded)
 			? [
 					{
 						role: 'user',
@@ -679,7 +681,9 @@ const runClaudeLoop = async (
 			? { role: 'user', content: [...mediaParts, { type: 'text', text: userPrompt }] }
 			: { role: 'user', content: userPrompt };
 	const noteContextPair =
-		noteContext && noteContext.noteId === context.currentNoteId && (context.workMode !== 'edit' || !promptParts.bodyIncluded)
+		noteContext &&
+		noteContext.noteId === context.currentNoteId &&
+		(context.workMode !== 'edit' || !promptParts.bodyIncluded)
 			? [
 					{
 						role: 'user' as const,
@@ -788,7 +792,9 @@ const runPerplexityLoop = async (
 		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch, context.kieApiKey);
 	const noteContextItems: PerplexityInputItem[] =
-		noteContext && noteContext.noteId === context.currentNoteId && (context.workMode !== 'edit' || !promptParts.bodyIncluded)
+		noteContext &&
+		noteContext.noteId === context.currentNoteId &&
+		(context.workMode !== 'edit' || !promptParts.bodyIncluded)
 			? [
 					{
 						role: 'user',
@@ -858,7 +864,9 @@ const runSonarLoop = async (
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
 	const noteContextPair: SonarChatMessage[] =
-		noteContext && noteContext.noteId === context.currentNoteId && (context.workMode !== 'edit' || !promptParts.bodyIncluded)
+		noteContext &&
+		noteContext.noteId === context.currentNoteId &&
+		(context.workMode !== 'edit' || !promptParts.bodyIncluded)
 			? [
 					{
 						role: 'user',
