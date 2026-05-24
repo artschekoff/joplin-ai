@@ -349,19 +349,14 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 	} = options;
 
 	// ── Note-context-in-history optimisation ──────────────────────────────────
-	// Skip or diff the note body when the AI already has it in message history.
-	// Edit mode always gets the full body so update_note has complete content.
+	// Note-context optimization applies to all work modes. Edit mode uses patch_note-only instruction when body is from history.
 	let noteContextOverride: {
 		noteBodyContext: string;
 		bodyIncluded: boolean;
 		diffStats?: { added: number; removed: number };
 	} | null = null;
 
-	if (
-		!noteBodyOmitted &&
-		noteContextInHistory &&
-		noteContextInHistory.noteId === noteId
-	) {
+	if (!noteBodyOmitted && noteContextInHistory && noteContextInHistory.noteId === noteId) {
 		const noteIdLine = noteId ? `Current note ID: ${noteId}\n` : '';
 
 		if (noteContextInHistory.noteBody === noteBody) {
@@ -429,12 +424,11 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 	const diffStats = noteContextOverride?.diffStats;
 
 	if (workMode === 'edit') {
-		const editHistoryNote =
-			noteContextOverride
-				? noteContextOverride.noteBodyContext.includes('[NOTE CHANGED]')
-					? '- The note has changed since your last view (diff provided below the rules). Use ONLY patch_note — do NOT call update_note, as you do not have the full current body.\n'
-					: '- The current note body is in your conversation history. Use ONLY patch_note — do NOT call update_note, as you do not have the complete current body to rewrite safely.\n'
-				: '';
+		const editHistoryNote = noteContextOverride
+			? noteContextOverride.diffStats != null
+				? '- The note has changed since your last view (diff provided below the rules). Use ONLY patch_note — do NOT call update_note, as you do not have the full current body.\n'
+				: '- The current note body is in your conversation history. Use ONLY patch_note — do NOT call update_note, as you do not have the complete current body to rewrite safely.\n'
+			: '';
 		const staticInstructions = `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
 The user's current note is provided below. The note is in Markdown format.
 
@@ -600,7 +594,7 @@ const runOpenAILoop = async (
 			: { role: 'user', content: userPrompt };
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const noteContextPair: any[] =
-		noteContext && noteContext.noteId === context.currentNoteId
+		noteContext && noteContext.noteId === context.currentNoteId && (context.workMode !== 'edit' || !promptParts.bodyIncluded)
 			? [
 					{
 						role: 'user',
@@ -685,7 +679,7 @@ const runClaudeLoop = async (
 			? { role: 'user', content: [...mediaParts, { type: 'text', text: userPrompt }] }
 			: { role: 'user', content: userPrompt };
 	const noteContextPair =
-		noteContext && noteContext.noteId === context.currentNoteId
+		noteContext && noteContext.noteId === context.currentNoteId && (context.workMode !== 'edit' || !promptParts.bodyIncluded)
 			? [
 					{
 						role: 'user' as const,
@@ -794,7 +788,7 @@ const runPerplexityLoop = async (
 		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch, context.kieApiKey);
 	const noteContextItems: PerplexityInputItem[] =
-		noteContext && noteContext.noteId === context.currentNoteId
+		noteContext && noteContext.noteId === context.currentNoteId && (context.workMode !== 'edit' || !promptParts.bodyIncluded)
 			? [
 					{
 						role: 'user',
@@ -864,7 +858,7 @@ const runSonarLoop = async (
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
 	const noteContextPair: SonarChatMessage[] =
-		noteContext && noteContext.noteId === context.currentNoteId
+		noteContext && noteContext.noteId === context.currentNoteId && (context.workMode !== 'edit' || !promptParts.bodyIncluded)
 			? [
 					{
 						role: 'user',
