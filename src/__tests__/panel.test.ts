@@ -185,6 +185,8 @@ describe('panel handleExecute', () => {
 			'Some existing content.',
 			expect.objectContaining({ currentNoteId: 'note-1', currentNoteTitle: 'Test Note' }),
 			undefined,
+			undefined,
+			undefined,
 		);
 	});
 
@@ -347,6 +349,8 @@ describe('panel handleExecute', () => {
 			'Some existing content.',
 			expect.objectContaining({ currentNoteId: 'note-1', currentNoteTitle: 'Test Note' }),
 			mockHistory,
+			undefined,
+			undefined,
 		);
 	});
 
@@ -368,6 +372,8 @@ describe('panel handleExecute', () => {
 			'Test Note',
 			'Some existing content.',
 			expect.objectContaining({ currentNoteId: 'note-1', currentNoteTitle: 'Test Note' }),
+			undefined,
+			undefined,
 			undefined,
 		);
 	});
@@ -410,6 +416,8 @@ describe('panel handleExecute', () => {
 				],
 			}),
 			undefined,
+			undefined,
+			undefined,
 		);
 	});
 
@@ -438,6 +446,8 @@ describe('panel handleExecute', () => {
 			expect.anything(),
 			expect.anything(),
 			expect.objectContaining({ notebooks: [] }),
+			undefined,
+			undefined,
 			undefined,
 		);
 	});
@@ -468,6 +478,8 @@ describe('panel handleExecute', () => {
 				currentNoteTitle: 'Test Note',
 				agentRolePrompt: 'You are a coding assistant',
 			}),
+			undefined,
+			undefined,
 			undefined,
 		);
 	});
@@ -606,6 +618,8 @@ describe('panel handleExecute', () => {
 				workMode: 'ask',
 			}),
 			undefined,
+			undefined,
+			undefined,
 		);
 	});
 
@@ -634,6 +648,8 @@ describe('panel handleExecute', () => {
 				workMode: 'edit',
 			}),
 			undefined,
+			undefined,
+			undefined,
 		);
 	});
 
@@ -660,6 +676,8 @@ describe('panel handleExecute', () => {
 			expect.objectContaining({
 				workMode: 'agent',
 			}),
+			undefined,
+			undefined,
 			undefined,
 		);
 	});
@@ -714,6 +732,8 @@ describe('panel handleExecute', () => {
 				],
 			}),
 			undefined,
+			undefined,
+			undefined,
 		);
 	});
 
@@ -738,6 +758,8 @@ describe('panel handleExecute', () => {
 			expect.anything(),
 			expect.anything(),
 			expect.objectContaining({ referencedNotes: [] }),
+			undefined,
+			undefined,
 			undefined,
 		);
 	});
@@ -841,6 +863,8 @@ describe('panel handleExecute', () => {
 				],
 			}),
 			undefined,
+			undefined,
+			undefined,
 		);
 	});
 
@@ -865,6 +889,8 @@ describe('panel handleExecute', () => {
 			expect.anything(),
 			expect.anything(),
 			expect.not.objectContaining({ attachedFiles: expect.anything() }),
+			undefined,
+			undefined,
 			undefined,
 		);
 	});
@@ -901,6 +927,8 @@ describe('panel handleExecute', () => {
 					expect.objectContaining({ name: 'file2.json' }),
 				]),
 			}),
+			undefined,
+			undefined,
 			undefined,
 		);
 	});
@@ -1261,7 +1289,40 @@ describe('panel handleExecute', () => {
 				currentNoteTitle: 'Original Note',
 			}),
 			undefined,
+			undefined,
+			undefined,
 		);
+	});
+
+	it('sends noteContextUpdate to webview after successful AI response', async () => {
+		const mockedSendToAI = require('../ai/service').sendToAI as jest.MockedFunction<any>;
+		mockedSendToAI.mockResolvedValueOnce({
+			content: 'AI response',
+			isEdit: false,
+			actions: [],
+			costUsd: 0.001,
+			usage: { inputTokens: 10, outputTokens: 5 },
+		});
+		mockPostMessage.mockClear();
+
+		await capturedOnMessageCallback({
+			type: 'execute',
+			prompt: 'test',
+			history: [],
+			workMode: 'ask',
+			noteContext: { noteId: 'note-1', noteTitle: 'Test', noteBody: 'body' },
+		});
+
+		const contextUpdates = mockPostMessage.mock.calls.filter(
+			(c: any[]) => c[1]?.type === 'noteContextUpdate',
+		);
+		expect(contextUpdates.length).toBeGreaterThan(0);
+		expect(contextUpdates[0][1]).toMatchObject({
+			type: 'noteContextUpdate',
+			noteId: expect.any(String),
+			noteTitle: expect.any(String),
+			noteBody: expect.any(String),
+		});
 	});
 
 	it('does not call selectedNote when noteId is provided in execute message', async () => {
@@ -1344,6 +1405,8 @@ describe('editor selection as AI context', () => {
 				selectionText: 'selected fragment',
 			}),
 			undefined,
+			undefined,
+			undefined,
 		);
 	});
 
@@ -1367,6 +1430,8 @@ describe('editor selection as AI context', () => {
 			'Full note body with lots of content.',
 			expect.objectContaining({ currentNoteId: 'note-1' }),
 			undefined,
+			undefined,
+			undefined,
 		);
 	});
 
@@ -1389,6 +1454,8 @@ describe('editor selection as AI context', () => {
 			'Test Note',
 			'Full note body with lots of content.',
 			expect.objectContaining({ currentNoteId: 'note-1' }),
+			undefined,
+			undefined,
 			undefined,
 		);
 	});
@@ -1506,6 +1573,8 @@ describe('editor selection as AI context', () => {
 			'Test Note',
 			'Full note body with lots of content.',
 			expect.objectContaining({ currentNoteId: 'note-1' }),
+			undefined,
+			undefined,
 			undefined,
 		);
 	});

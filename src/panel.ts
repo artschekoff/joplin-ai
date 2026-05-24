@@ -12,7 +12,7 @@ import {
 } from './settings';
 import { sendToAI, buildSystemPromptParts } from './ai/service';
 import { isPerplexityNativeModel } from './ai/perplexity';
-import { AIProvider, AgentRole, AIActionOutcome, ChatMessage, WorkMode } from './ai/types';
+import { AIProvider, AgentRole, AIActionOutcome, ChatMessage, WorkMode, NoteContextSnapshot } from './ai/types';
 import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
@@ -25,9 +25,6 @@ let chatPanelVisible = false;
 let editorSelection = '';
 let activeRequestId = 0;
 
-/** Track the last note body sent to AI to enable diff-based optimization. */
-let lastSentNoteId: string | null = null;
-let lastSentNoteBody: string | null = null;
 const progressiveApplyRuns = new Map<string, number>();
 
 const SQLITE_RETRY_MAX = 3;
@@ -291,7 +288,6 @@ const applyNoteBodyProgressively = async (
 		if (currentBody !== nextBody) {
 			await joplin.data.put(['notes', noteId], null, { body: nextBody });
 			lastObservedBody = nextBody;
-			lastSentNoteBody = nextBody;
 			const selectedNote = await joplin.workspace.selectedNote();
 			if (selectedNote?.id === noteId) {
 				await sendNoteInfo(handle);
@@ -553,6 +549,7 @@ const handleExecute = async (
 	workMode?: WorkMode,
 	attachedFiles?: AttachedFile[],
 	noteId?: string,
+	noteContext?: NoteContextSnapshot,
 	onError?: (message: string) => void,
 	suppressPendingEdits?: boolean,
 ) => {
@@ -660,8 +657,6 @@ const handleExecute = async (
 			isSelection: hasSelection || undefined,
 			selectionText: hasSelection ? editorSelection : undefined,
 		};
-		const previousNoteBody =
-			lastSentNoteId === note.id ? (lastSentNoteBody ?? undefined) : undefined;
 		context.onBodyDecision = (included: boolean) => {
 			if (included) {
 				const charCount = hasSelection ? editorSelection.trim().length : note.body.length;
@@ -672,6 +667,14 @@ const handleExecute = async (
 				});
 			}
 		};
+		context.onDiffSent = (added: number, removed: number) => {
+			joplin.views.panels.postMessage(handle, {
+				type: 'noteDiffSent',
+				noteTitle: note.title,
+				added,
+				removed,
+			});
+		};
 		const response = await sendToAI(
 			config.provider,
 			config.apiKey,
@@ -681,10 +684,10 @@ const handleExecute = async (
 			note.body,
 			context,
 			history,
+			undefined,
+			noteContext,
 		);
 		if (myRequestId !== activeRequestId) return;
-		lastSentNoteId = note.id;
-		lastSentNoteBody = note.body;
 		sendResult(
 			handle,
 			{ ...response, pendingEdits: collectedEdits.length > 0 ? collectedEdits : undefined },
@@ -700,21 +703,25 @@ const handleExecute = async (
 			history: history ?? [],
 			userPrompt: cleanPrompt,
 			model: config.model,
-			previousNoteBody,
+			previousNoteBody: noteContext?.noteBody,
 		});
+		let finalNoteBody = note.body;
 		if (response.isEdit && collectedEdits.length === 0) {
-			// Note was updated by AI — reload to get the new body for future diff snapshots
+			// AI modified the note — reload to get the post-edit body
 			const updatedNote = noteId ? await getNoteById(noteId) : await getCurrentNote();
 			if (updatedNote && updatedNote.id === note.id) {
-				lastSentNoteBody = updatedNote.body;
+				finalNoteBody = updatedNote.body;
 			}
 			await sendNoteInfo(handle);
 		}
+		joplin.views.panels.postMessage(handle, {
+			type: 'noteContextUpdate',
+			noteId: note.id,
+			noteTitle: note.title,
+			noteBody: finalNoteBody,
+		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		// Clear snapshot on error to avoid stale diff state
-		lastSentNoteId = null;
-		lastSentNoteBody = null;
 		if (onError) {
 			onError(message);
 		} else {
@@ -729,8 +736,6 @@ const handleExecute = async (
 export const initPanel = async () => {
 	chatPanelVisible = false;
 	editorSelection = '';
-	lastSentNoteId = null;
-	lastSentNoteBody = null;
 
 	chatPanelHandle = await joplin.views.panels.create('aiChatPanel');
 	await joplin.views.panels.setHtml(chatPanelHandle, CHAT_PANEL_HTML);
@@ -760,6 +765,7 @@ export const initPanel = async () => {
 				message.workMode as WorkMode | undefined,
 				message.attachedFiles as AttachedFile[] | undefined,
 				message.noteId as string | undefined,
+				message.noteContext as NoteContextSnapshot | undefined,
 			);
 		}
 
@@ -882,6 +888,7 @@ export const executeWithSelection = async (text: string, prompt: string): Promis
 		'edit',
 		undefined,
 		undefined,
+		undefined,  // noteContext
 		async (errMsg) => {
 			try {
 				await safeSetValue(
