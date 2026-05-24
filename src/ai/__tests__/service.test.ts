@@ -1144,7 +1144,7 @@ describe('buildSystemPromptParts with noteContextInHistory', () => {
 		expect(parts.noteBodyContext).toContain('[NOTE CHANGED]');
 	});
 
-	it('includes full body in edit mode even when unchanged', () => {
+	it('skips full body in edit mode when note is unchanged (optimization enabled)', () => {
 		const parts = buildSystemPromptParts({
 			noteTitle: 'My Note',
 			noteId: 'note-1',
@@ -1152,8 +1152,8 @@ describe('buildSystemPromptParts with noteContextInHistory', () => {
 			noteContextInHistory: snapshot,
 			workMode: 'edit',
 		});
-		expect(parts.bodyIncluded).toBe(true);
-		expect(parts.noteBodyContext).toContain('Original content');
+		expect(parts.bodyIncluded).toBe(false);
+		expect(parts.noteBodyContext).toContain('conversation context');
 	});
 
 	it('sends full body when noteId differs', () => {
@@ -3158,5 +3158,64 @@ describe('noteContextOverride with LLM-friendly diff', () => {
 		expect(parts.diffStats).toBeDefined();
 		expect(parts.diffStats!.removed).toBe(11);
 		expect(parts.diffStats!.added).toBe(14);
+	});
+});
+
+describe('note-context optimization in edit mode', () => {
+	it('noteContextOverride is active in edit mode when note unchanged', () => {
+		const body = '## Title\nSome content\n';
+		const parts = buildSystemPromptParts({
+			noteTitle: 'Note',
+			noteId: 'n1',
+			noteBody: body,
+			workMode: 'edit',
+			noteContextInHistory: { noteId: 'n1', noteTitle: 'Note', noteBody: body },
+		});
+		expect(parts.bodyIncluded).toBe(false);
+		expect(parts.noteBodyContext).toContain('conversation context');
+	});
+
+	it('static instructions warn to use only patch_note when body is in history (edit mode)', () => {
+		const body = '## Title\nSome content\n';
+		const parts = buildSystemPromptParts({
+			noteTitle: 'Note',
+			noteId: 'n1',
+			noteBody: body,
+			workMode: 'edit',
+			noteContextInHistory: { noteId: 'n1', noteTitle: 'Note', noteBody: body },
+		});
+		const full = parts.staticInstructions + parts.noteBodyContext + parts.dynamicContext;
+		expect(full).toMatch(/patch_note/);
+		expect(full).toMatch(/do NOT call update_note/i);
+	});
+
+	it('sends diff in edit mode when note changed slightly', () => {
+		const oldBody = '## Section\nOriginal line\n';
+		const newBody = '## Section\nModified line\n';
+		const parts = buildSystemPromptParts({
+			noteTitle: 'Note',
+			noteId: 'n1',
+			noteBody: newBody,
+			workMode: 'edit',
+			noteContextInHistory: { noteId: 'n1', noteTitle: 'Note', noteBody: oldBody },
+		});
+		expect(parts.bodyIncluded).toBe(false);
+		expect(parts.noteBodyContext).toContain('[NOTE CHANGED]');
+		expect(parts.noteBodyContext).toContain('-Original line');
+		expect(parts.noteBodyContext).toContain('+Modified line');
+	});
+
+	it('falls back to full body in edit mode when diff is too large', () => {
+		const oldBody = 'Short';
+		const newBody = 'A completely different and very long note '.repeat(100);
+		const parts = buildSystemPromptParts({
+			noteTitle: 'Note',
+			noteId: 'n1',
+			noteBody: newBody,
+			workMode: 'edit',
+			noteContextInHistory: { noteId: 'n1', noteTitle: 'Note', noteBody: oldBody },
+		});
+		expect(parts.bodyIncluded).toBe(true);
+		expect(parts.noteBodyContext).not.toContain('[NOTE CHANGED]');
 	});
 });

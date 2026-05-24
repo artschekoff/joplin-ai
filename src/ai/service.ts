@@ -360,8 +360,7 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 	if (
 		!noteBodyOmitted &&
 		noteContextInHistory &&
-		noteContextInHistory.noteId === noteId &&
-		workMode !== 'edit'
+		noteContextInHistory.noteId === noteId
 	) {
 		const noteIdLine = noteId ? `Current note ID: ${noteId}\n` : '';
 
@@ -430,6 +429,12 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 	const diffStats = noteContextOverride?.diffStats;
 
 	if (workMode === 'edit') {
+		const editHistoryNote =
+			noteContextOverride
+				? noteContextOverride.noteBodyContext.includes('[NOTE CHANGED]')
+					? '- The note has changed since your last view (diff provided below the rules). Use ONLY patch_note — do NOT call update_note, as you do not have the full current body.\n'
+					: '- The current note body is in your conversation history. Use ONLY patch_note — do NOT call update_note, as you do not have the complete current body to rewrite safely.\n'
+				: '';
 		const staticInstructions = `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
 The user's current note is provided below. The note is in Markdown format.
 
@@ -459,7 +464,7 @@ EDIT MODE RULES:
 - Use update_note only for complete note rewrites.
 - Apply changes immediately without asking for confirmation or clarifying questions. Make your best judgment and act.
 - Do NOT change the note title. The title is protected in Edit mode — only the body can be modified.
-${selectionRulesBlock}`;
+${editHistoryNote}${selectionRulesBlock}`;
 		const dynamicContext = `${referencedSection}${attachedSection}`;
 		return { staticInstructions, noteBodyContext, dynamicContext, bodyIncluded, diffStats };
 	}
@@ -595,7 +600,7 @@ const runOpenAILoop = async (
 			: { role: 'user', content: userPrompt };
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const noteContextPair: any[] =
-		noteContext && noteContext.noteId === context.currentNoteId && context.workMode !== 'edit'
+		noteContext && noteContext.noteId === context.currentNoteId
 			? [
 					{
 						role: 'user',
@@ -680,7 +685,7 @@ const runClaudeLoop = async (
 			? { role: 'user', content: [...mediaParts, { type: 'text', text: userPrompt }] }
 			: { role: 'user', content: userPrompt };
 	const noteContextPair =
-		noteContext && noteContext.noteId === context.currentNoteId && context.workMode !== 'edit'
+		noteContext && noteContext.noteId === context.currentNoteId
 			? [
 					{
 						role: 'user' as const,
@@ -789,7 +794,7 @@ const runPerplexityLoop = async (
 		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch, context.kieApiKey);
 	const noteContextItems: PerplexityInputItem[] =
-		noteContext && noteContext.noteId === context.currentNoteId && context.workMode !== 'edit'
+		noteContext && noteContext.noteId === context.currentNoteId
 			? [
 					{
 						role: 'user',
@@ -859,7 +864,7 @@ const runSonarLoop = async (
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
 	const noteContextPair: SonarChatMessage[] =
-		noteContext && noteContext.noteId === context.currentNoteId && context.workMode !== 'edit'
+		noteContext && noteContext.noteId === context.currentNoteId
 			? [
 					{
 						role: 'user',
