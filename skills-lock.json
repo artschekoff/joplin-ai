@@ -1,0 +1,208 @@
+{
+  "version": 1,
+  "skills": {
+    "ca-add-skill": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-add-skill/SKILL.md",
+      "computedHash": "1b40bd669b33234fbb54947c10907f1806584f485ba60ccd8d7203181a54af7f"
+    },
+    "ca-add-tests": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-add-tests/SKILL.md",
+      "computedHash": "38bbc40fd6d1de1c8db36337bc0d0e86bf26af950e018c4fa2b0573ed7b5a593"
+    },
+    "ca-api-smoke-test": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-api-smoke-test/SKILL.md",
+      "computedHash": "037d6163b84cdb2f4da871beca14013001b804d6fe3147b258bbc164c0182dab"
+    },
+    "ca-check-breaking-changes": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-check-breaking-changes/SKILL.md",
+      "computedHash": "7e64ac18e319d2d485b4e82321d7d66dffe0ed97f221827737e0dd5646fb84a8"
+    },
+    "ca-check-pr-review": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-check-pr-review/SKILL.md",
+      "computedHash": "d1b7355ca5fb768ed8d32cf72ed885a08346b93218fe4bf713c385a4230c3d97"
+    },
+    "ca-coding-standards": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-coding-standards/SKILL.md",
+      "computedHash": "bf057c5d8279edcf43788227e006e0c052f98c090acbf7b44a6645abc0124674"
+    },
+    "ca-commit": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-commit/SKILL.md",
+      "computedHash": "cf02276ed7adfa2f8ba8d92d7a08efb103555fb9bec46045921d1a7a773b9e7a"
+    },
+    "ca-create-docs": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-create-docs/SKILL.md",
+      "computedHash": "a56ce8410b0fee0e15ddab727d03f3e7da48922895c9b1a41d9c34305721fda5"
+    },
+    "ca-create-pr": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-create-pr/SKILL.md",
+      "computedHash": "a3f351009b604c8183c4f82eacf147b86e7a74719c6ebdcee56f63cd68e9f9cf"
+    },
+    "ca-doc-writer": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-doc-writer/SKILL.md",
+      "computedHash": "8e879319e753a28c4609eda67e5065258624f88b407ca93c4eefffe308e56a5e"
+    },
+    "ca-feature-creator": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-feature-creator/SKILL.md",
+      "computedHash": "cc082658388ce65953e33e25ccaeeedb39f029988fd084a98e49255f910c8471"
+    },
+    "ca-generate-tester-doc": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-generate-tester-doc/SKILL.md",
+      "computedHash": "b212e994eba2d362af33a6331a8ea24f4f771b4bcb98d9e49e0545bbafa07e5d"
+    },
+    "ca-init-project": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-init-project/SKILL.md",
+      "computedHash": "a838e85c66e767d8407c3b4a5de4bb82ad0d762927f1211bc603f50adbad5e8a"
+    },
+    "ca-load-context": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-load-context/SKILL.md",
+      "computedHash": "e362f0487b45060f75c0440bf018c071daa447968948d58cf99ec1050966aa11"
+    },
+    "ca-malware-scan": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-malware-scan/SKILL.md",
+      "skillFolderHash": "a4c43f1ce05c5ee9b8621a660897ca1d1869e720",
+      "computedHash": "24c23de60c04d0aa99f0da912bee8c95777de8053fac39488acf0be873245770"
+    },
+    "ca-merge-all-prs": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-merge-all-prs/SKILL.md",
+      "skillFolderHash": "916c2906e28ea1f65bda01a6081bd5b604f34886",
+      "computedHash": "8ef615c515ef143f1ff821446eb99e8a137f7892cb13cd8ac956648b961ee789"
+    },
+    "ca-merge-pr": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-merge-pr/SKILL.md",
+      "skillFolderHash": "3f540e0c7b5cd19a8f77b47804801b8feb06d1c3",
+      "computedHash": "4775bde7e06ab966e6acf93dae0e45813bc45e6776bb8fbccf915d651733de85"
+    },
+    "ca-optimize-prompt": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-optimize-prompt/SKILL.md",
+      "skillFolderHash": "a0a0264e5c91b9c4632098cfcf11d8ccdeb54606",
+      "computedHash": "fc95faf9b19053093bac98c73f080946b4284db5a5cf65536744655938eb2e1c"
+    },
+    "ca-plan-feature": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-plan-feature/SKILL.md",
+      "skillFolderHash": "f4d1a577b91360568c02fd4c41c1631a5ba81d67",
+      "computedHash": "c38386900d257e380ff3cea62d548ac9ffbb560268c79a4aae67b7ecb4595bf0"
+    },
+    "ca-playwright-xpath-mapper": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-playwright-xpath-mapper/SKILL.md",
+      "skillFolderHash": "30f3a8dca18e35373cfe6b3a95d9d86c81393b52",
+      "computedHash": "1166b75ad9c98a09b1ea5fb8cf005728109a1c819f1b16a9b397b112295829d5"
+    },
+    "ca-prime": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-prime/SKILL.md",
+      "skillFolderHash": "d7da46293190ad87c17fcb99654f39f8d894cb55",
+      "computedHash": "9e0eb79f1a21e9213d35c8c04124325a7cf81fc2627ae4352ddf12aa2cfe4892"
+    },
+    "ca-project-context": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-project-context/SKILL.md",
+      "skillFolderHash": "704e8d60c64b1e134a738f3e2e012674f198c493",
+      "computedHash": "86621840301b7e57d52eb32ee281e0976517acdd0d176c5fd15a01952a9aebb7"
+    },
+    "ca-rdbms-review": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-rdbms-review/SKILL.md",
+      "skillFolderHash": "c4d059de1a7479171a4d129213d33ea056bc9547",
+      "computedHash": "cc2ac679667be0f8ac7348bc25a089b6d90057dad9620feda1d59367e4d3e340"
+    },
+    "ca-release-helper": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-release-helper/SKILL.md",
+      "skillFolderHash": "e74791d4b6818a6412da1c5dbf5cc437626dd5e5",
+      "computedHash": "2fd02ad952513680e2c9266fb174e584023415934f4b55910a6a71b5425ad309"
+    },
+    "ca-review": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-review/SKILL.md",
+      "skillFolderHash": "85bc3ac503f6b98f7b39b14b05703b1fef45ed83",
+      "computedHash": "d2553074add11883146377a95831a9d667c8a2329a9c3e4708c42ead5877c185"
+    },
+    "ca-review-pr": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-review-pr/SKILL.md",
+      "skillFolderHash": "46933c8fe9c30634c24baa468b9543aa09f54fcd",
+      "computedHash": "8673871ad5c72a2eecb12d94fe9c6c4e72f69b0c869def64392bf3670f4ebaf5"
+    },
+    "ca-run-tdd": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-run-tdd/SKILL.md",
+      "skillFolderHash": "d1b9db011032a51f1aa6c478cd731cf0760623d4",
+      "computedHash": "8779f34516336cf6f9e2b8ebf0fb428612f89fe3ffd199e248254bd8b1e07767"
+    },
+    "ca-seo-geo-optimization": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-seo-geo-optimization/SKILL.md",
+      "skillFolderHash": "863212e8760ec00f723d6e49c1ebdb6ba498c636",
+      "computedHash": "70cd7ff348db918e167035886dde6ae2abb1bb14465675c645c55aa40608ac8b"
+    },
+    "ca-snyk-check": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-snyk-check/SKILL.md",
+      "skillFolderHash": "4349c65d21e4a201f29346b8e1e772900e5e9588",
+      "computedHash": "26405b7773eda61ae6aa7903783518896e25d9bbf2fc77ca6f52281abd763f33"
+    },
+    "ca-test-creator": {
+      "source": "artschekoff/ca-rules",
+      "sourceType": "github",
+      "skillPath": "base/skills/ca-test-creator/SKILL.md",
+      "skillFolderHash": "d2fc41064171c0a18c26fa7c6c9414b4b0e0f397",
+      "computedHash": "1b4e25e90639e0fed416d215b74cc3d9d2727088c536e7133b8d7d0fbc927945"
+    },
+    "ccc": {
+      "source": "cocoindex-io/cocoindex-code",
+      "sourceType": "github",
+      "skillPath": "skills/ccc/SKILL.md",
+      "skillFolderHash": "73284474fe78bcc766ec69bc2fda91dbef0d6ca2",
+      "computedHash": "485211ec7ef033f784261d1dba56770fea20163aebdd482950e8d4878b74c6b2"
+    }
+  }
+}

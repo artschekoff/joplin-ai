@@ -680,11 +680,7 @@ const runClaudeLoop = async (
 		// the first tool-call round so the AI can still reference them after calling get_note.
 		const effectiveUserMsg = round > 1 && mediaParts.length > 0 ? userMessageTextOnly : userMessage;
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const sendMessages: any[] = [
-			...historyMessages,
-			effectiveUserMsg,
-			...toolRoundMsgs,
-		];
+		const sendMessages: any[] = [...historyMessages, effectiveUserMsg, ...toolRoundMsgs];
 		const response = await streamClaudeMessages(
 			apiKey,
 			model,
@@ -724,11 +720,7 @@ const runClaudeLoop = async (
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const finalSendMessages: any[] = [
-		...historyMessages,
-		userMessageTextOnly,
-		...toolRoundMsgs,
-	];
+	const finalSendMessages: any[] = [...historyMessages, userMessageTextOnly, ...toolRoundMsgs];
 	const finalResponse = await streamClaudeMessages(
 		apiKey,
 		model,
@@ -761,9 +753,7 @@ const runPerplexityLoop = async (
 		content: m.content,
 	}));
 	let input: string | PerplexityInputItem[] =
-		historyItems.length > 0
-			? [...historyItems, { role: 'user', content: userPrompt }]
-			: userPrompt;
+		historyItems.length > 0 ? [...historyItems, { role: 'user', content: userPrompt }] : userPrompt;
 	const allOutcomes: AIActionOutcome[] = [];
 	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 

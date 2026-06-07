@@ -3211,7 +3211,10 @@ describe('buildSystemPrompt with noteBodyOmitted', () => {
 });
 
 describe('loops — noteContextPair not injected (body always in system prompt)', () => {
-	const history: ChatMessage[] = [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' }];
+	const history: ChatMessage[] = [
+		{ role: 'user', content: 'hello' },
+		{ role: 'assistant', content: 'hi' },
+	];
 	const noteCtx: NoteContextSnapshot = {
 		noteId: 'n1',
 		noteTitle: 'Test Note',
@@ -3231,10 +3234,16 @@ describe('loops — noteContextPair not injected (body always in system prompt)'
 			usage: { inputTokens: 10, outputTokens: 5 },
 		});
 		await sendToAI(
-			'claude', 'sk-ant-test', 'claude-sonnet-4-6', 'user question',
-			'Test Note', 'Body content\n',
+			'claude',
+			'sk-ant-test',
+			'claude-sonnet-4-6',
+			'user question',
+			'Test Note',
+			'Body content\n',
 			{ currentNoteId: 'n1', currentNoteTitle: 'Test Note', workMode: 'ask' },
-			history, undefined, noteCtx,
+			history,
+			undefined,
+			noteCtx,
 		);
 		const messages = mockedStreamClaude.mock.calls[0][3] as any[];
 		const hasNoteContext = messages.some(
@@ -3254,10 +3263,16 @@ describe('loops — noteContextPair not injected (body always in system prompt)'
 			usage: { inputTokens: 10, outputTokens: 5 },
 		});
 		await sendToAI(
-			'openai', 'sk-test', 'gpt-4o', 'user question',
-			'Test Note', 'Body content\n',
+			'openai',
+			'sk-test',
+			'gpt-4o',
+			'user question',
+			'Test Note',
+			'Body content\n',
 			{ currentNoteId: 'n1', currentNoteTitle: 'Test Note', workMode: 'ask' },
-			history, undefined, noteCtx,
+			history,
+			undefined,
+			noteCtx,
 		);
 		const messages = mockedStreamOpenAI.mock.calls[0][2] as any[];
 		const hasNoteContext = messages.some(
