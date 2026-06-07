@@ -1295,7 +1295,6 @@ describe('panel handleExecute', () => {
 	});
 
 	it('sends noteContextUpdate to webview after successful AI response', async () => {
-		const mockedSendToAI = require('../ai/service').sendToAI as jest.MockedFunction<any>;
 		mockedSendToAI.mockResolvedValueOnce({
 			content: 'AI response',
 			isEdit: false,
