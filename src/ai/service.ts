@@ -358,27 +358,24 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 
 	const isSelectionOnlyMode = isSelection && !!selectionText && workMode === 'edit';
 
-	if (!noteBodyOmitted && noteContextInHistory && noteContextInHistory.noteId === noteId && !isSelectionOnlyMode) {
+	if (
+		!noteBodyOmitted &&
+		noteContextInHistory &&
+		noteContextInHistory.noteId === noteId &&
+		!isSelectionOnlyMode
+	) {
 		const noteIdLine = noteId ? `Current note ID: ${noteId}\n` : '';
 
-		if (noteContextInHistory.noteBody === noteBody) {
-			// Unchanged — AI already has it in history
+		const diffText = generateLLMFriendlyDiff(noteContextInHistory.noteBody, noteBody);
+		if (diffText.length > 0 && diffText.length <= Math.max(noteBody.length * 0.5, 200)) {
+			const { added, removed } = countDiffChars(diffText);
 			noteContextOverride = {
-				noteBodyContext: `\nCurrent note title: ${noteTitle}\n${noteIdLine}The note content was provided at the start of this conversation. Refer to your conversation context.\n`,
+				noteBodyContext: `\nCurrent note title: ${noteTitle}\n${noteIdLine}[NOTE CHANGED]\nThe note has changed since the start of this conversation. Apply these changes to your memory:\n\n${diffText}\n`,
 				bodyIncluded: false,
+				diffStats: { added, removed },
 			};
-		} else {
-			const diffText = generateLLMFriendlyDiff(noteContextInHistory.noteBody, noteBody);
-			if (diffText.length > 0 && diffText.length <= Math.max(noteBody.length * 0.5, 200)) {
-				const { added, removed } = countDiffChars(diffText);
-				noteContextOverride = {
-					noteBodyContext: `\nCurrent note title: ${noteTitle}\n${noteIdLine}[NOTE CHANGED]\nThe note has changed since the start of this conversation. Apply these changes to your memory:\n\n${diffText}\n`,
-					bodyIncluded: false,
-					diffStats: { added, removed },
-				};
-			}
-			// else: diff too large → fall through to full body
 		}
+		// else: no change or diff too large → body stays in system prompt normally
 	}
 
 	const {
@@ -427,9 +424,7 @@ export const buildSystemPromptParts = (options: BuildSystemPromptOptions): Syste
 
 	if (workMode === 'edit') {
 		const editHistoryNote = noteContextOverride
-			? noteContextOverride.diffStats != null
-				? '- The note has changed since your last view (diff provided below the rules). Use ONLY patch_note — do NOT call update_note, as you do not have the full current body.\n'
-				: '- The current note body is in your conversation history. Use ONLY patch_note — do NOT call update_note, as you do not have the complete current body to rewrite safely.\n'
+			? '- The note has changed since your last view (diff provided below). Use ONLY patch_note — do NOT call update_note, as you do not have the full current body.\n'
 			: '';
 		const staticInstructions = `${roleSection}${modeSection}You are an AI assistant integrated into the Joplin note editor.
 The user's current note is provided below. The note is in Markdown format.
@@ -620,7 +615,7 @@ const runOpenAILoop = async (
 	const toolRoundMsgs: any[] = [];
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		const effectiveUserMsg = round > 0 && mediaParts.length > 0 ? userMessageTextOnly : userMessage;
+		const effectiveUserMsg = round > 1 && mediaParts.length > 0 ? userMessageTextOnly : userMessage;
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const sendMessages: any[] = [
 			...systemMsgs,
@@ -710,9 +705,9 @@ const runClaudeLoop = async (
 	const toolRoundMsgs: any[] = [];
 
 	for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-		// Drop base64 media from the user message on follow-up rounds — Claude already saw the
-		// images in round 0; re-sending them wastes tokens and shrinks the output budget.
-		const effectiveUserMsg = round > 0 && mediaParts.length > 0 ? userMessageTextOnly : userMessage;
+		// Drop base64 media from the user message after round 1 — images remain available through
+		// the first tool-call round so the AI can still reference them after calling get_note.
+		const effectiveUserMsg = round > 1 && mediaParts.length > 0 ? userMessageTextOnly : userMessage;
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const sendMessages: any[] = [
 			...noteContextPair,

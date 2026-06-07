@@ -1152,7 +1152,7 @@ describe('buildSystemPromptParts with noteContextInHistory', () => {
 		noteBody: 'Original content\nLine two\n',
 	};
 
-	it('omits body when note unchanged (ask mode)', () => {
+	it('body stays in system prompt when note unchanged (ask mode)', () => {
 		const parts = buildSystemPromptParts({
 			noteTitle: 'My Note',
 			noteId: 'note-1',
@@ -1160,10 +1160,10 @@ describe('buildSystemPromptParts with noteContextInHistory', () => {
 			noteContextInHistory: snapshot,
 			workMode: 'ask',
 		});
-		expect(parts.bodyIncluded).toBe(false);
+		expect(parts.bodyIncluded).toBe(true);
 		expect(parts.diffStats).toBeUndefined();
-		expect(parts.noteBodyContext).not.toContain('Original content');
-		expect(parts.noteBodyContext).toContain('conversation context');
+		expect(parts.noteBodyContext).toContain('Original content');
+		expect(parts.noteBodyContext).not.toContain('conversation context');
 	});
 
 	it('sends diff when note changed (small diff, ask mode)', () => {
@@ -1180,7 +1180,7 @@ describe('buildSystemPromptParts with noteContextInHistory', () => {
 		expect(parts.noteBodyContext).toContain('[NOTE CHANGED]');
 	});
 
-	it('skips full body in edit mode when note is unchanged (optimization enabled)', () => {
+	it('body stays in system prompt when note unchanged (edit mode)', () => {
 		const parts = buildSystemPromptParts({
 			noteTitle: 'My Note',
 			noteId: 'note-1',
@@ -1188,8 +1188,9 @@ describe('buildSystemPromptParts with noteContextInHistory', () => {
 			noteContextInHistory: snapshot,
 			workMode: 'edit',
 		});
-		expect(parts.bodyIncluded).toBe(false);
-		expect(parts.noteBodyContext).toContain('conversation context');
+		expect(parts.bodyIncluded).toBe(true);
+		expect(parts.noteBodyContext).toContain('Original content');
+		expect(parts.noteBodyContext).not.toContain('conversation context');
 	});
 
 	it('sends full body when noteId differs', () => {
@@ -1213,6 +1214,35 @@ describe('buildSystemPromptParts with noteContextInHistory', () => {
 		});
 		expect(parts.bodyIncluded).toBe(true);
 		expect(parts.noteBodyContext).toContain('Original content');
+	});
+
+	it('keeps full body in system prompt when note is unchanged (ask mode)', () => {
+		const body = 'Original content\nLine two\n';
+		const parts = buildSystemPromptParts({
+			noteTitle: 'My Note',
+			noteId: 'note-1',
+			noteBody: body,
+			noteContextInHistory: { noteId: 'note-1', noteTitle: 'My Note', noteBody: body },
+			workMode: 'ask',
+		});
+		expect(parts.bodyIncluded).toBe(true);
+		expect(parts.noteBodyContext).toContain('Original content');
+		expect(parts.noteBodyContext).not.toContain('conversation context');
+		expect(parts.noteBodyContext).not.toContain('previously shown');
+	});
+
+	it('keeps full body in system prompt when note is unchanged (edit mode)', () => {
+		const body = '## Title\nSome content\n';
+		const parts = buildSystemPromptParts({
+			noteTitle: 'Note',
+			noteId: 'n1',
+			noteBody: body,
+			workMode: 'edit',
+			noteContextInHistory: { noteId: 'n1', noteTitle: 'Note', noteBody: body },
+		});
+		expect(parts.bodyIncluded).toBe(true);
+		expect(parts.noteBodyContext).toContain('Some content');
+		expect(parts.noteBodyContext).not.toContain('conversation context');
 	});
 });
 
@@ -1869,6 +1899,105 @@ describe('sendToAI', () => {
 			expect(userMsg.role).toBe('user');
 			expect(typeof userMsg.content).toBe('string');
 			expect(userMsg.content).toBe('hello');
+		});
+	});
+
+	describe('image visibility after tool-call round', () => {
+		const imageFile = {
+			name: 'screenshot.png',
+			content: '',
+			mimeType: 'image/png',
+			size: 1000,
+			base64Data: 'iVBORw0KGgo=',
+		};
+
+		it('keeps images in round 1 user message for OpenAI when AI called get_note in round 0', async () => {
+			mockedStreamOpenAI
+				.mockResolvedValueOnce({
+					textContent: null,
+					toolCalls: [{ id: 'tc_1', name: 'get_note', args: { noteId: 'n1' } }],
+					finishReason: 'tool_calls',
+					rawAssistantMessage: { content: null, tool_calls: [] },
+				})
+				.mockResolvedValueOnce({
+					textContent: 'I can see the screenshot.',
+					toolCalls: [],
+					finishReason: 'stop',
+					rawAssistantMessage: { content: 'I can see the screenshot.' },
+				});
+
+			mockedExecuteAction.mockResolvedValue({
+				success: true,
+				message: 'Read note "Title"',
+				data: { id: 'n1', title: 'Title', body: 'note body' },
+			});
+
+			await sendToAI('openai', 'sk-test', 'gpt-4o', 'describe this image', 'Title', 'Body', {
+				currentNoteId: 'n1',
+				currentNoteTitle: 'Title',
+				attachedFiles: [imageFile],
+			});
+
+			// round 1 call — images must still be present (not stripped)
+			const round1Messages = mockedStreamOpenAI.mock.calls[1][2];
+			const userMsg = round1Messages.find((m: { role: string }) => m.role === 'user' && m !== round1Messages[round1Messages.length - 1] || m.role === 'user');
+			// find the original user message (has image content)
+			const userMsgs = round1Messages.filter((m: { role: string }) => m.role === 'user');
+			// the effectiveUserMsg is the first user message (before tool round messages)
+			const effectiveMsg = userMsgs[0];
+			expect(Array.isArray(effectiveMsg.content)).toBe(true);
+			expect(effectiveMsg.content).toEqual(
+				expect.arrayContaining([expect.objectContaining({ type: 'image_url' })]),
+			);
+		});
+
+		it('keeps images in round 1 user message for Claude when AI called get_note in round 0', async () => {
+			mockedStreamClaude
+				.mockResolvedValueOnce({
+					textContent: null,
+					toolCalls: [{ id: 'tc_1', name: 'get_note', args: { noteId: 'n1' } }],
+					finishReason: 'tool_use',
+					rawAssistantMessage: {
+						role: 'assistant',
+						content: [{ type: 'tool_use', id: 'tc_1', name: 'get_note', input: { noteId: 'n1' } }],
+					},
+				})
+				.mockResolvedValueOnce({
+					textContent: 'I can see the screenshot.',
+					toolCalls: [],
+					finishReason: 'end_turn',
+					rawAssistantMessage: { role: 'assistant', content: [] },
+				});
+
+			mockedExecuteAction.mockResolvedValue({
+				success: true,
+				message: 'Read note "Title"',
+				data: { id: 'n1', title: 'Title', body: 'note body' },
+			});
+
+			await sendToAI(
+				'claude',
+				'sk-ant-test',
+				'claude-sonnet-4-6',
+				'describe this image',
+				'Title',
+				'Body',
+				{
+					currentNoteId: 'n1',
+					currentNoteTitle: 'Title',
+					attachedFiles: [imageFile],
+				},
+			);
+
+			// round 1 call — images must still be present (not stripped)
+			const round1Messages = mockedStreamClaude.mock.calls[1][3];
+			// effectiveUserMsg is the first message (no noteContextPair, no history)
+			const effectiveMsg = round1Messages[0];
+			expect(effectiveMsg.role).toBe('user');
+			expect(Array.isArray(effectiveMsg.content)).toBe(true);
+			expect(effectiveMsg.content).toEqual(
+				expect.arrayContaining([expect.objectContaining({ type: 'image' })]),
+			);
 		});
 	});
 
@@ -3198,7 +3327,7 @@ describe('noteContextOverride with LLM-friendly diff', () => {
 });
 
 describe('note-context optimization in edit mode', () => {
-	it('noteContextOverride is active in edit mode when note unchanged', () => {
+	it('body stays in system prompt in edit mode when note unchanged', () => {
 		const body = '## Title\nSome content\n';
 		const parts = buildSystemPromptParts({
 			noteTitle: 'Note',
@@ -3207,18 +3336,20 @@ describe('note-context optimization in edit mode', () => {
 			workMode: 'edit',
 			noteContextInHistory: { noteId: 'n1', noteTitle: 'Note', noteBody: body },
 		});
-		expect(parts.bodyIncluded).toBe(false);
-		expect(parts.noteBodyContext).toContain('conversation context');
+		expect(parts.bodyIncluded).toBe(true);
+		expect(parts.noteBodyContext).toContain('Some content');
+		expect(parts.noteBodyContext).not.toContain('conversation context');
 	});
 
-	it('static instructions warn to use only patch_note when body is in history (edit mode)', () => {
-		const body = '## Title\nSome content\n';
+	it('static instructions warn to use only patch_note when body changed (edit mode)', () => {
+		const oldBody = '## Title\nOriginal\n';
+		const newBody = '## Title\nModified\n';
 		const parts = buildSystemPromptParts({
 			noteTitle: 'Note',
 			noteId: 'n1',
-			noteBody: body,
+			noteBody: newBody,
 			workMode: 'edit',
-			noteContextInHistory: { noteId: 'n1', noteTitle: 'Note', noteBody: body },
+			noteContextInHistory: { noteId: 'n1', noteTitle: 'Note', noteBody: oldBody },
 		});
 		const full = parts.staticInstructions + parts.noteBodyContext + parts.dynamicContext;
 		expect(full).toMatch(/patch_note/);
