@@ -1940,7 +1940,11 @@ describe('sendToAI', () => {
 
 			// round 1 call — images must still be present (not stripped)
 			const round1Messages = mockedStreamOpenAI.mock.calls[1][2];
-			const userMsg = round1Messages.find((m: { role: string }) => m.role === 'user' && m !== round1Messages[round1Messages.length - 1] || m.role === 'user');
+			const userMsg = round1Messages.find(
+				(m: { role: string }) =>
+					(m.role === 'user' && m !== round1Messages[round1Messages.length - 1]) ||
+					m.role === 'user',
+			);
 			// find the original user message (has image content)
 			const userMsgs = round1Messages.filter((m: { role: string }) => m.role === 'user');
 			// the effectiveUserMsg is the first user message (before tool round messages)
@@ -3206,73 +3210,63 @@ describe('buildSystemPrompt with noteBodyOmitted', () => {
 	});
 });
 
-describe('sendToAI note-context message injection', () => {
+describe('loops — noteContextPair not injected (body always in system prompt)', () => {
+	const history: ChatMessage[] = [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' }];
 	const noteCtx: NoteContextSnapshot = {
 		noteId: 'n1',
 		noteTitle: 'Test Note',
 		noteBody: 'Body content\n',
 	};
-	const history: ChatMessage[] = [
-		{ role: 'user', content: 'hello' },
-		{ role: 'assistant', content: 'hi' },
-	];
 
 	beforeEach(() => {
 		jest.clearAllMocks();
-		mockedStreamClaude.mockResolvedValue({
-			textContent: 'response',
+	});
+
+	it('Claude: does NOT inject [NOTE_CONTEXT] message even when noteContext provided', async () => {
+		mockedStreamClaude.mockResolvedValueOnce({
+			textContent: 'Done',
 			toolCalls: [],
 			finishReason: 'end_turn',
-			rawAssistantMessage: { role: 'assistant', content: [{ type: 'text', text: 'response' }] },
+			rawAssistantMessage: { role: 'assistant', content: [{ type: 'text', text: 'Done' }] },
 			usage: { inputTokens: 10, outputTokens: 5 },
 		});
-	});
-
-	it('prepends synthetic note-context pair when noteContext matches current note (claude)', async () => {
 		await sendToAI(
-			'claude',
-			'test-key',
-			'claude-sonnet-4-6',
-			'user question',
-			'Test Note',
-			'Body content\n',
+			'claude', 'sk-ant-test', 'claude-sonnet-4-6', 'user question',
+			'Test Note', 'Body content\n',
 			{ currentNoteId: 'n1', currentNoteTitle: 'Test Note', workMode: 'ask' },
-			history,
-			undefined,
-			noteCtx,
-		);
-		const calls = mockedStreamClaude.mock.calls;
-		expect(calls.length).toBeGreaterThan(0);
-		// 4th arg to streamClaudeMessages is messages array
-		const messages = calls[0][3] as any[];
-		expect(messages[0]).toMatchObject({
-			role: 'user',
-			content: expect.stringContaining('[NOTE_CONTEXT]'),
-		});
-		expect(messages[1]).toMatchObject({
-			role: 'assistant',
-			content: 'Note context received.',
-		});
-		// real history follows
-		expect(messages[2]).toMatchObject({ role: 'user', content: 'hello' });
-	});
-
-	it('does NOT inject when noteId differs', async () => {
-		await sendToAI(
-			'claude',
-			'test-key',
-			'claude-sonnet-4-6',
-			'user question',
-			'Other Note',
-			'Different body\n',
-			{ currentNoteId: 'n2', currentNoteTitle: 'Other Note', workMode: 'ask' },
-			history,
-			undefined,
-			{ noteId: 'n1', noteTitle: 'Test Note', noteBody: 'Body content\n' },
+			history, undefined, noteCtx,
 		);
 		const messages = mockedStreamClaude.mock.calls[0][3] as any[];
-		// first message should be real history, not the context pair
+		const hasNoteContext = messages.some(
+			(m: any) => typeof m.content === 'string' && m.content.includes('[NOTE_CONTEXT]'),
+		);
+		expect(hasNoteContext).toBe(false);
+		// Real history is first
 		expect(messages[0]).toMatchObject({ role: 'user', content: 'hello' });
+	});
+
+	it('OpenAI: does NOT inject [NOTE_CONTEXT] message even when noteContext provided', async () => {
+		mockedStreamOpenAI.mockResolvedValueOnce({
+			textContent: 'Done',
+			toolCalls: [],
+			finishReason: 'stop',
+			rawAssistantMessage: { content: 'Done' },
+			usage: { inputTokens: 10, outputTokens: 5 },
+		});
+		await sendToAI(
+			'openai', 'sk-test', 'gpt-4o', 'user question',
+			'Test Note', 'Body content\n',
+			{ currentNoteId: 'n1', currentNoteTitle: 'Test Note', workMode: 'ask' },
+			history, undefined, noteCtx,
+		);
+		const messages = mockedStreamOpenAI.mock.calls[0][2] as any[];
+		const hasNoteContext = messages.some(
+			(m: any) => typeof m.content === 'string' && m.content.includes('[NOTE_CONTEXT]'),
+		);
+		expect(hasNoteContext).toBe(false);
+		// OpenAI prepends system messages; first user-role message should be history
+		const firstUserMsg = messages.find((m: any) => m.role === 'user');
+		expect(firstUserMsg).toMatchObject({ role: 'user', content: 'hello' });
 	});
 });
 

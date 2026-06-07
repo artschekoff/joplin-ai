@@ -577,7 +577,6 @@ const runOpenAILoop = async (
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
-	noteContext?: NoteContextSnapshot,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const tools = getOpenAITools(context.workMode, context.kieApiKey);
 	const historyMessages = (history ?? []).map((m) => ({ role: m.role, content: m.content }));
@@ -589,19 +588,6 @@ const runOpenAILoop = async (
 		mediaParts.length > 0
 			? { role: 'user', content: [...mediaParts, { type: 'text', text: userPrompt }] }
 			: { role: 'user', content: userPrompt };
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const noteContextPair: any[] =
-		noteContext &&
-		noteContext.noteId === context.currentNoteId &&
-		(context.workMode !== 'edit' || !promptParts.bodyIncluded)
-			? [
-					{
-						role: 'user',
-						content: `[NOTE_CONTEXT]\nTitle: ${noteContext.noteTitle}\n\n${noteContext.noteBody}`,
-					},
-					{ role: 'assistant', content: 'Note context received.' },
-				]
-			: [];
 	const userMessageTextOnly = { role: 'user' as const, content: userPrompt };
 	const systemMsgs = [
 		{ role: 'system' as const, content: promptParts.staticInstructions },
@@ -619,7 +605,6 @@ const runOpenAILoop = async (
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const sendMessages: any[] = [
 			...systemMsgs,
-			...noteContextPair,
 			...historyMessages,
 			effectiveUserMsg,
 			...toolRoundMsgs,
@@ -644,7 +629,6 @@ const runOpenAILoop = async (
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const finalSendMessages: any[] = [
 		...systemMsgs,
-		...noteContextPair,
 		...historyMessages,
 		userMessageTextOnly,
 		...toolRoundMsgs,
@@ -665,7 +649,6 @@ const runClaudeLoop = async (
 	userPrompt: string,
 	context: ActionContext,
 	history?: ChatMessage[],
-	noteContext?: NoteContextSnapshot,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const tools = getClaudeTools(context.workMode, context.kieApiKey);
 	const historyMessages = (history ?? []).map((m) => ({ role: m.role, content: m.content }));
@@ -677,18 +660,6 @@ const runClaudeLoop = async (
 		mediaParts.length > 0
 			? { role: 'user', content: [...mediaParts, { type: 'text', text: userPrompt }] }
 			: { role: 'user', content: userPrompt };
-	const noteContextPair =
-		noteContext &&
-		noteContext.noteId === context.currentNoteId &&
-		(context.workMode !== 'edit' || !promptParts.bodyIncluded)
-			? [
-					{
-						role: 'user' as const,
-						content: `[NOTE_CONTEXT]\nTitle: ${noteContext.noteTitle}\n\n${noteContext.noteBody}`,
-					},
-					{ role: 'assistant' as const, content: 'Note context received.' },
-				]
-			: [];
 	// Text-only fallback for user message used in follow-up rounds (images already seen in round 0)
 	const userMessageTextOnly = { role: 'user' as const, content: userPrompt };
 	const systemBlocks: import('./claude').ClaudeSystemBlock[] = [
@@ -710,7 +681,6 @@ const runClaudeLoop = async (
 		const effectiveUserMsg = round > 1 && mediaParts.length > 0 ? userMessageTextOnly : userMessage;
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const sendMessages: any[] = [
-			...noteContextPair,
 			...historyMessages,
 			effectiveUserMsg,
 			...toolRoundMsgs,
@@ -755,7 +725,6 @@ const runClaudeLoop = async (
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const finalSendMessages: any[] = [
-		...noteContextPair,
 		...historyMessages,
 		userMessageTextOnly,
 		...toolRoundMsgs,
@@ -783,30 +752,17 @@ const runPerplexityLoop = async (
 	context: ActionContext,
 	history?: ChatMessage[],
 	nativeWebSearch = true,
-	noteContext?: NoteContextSnapshot,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const systemPrompt =
 		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch, context.kieApiKey);
-	const noteContextItems: PerplexityInputItem[] =
-		noteContext &&
-		noteContext.noteId === context.currentNoteId &&
-		(context.workMode !== 'edit' || !promptParts.bodyIncluded)
-			? [
-					{
-						role: 'user',
-						content: `[NOTE_CONTEXT]\nTitle: ${noteContext.noteTitle}\n\n${noteContext.noteBody}`,
-					},
-					{ role: 'assistant', content: 'Note context received.' },
-				]
-			: [];
 	const historyItems: PerplexityInputItem[] = (history ?? []).map((m) => ({
 		role: m.role,
 		content: m.content,
 	}));
 	let input: string | PerplexityInputItem[] =
-		noteContextItems.length > 0 || historyItems.length > 0
-			? [...noteContextItems, ...historyItems, { role: 'user', content: userPrompt }]
+		historyItems.length > 0
+			? [...historyItems, { role: 'user', content: userPrompt }]
 			: userPrompt;
 	const allOutcomes: AIActionOutcome[] = [];
 	let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
@@ -853,28 +809,14 @@ const runSonarLoop = async (
 	context: ActionContext,
 	history?: ChatMessage[],
 	nativeWebSearch = true,
-	noteContext?: NoteContextSnapshot,
 ): Promise<{ text: string; outcomes: AIActionOutcome[]; usage: TokenUsage }> => {
 	const systemPrompt =
 		promptParts.staticInstructions + promptParts.noteBodyContext + promptParts.dynamicContext;
 	const tools = getPerplexityTools(context.workMode, nativeWebSearch, context.kieApiKey);
 	const toolPrompt = buildSonarToolCallPrompt(tools);
 	const enhancedSystemPrompt = systemPrompt + toolPrompt;
-	const noteContextPair: SonarChatMessage[] =
-		noteContext &&
-		noteContext.noteId === context.currentNoteId &&
-		(context.workMode !== 'edit' || !promptParts.bodyIncluded)
-			? [
-					{
-						role: 'user',
-						content: `[NOTE_CONTEXT]\nTitle: ${noteContext.noteTitle}\n\n${noteContext.noteBody}`,
-					},
-					{ role: 'assistant', content: 'Note context received.' },
-				]
-			: [];
 	const messages: SonarChatMessage[] = [
 		{ role: 'system', content: enhancedSystemPrompt },
-		...noteContextPair,
 		...(history ?? []).map((m) => ({ role: m.role, content: m.content })),
 		{ role: 'user', content: userPrompt },
 	];
@@ -970,15 +912,7 @@ export const sendToAI = async (
 
 	const runLoop = () => {
 		if (provider === 'openai')
-			return runOpenAILoop(
-				apiKey,
-				model,
-				promptParts,
-				userPrompt,
-				actionContext,
-				history,
-				noteContext,
-			);
+			return runOpenAILoop(apiKey, model, promptParts, userPrompt, actionContext, history);
 		if (provider === 'perplexity') {
 			if (isSonarApiModel(model))
 				return runSonarLoop(
@@ -989,7 +923,6 @@ export const sendToAI = async (
 					actionContext,
 					history,
 					isNativeSearch,
-					noteContext,
 				);
 			return runPerplexityLoop(
 				apiKey,
@@ -999,29 +932,11 @@ export const sendToAI = async (
 				actionContext,
 				history,
 				isNativeSearch,
-				noteContext,
 			);
 		}
-		if (provider === 'claude') {
-			return runClaudeLoop(
-				apiKey,
-				model,
-				promptParts,
-				userPrompt,
-				actionContext,
-				history,
-				noteContext,
-			);
-		}
-		return runClaudeLoop(
-			apiKey,
-			model,
-			promptParts,
-			userPrompt,
-			actionContext,
-			history,
-			noteContext,
-		);
+		if (provider === 'claude')
+			return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history);
+		return runClaudeLoop(apiKey, model, promptParts, userPrompt, actionContext, history);
 	};
 	const { text, outcomes, usage } = await runLoop();
 
