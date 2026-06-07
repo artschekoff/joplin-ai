@@ -24,7 +24,7 @@ release:
 	printf "Bump type? [major/minor/patch] (default: patch): "; \
 	read bump; \
 	bump=$${bump:-patch}; \
-	ver=$${current#v}; \
+	ver=$$(node -p "require('./package.json').version"); \
 	major=$$(echo $$ver | cut -d. -f1); \
 	minor=$$(echo $$ver | cut -d. -f2); \
 	patch=$$(echo $$ver | cut -d. -f3); \
