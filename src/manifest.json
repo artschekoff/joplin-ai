@@ -2,14 +2,21 @@
   "manifest_version": 1,
   "id": "net.roxl.joplin-ai",
   "app_min_version": "1.6",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "name": "AI Assistant",
   "description": "Integrate Claude and OpenAI into Joplin. Edit notes with AI from a side panel.",
   "author": "riskyworks",
   "homepage_url": "",
   "repository_url": "",
-  "keywords": ["ai", "openai", "claude", "assistant"],
-  "categories": ["productivity"],
+  "keywords": [
+    "ai",
+    "openai",
+    "claude",
+    "assistant"
+  ],
+  "categories": [
+    "productivity"
+  ],
   "screenshots": [],
   "icons": {},
   "promo_tile": {}
