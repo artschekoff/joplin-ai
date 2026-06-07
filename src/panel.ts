@@ -12,7 +12,14 @@ import {
 } from './settings';
 import { sendToAI, buildSystemPromptParts } from './ai/service';
 import { isPerplexityNativeModel } from './ai/perplexity';
-import { AIProvider, AgentRole, AIActionOutcome, ChatMessage, WorkMode, NoteContextSnapshot } from './ai/types';
+import {
+	AIProvider,
+	AgentRole,
+	AIActionOutcome,
+	ChatMessage,
+	WorkMode,
+	NoteContextSnapshot,
+} from './ai/types';
 import { computeContextUsage } from './ai/context-size';
 import { ActionContext, AttachedFile, Notebook, ReferencedNote } from './actions/types';
 import { parseNoteReferences, stripNoteReferences } from './ai/note-refs';
@@ -807,6 +814,15 @@ export const initPanel = async () => {
 			const body = message.body as string;
 			if (noteId && typeof body === 'string') {
 				await applyNoteBodyProgressively(chatPanelHandle, noteId, body);
+				const appliedNote = await getNoteById(noteId);
+				if (appliedNote) {
+					joplin.views.panels.postMessage(chatPanelHandle, {
+						type: 'noteContextUpdate',
+						noteId: appliedNote.id,
+						noteTitle: appliedNote.title,
+						noteBody: body,
+					});
+				}
 			}
 		}
 
@@ -888,7 +904,7 @@ export const executeWithSelection = async (text: string, prompt: string): Promis
 		'edit',
 		undefined,
 		undefined,
-		undefined,  // noteContext
+		undefined, // noteContext
 		async (errMsg) => {
 			try {
 				await safeSetValue(
