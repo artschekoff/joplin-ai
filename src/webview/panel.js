@@ -533,12 +533,16 @@ function initPanel() {
 			if (Object.keys(acceptedGroups).length > 0) {
 				var finalBody = reconstructBody(edit.oldBody, edit.newBody, acceptedGroups, diff);
 				webviewApi.postMessage({ type: 'applyEdit', noteId: edit.noteId, body: finalBody });
+				currentNoteContext = { noteId: edit.noteId, noteTitle: edit.noteTitle || '', noteBody: finalBody };
+				try { localStorage.setItem(STORAGE_KEY_NOTE_CONTEXT, JSON.stringify(currentNoteContext)); } catch (_e) {}
 			}
 			closeBlock();
 		}
 
 		function applyAllAndClose() {
 			webviewApi.postMessage({ type: 'applyEdit', noteId: edit.noteId, body: edit.newBody });
+			currentNoteContext = { noteId: edit.noteId, noteTitle: edit.noteTitle || '', noteBody: edit.newBody };
+			try { localStorage.setItem(STORAGE_KEY_NOTE_CONTEXT, JSON.stringify(currentNoteContext)); } catch (_e) {}
 			closeBlock();
 		}
 
@@ -682,6 +686,12 @@ function initPanel() {
 							blockData.diff
 						);
 						webviewApi.postMessage({ type: 'applyEdit', noteId: noteId, body: finalBody });
+						currentNoteContext = {
+							noteId: noteId,
+							noteTitle: blockData.edit.noteTitle || '',
+							noteBody: finalBody,
+						};
+						try { localStorage.setItem(STORAGE_KEY_NOTE_CONTEXT, JSON.stringify(currentNoteContext)); } catch (_e) {}
 					}
 				}
 				blocks[i].remove();
